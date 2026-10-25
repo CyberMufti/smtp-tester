@@ -170,6 +170,32 @@ test('same-host auth failure with no other provider is dead (no infinite retry)'
   assert.match(r.reason, /EAUTH|auth/i);
 });
 
+test('a host-less custom-domain credential discovers its server via MX', async () => {
+  const tried = [];
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        tried.push(cred.host);
+        return cred.host === 'mx1.biz-domain.com'
+          ? { connected: true, authenticated: true }
+          : { connected: false, error: 'ECONNREFUSED' };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+    dns: {
+      async resolveMx(domain) {
+        return domain === 'biz-domain.com' ? [{ exchange: 'mx1.biz-domain.com', priority: 10 }] : [];
+      },
+    },
+  };
+  const creds = [{ host: null, port: null, user: 'u@biz-domain.com', pass: 'x' }];
+  const [r] = await runBatch(creds, [], { concurrency: 1, deps });
+  assert.equal(r.status, 'valid');
+  assert.equal(r.usedHost, 'mx1.biz-domain.com');
+  assert.ok(tried.includes('mx1.biz-domain.com'));
+});
+
 test('a host-less credential is resolved entirely from the provider', async () => {
   const deps = {
     smtp: {

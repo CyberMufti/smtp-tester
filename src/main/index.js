@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import { resolveTxt, resolve4 } from 'node:dns/promises';
+import { resolveTxt, resolve4, resolveMx } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { verifySeed } from '../core/imap.js';
 import { scoreContent } from '../core/spamscore.js';
@@ -12,7 +12,7 @@ import { verifyLicense } from '../core/license.js';
 import { PUBLIC_KEY_PEM } from '../core/license-public-key.js';
 import { loadSettings, saveSettings, getLicenseKey, setLicenseKey } from './store.js';
 
-const dns = { resolveTxt, resolve4 };
+const dns = { resolveTxt, resolve4, resolveMx };
 const TELEGRAM = '@splean_tool';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

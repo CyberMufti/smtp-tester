@@ -29,8 +29,6 @@
  * @typedef {{line:number,raw:string,reason:string}} ParseError
  */
 
-import { detectProvider } from './providers.js';
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HOSTNAME_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z0-9-]+$/i;
 
@@ -145,12 +143,12 @@ function finalizeKv(fields, line, errors) {
       return null;
     }
   }
-  // Host is optional when the username is a detectable provider email.
-  if (fields.host === undefined && !detectProvider(fields.user)) {
+  // Host is optional when the username is an email — it's discovered at test time.
+  if (fields.host === undefined && !EMAIL_RE.test(fields.user || '')) {
     errors.push({
       line,
       raw: `block starting at line ${line}`,
-      reason: `missing host (and ${fields.user} is not a known provider)`,
+      reason: `missing host (and ${fields.user} is not an email to resolve one from)`,
     });
     return null;
   }
@@ -256,12 +254,13 @@ function isHostname(field) {
   return HOSTNAME_RE.test(field) && !field.includes('@');
 }
 
-/** Build a host-less record from an email + password, if the provider is known. */
+/**
+ * Build a host-less record from an email + password. The host/port are left
+ * null and discovered at test time (known provider, then guessed smtp./mail.
+ * and MX hosts). Only callable when the first field is a valid email.
+ */
 function userPassRecord(user, pass) {
   if (!pass) return { error: `missing password` };
-  if (!detectProvider(user)) {
-    return { error: `cannot determine SMTP host for ${user} — include host:port` };
-  }
   return { record: cred(null, null, user, pass) };
 }
 

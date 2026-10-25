@@ -38,25 +38,57 @@ const PROVIDERS = {
  * @returns {{host:string, ports:number[]}|null}
  */
 export function detectProvider(emailOrDomain) {
-  if (!emailOrDomain || typeof emailOrDomain !== 'string') return null;
-  const at = emailOrDomain.indexOf('@');
-  if (at === -1) return null; // not an email -> cannot detect
-  const domain = emailOrDomain.slice(at + 1).trim().toLowerCase();
-  return PROVIDERS[domain] || null;
+  const domain = domainOf(emailOrDomain);
+  return domain ? PROVIDERS[domain] || null : null;
+}
+
+/** Extract the lowercased domain from an email address, or null. */
+export function domainOf(email) {
+  if (!email || typeof email !== 'string') return null;
+  const at = email.indexOf('@');
+  if (at === -1) return null;
+  const domain = email.slice(at + 1).trim().toLowerCase();
+  return domain || null;
 }
 
 function validPort(port) {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
+/** Map a domain's MX hosts to the mail platform's real SMTP submission endpoint. */
+const MX_PLATFORMS = [
+  { re: /zoho\./i, host: 'smtp.zoho.com', ports: [587, 465] },
+  { re: /(aspmx|google|googlemail)\./i, host: 'smtp.gmail.com', ports: [587, 465] },
+  { re: /(protection\.outlook|office365|outlook)\./i, host: 'smtp.office365.com', ports: [587] },
+  { re: /secureserver\.net/i, host: 'smtpout.secureserver.net', ports: [587, 465] },
+  { re: /(mimecast)\./i, host: 'smtp.mailhop.net', ports: [587] },
+];
+
+export function submissionFromMx(mxHosts = []) {
+  for (const mx of mxHosts) {
+    const hit = MX_PLATFORMS.find((p) => p.re.test(mx));
+    if (hit) return { host: hit.host, ports: hit.ports };
+  }
+  return null;
+}
+
 /**
  * Build the ordered list of (host, port) endpoints to try for a credential.
- * The user's own input is always tried first; the detected provider endpoint
- * is appended as a fallback. Duplicates are removed.
+ *
+ * Order of preference:
+ *   1. the user's typed host (its port first, then standard ports as fallback)
+ *   2. a known provider's authoritative endpoint (if the email matches one)
+ *   3. MX hosts supplied by the caller (resolved via DNS) — host-less, unknown domain
+ *   4. guessed `smtp.<domain>` / `mail.<domain>` — host-less, unknown domain
+ *
+ * Steps 3–4 only apply when there's no typed host and no known provider, i.e.
+ * a custom-domain `email:password` whose server must be discovered.
+ *
  * @param {Credential} cred
+ * @param {{mxHosts?:string[]}} [opts]
  * @returns {Candidate[]}
  */
-export function candidatesFor(cred) {
+export function candidatesFor(cred, { mxHosts = [] } = {}) {
   const out = [];
   const seen = new Set();
   const add = (host, port, source) => {
@@ -76,7 +108,22 @@ export function candidatesFor(cred) {
   }
 
   const prov = detectProvider(cred.user);
-  if (prov) for (const p of prov.ports) add(prov.host, p, 'detected');
+  if (prov) {
+    for (const p of prov.ports) add(prov.host, p, 'detected');
+    return out; // provider endpoint is authoritative; don't guess
+  }
+
+  // Custom domain with no typed host: discover the server. Try MX hosts first
+  // (actual mail servers), then conventional submission hostnames.
+  const domain = domainOf(cred.user);
+  if (domain && !cred.host) {
+    // If the MX records reveal a known mail platform (Zoho, Google Workspace,
+    // Microsoft 365, …), its submission host is the authoritative first try.
+    const viaMx = submissionFromMx(mxHosts);
+    if (viaMx) for (const p of viaMx.ports) add(viaMx.host, p, 'detected');
+    for (const mx of mxHosts) for (const p of STANDARD_PORTS) add(mx, p, 'mx');
+    for (const prefix of ['smtp.', 'mail.']) for (const p of STANDARD_PORTS) add(`${prefix}${domain}`, p, 'guessed');
+  }
 
   return out;
 }

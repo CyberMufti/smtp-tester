@@ -66,19 +66,23 @@ Labels are matched by synonym (Host/Server/SMTP, Port, User/Login/Email,
 Password/Pwd/Key, From/Sender), case-insensitively. Lines starting with `#`
 are ignored.
 
-**Just an email + password** — for a known provider you can skip the host
-entirely; the app fills it in (see below):
+**Just an email + password** — you can skip the host entirely for **any**
+domain; the app discovers the server (see below):
 
 ```
 someone@gmail.com:app-password
-someone@outlook.com password
+someone@mycompany.com:Secret#123
 ```
 
 ## Auto host/port detection & fallback
 
-- **Missing host** — if you supply only `email:password` and the email is at a
-  recognized provider (Gmail, Outlook/Hotmail, Yahoo, iCloud, Zoho, AOL, GMX,
-  Yandex, Office 365, …), the app resolves the SMTP host and port for you.
+- **Missing host** — supply only `email:password` and the app discovers the
+  SMTP server from the email domain, in this order: a recognized public
+  provider (Gmail, Outlook, Yahoo, iCloud, Zoho, …); the domain's **MX records**
+  mapped to the real submission host (so a custom domain hosted on
+  Zoho / Google Workspace / Microsoft 365 / GoDaddy is sent correctly); and
+  finally guessed `smtp.<domain>` / `mail.<domain>`. Each candidate is tried on
+  ports 587 then 465 until one authenticates.
 - **Wrong host or port** — the app always tries exactly what you typed **first**.
   Only if that endpoint can't connect does it fall back to the known-correct
   host/port for the provider before deciding the credential is dead. When a

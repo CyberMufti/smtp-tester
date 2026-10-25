@@ -48,7 +48,51 @@ test('candidatesFor: a valid-but-wrong port on a custom host still gets standard
   assert.equal(ports[0], 25);
 });
 
-test('candidatesFor: no host and undetectable user yields no candidates', () => {
+test('candidatesFor: host-less email on an unknown domain guesses smtp./mail. hosts on standard ports', () => {
+  const c = candidatesFor({ host: null, port: null, user: 'u@premiumisme.com', pass: 'x' });
+  const hp = c.map((x) => `${x.host}:${x.port}`);
+  assert.ok(hp.includes('smtp.premiumisme.com:587'));
+  assert.ok(hp.includes('mail.premiumisme.com:587'));
+  assert.ok(hp.includes('smtp.premiumisme.com:465'));
+  assert.ok(c.every((x) => x.source === 'guessed'));
+});
+
+test('candidatesFor: MX hosts (when supplied) are tried before the smtp./mail. guesses', () => {
+  const c = candidatesFor(
+    { host: null, port: null, user: 'u@premiumisme.com', pass: 'x' },
+    { mxHosts: ['mx1.premiumisme.com'] },
+  );
+  const firstGuessIdx = c.findIndex((x) => x.source === 'guessed');
+  const mxIdx = c.findIndex((x) => x.host === 'mx1.premiumisme.com');
+  assert.ok(mxIdx !== -1 && mxIdx < firstGuessIdx, 'MX candidate should come before guessed ones');
+  assert.equal(c[mxIdx].source, 'mx');
+});
+
+test('candidatesFor: a known provider ignores guessing/MX (authoritative endpoint only)', () => {
+  const c = candidatesFor(
+    { host: null, port: null, user: 'u@gmail.com', pass: 'x' },
+    { mxHosts: ['aspmx.l.google.com'] },
+  );
+  assert.ok(c.every((x) => x.host === 'smtp.gmail.com'));
+});
+
+test('candidatesFor: a custom domain whose MX is Zoho tries smtp.zoho.com first', () => {
+  const c = candidatesFor({ host: null, port: null, user: 'u@biz.com', pass: 'x' }, { mxHosts: ['mx.zoho.com', 'mx2.zoho.com'] });
+  assert.equal(c[0].host, 'smtp.zoho.com');
+  assert.equal(c[0].source, 'detected');
+});
+
+test('candidatesFor: a custom domain on Google Workspace maps to smtp.gmail.com', () => {
+  const c = candidatesFor({ host: null, port: null, user: 'u@biz.com', pass: 'x' }, { mxHosts: ['aspmx.l.google.com'] });
+  assert.equal(c[0].host, 'smtp.gmail.com');
+});
+
+test('candidatesFor: a custom domain on Microsoft 365 maps to smtp.office365.com', () => {
+  const c = candidatesFor({ host: null, port: null, user: 'u@biz.com', pass: 'x' }, { mxHosts: ['biz-com.mail.protection.outlook.com'] });
+  assert.equal(c[0].host, 'smtp.office365.com');
+});
+
+test('candidatesFor: no host and non-email user yields no candidates', () => {
   const c = candidatesFor({ host: null, port: null, user: 'apikey', pass: 'x' });
   assert.equal(c.length, 0);
 });

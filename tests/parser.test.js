@@ -174,11 +174,20 @@ test('email:password with no host is accepted for a known provider (host/port nu
   assert.deepEqual(records[0], { host: null, port: null, user: 'someone@gmail.com', pass: 'supersecret' });
 });
 
-test('email:password with an undetectable domain is a ParseError', () => {
-  const { records, errors } = parse('someone@madeup-xyz-domain.com:secret');
+test('email:password with any domain is accepted host-less (host discovered at test time)', () => {
+  const { records, errors } = parse('someone@premiumisme.com:Secret#123');
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].host, null);
+  assert.equal(records[0].port, null);
+  assert.equal(records[0].user, 'someone@premiumisme.com');
+  assert.equal(records[0].pass, 'Secret#123');
+});
+
+test('a bare non-email two-field line is still a ParseError', () => {
+  const { records, errors } = parse('apikey:secret');
   assert.equal(records.length, 0);
   assert.equal(errors.length, 1);
-  assert.match(errors[0].reason, /host/i);
 });
 
 test('key-value block without a host is accepted for a known provider', () => {

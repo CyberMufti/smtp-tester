@@ -1,7 +1,7 @@
 import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
 import { classify } from './classify.js';
-import { candidatesFor } from './providers.js';
+import { candidatesFor, detectProvider } from './providers.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
@@ -50,9 +50,16 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let triedFallback = false;
 
   try {
+    // For a host-less credential on an unknown (custom) domain, look up the
+    // domain's MX servers so they can be tried alongside guessed smtp./mail.
+    let mxHosts = [];
+    if (!cred.host && !detectProvider(cred.user) && opts.deps?.dns?.resolveMx) {
+      mxHosts = await resolveMxHosts(domainOf(cred.user), opts.deps.dns);
+    }
+
     // Build the ordered list of (host, port) endpoints to try: the user's
-    // input first, then the detected provider endpoint as a fallback.
-    const candidates = candidatesFor(cred);
+    // input first, then the detected provider / discovered hosts as fallback.
+    const candidates = candidatesFor(cred, { mxHosts });
     let working = null;
     let anyConnected = false;
     let lastConnectError;
@@ -191,6 +198,21 @@ async function runChecks(cred, usedHost, opts, ctx) {
   }
 
   return Object.keys(out).length ? out : undefined;
+}
+
+/** Resolve a domain's MX servers, lowest-priority first (best-effort, capped). */
+async function resolveMxHosts(domain, dns) {
+  if (!domain) return [];
+  try {
+    const mx = await dns.resolveMx(domain);
+    return (mx || [])
+      .sort((a, b) => a.priority - b.priority)
+      .map((m) => m.exchange)
+      .filter(Boolean)
+      .slice(0, 3);
+  } catch {
+    return [];
+  }
 }
 
 async function resolveAndCheckBlacklist(host, dns) {
