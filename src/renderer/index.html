@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;"
+    />
+    <title>SMTP Tester</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">✉</span>
+        <span>SMTP Tester</span>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="test">Test</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+    </header>
+
+    <!-- ============ TEST SCREEN ============ -->
+    <main id="screen-test" class="screen active">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Credentials</h2>
+          <div class="panel-actions">
+            <label class="btn ghost">
+              Load file
+              <input id="file-input" type="file" accept=".txt,.csv" hidden />
+            </label>
+          </div>
+        </div>
+        <textarea
+          id="creds-input"
+          spellcheck="false"
+          placeholder="One SMTP per line. Accepted formats:&#10;host:port:user:pass&#10;host,port,user,pass&#10;host|port|user|pass&#10;Optional 5th field = From address. Lines starting with # are ignored."
+        ></textarea>
+        <div class="parse-summary">
+          <span id="parse-count" class="muted">0 credentials</span>
+          <span id="parse-errors" class="err-text"></span>
+        </div>
+
+        <div class="run-controls">
+          <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
+          <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
+          <span id="seed-note" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="btn-run" class="btn primary">Test All</button>
+          <button id="btn-cancel" class="btn danger" disabled>Cancel</button>
+        </div>
+      </section>
+
+      <section class="panel results-panel">
+        <div class="panel-head">
+          <h2>Results <span id="progress-label" class="muted"></span></h2>
+          <div class="panel-actions">
+            <div class="filters" id="filters">
+              <button class="chip-filter active" data-filter="all">All</button>
+              <button class="chip-filter" data-filter="inbox">Inbox</button>
+              <button class="chip-filter" data-filter="spam">Spam</button>
+              <button class="chip-filter" data-filter="valid">Valid</button>
+              <button class="chip-filter" data-filter="dead">Dead</button>
+              <button class="chip-filter" data-filter="unknown">Unknown</button>
+            </div>
+            <button id="btn-export-csv" class="btn ghost" disabled>Export CSV</button>
+            <button id="btn-export-json" class="btn ghost" disabled>Export JSON</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="results-table">
+            <thead>
+              <tr>
+                <th>Host</th>
+                <th>User</th>
+                <th>Status</th>
+                <th>Latency</th>
+                <th>Detail</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+              <tr class="empty-row">
+                <td colspan="5">No results yet. Paste credentials and click <b>Test All</b>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ SETTINGS SCREEN ============ -->
+    <main id="screen-settings" class="screen">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Seed mailboxes</h2>
+          <div class="panel-actions">
+            <button id="btn-add-seed" class="btn primary">Add mailbox</button>
+          </div>
+        </div>
+        <p class="muted">
+          The app sends each test email to these mailboxes, then reads them over IMAP to
+          report Inbox vs Spam. With no seeds, it still reports Dead / Valid (send only).
+        </p>
+        <div id="seeds-list" class="seeds-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Sending defaults</h2></div>
+        <div class="form-grid">
+          <label>Default From address
+            <input id="set-from" type="text" placeholder="you@yourdomain.com" />
+          </label>
+          <label>Subject template
+            <input id="set-subject" type="text" />
+          </label>
+          <label class="full">Body template
+            <textarea id="set-body" rows="3"></textarea>
+          </label>
+          <label>Connect timeout (s) <input id="set-connect-timeout" type="number" min="1" max="120" /></label>
+          <label>Send timeout (s) <input id="set-send-timeout" type="number" min="1" max="120" /></label>
+          <label>Poll interval (s) <input id="set-poll" type="number" min="1" max="60" /></label>
+        </div>
+        <p class="muted">Templates must contain <code>{token}</code> — the unique tag the app searches for.</p>
+        <div class="run-controls">
+          <div class="spacer"></div>
+          <span id="save-status" class="muted"></span>
+          <button id="btn-save-settings" class="btn primary">Save settings</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <details>
+          <summary>How to get an app-password + enable IMAP</summary>
+          <div class="help">
+            <p><b>Gmail</b>: Turn on 2-Step Verification, then create an App Password at
+              <code>myaccount.google.com/apppasswords</code>. IMAP host <code>imap.gmail.com</code>, port <code>993</code>.
+              Enable IMAP in Gmail → Settings → Forwarding and POP/IMAP.</p>
+            <p><b>Outlook / Microsoft 365</b>: Enable 2-Step Verification, create an app password in Security settings.
+              IMAP host <code>outlook.office365.com</code>, port <code>993</code>.</p>
+            <p><b>Yahoo</b>: Account Security → Generate app password.
+              IMAP host <code>imap.mail.yahoo.com</code>, port <code>993</code>.</p>
+            <p class="muted">Credentials and app-passwords are stored only on this computer.</p>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <!-- Seed editor template -->
+    <template id="seed-row-tpl">
+      <div class="seed-card">
+        <div class="seed-grid">
+          <label>Label <input data-f="label" type="text" placeholder="Gmail #1" /></label>
+          <label>Send-to address <input data-f="address" type="text" placeholder="seed@gmail.com" /></label>
+          <label>IMAP host <input data-f="imapHost" type="text" placeholder="imap.gmail.com" /></label>
+          <label>IMAP port <input data-f="imapPort" type="number" value="993" /></label>
+          <label>IMAP user <input data-f="imapUser" type="text" placeholder="seed@gmail.com" /></label>
+          <label>App password <input data-f="imapPassword" type="password" /></label>
+        </div>
+        <div class="seed-actions">
+          <span class="seed-test-result muted"></span>
+          <div class="spacer"></div>
+          <button class="btn ghost btn-test-seed">Test login</button>
+          <button class="btn danger-ghost btn-remove-seed">Remove</button>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
