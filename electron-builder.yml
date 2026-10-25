@@ -1,0 +1,19 @@
+appId: com.smtptester.app
+productName: SMTP Tester
+directories:
+  output: dist
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.utilities
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
