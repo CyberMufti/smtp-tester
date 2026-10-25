@@ -2,6 +2,15 @@ import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
 import { classify } from './classify.js';
 import { candidatesFor } from './providers.js';
+import { checkDomain, parseAuthResults } from './authrecords.js';
+import { checkIp } from './dnsbl.js';
+import { scoreContent } from './spamscore.js';
+
+function domainOf(addressOrDomain) {
+  const s = String(addressOrDomain || '');
+  const at = s.indexOf('@');
+  return (at === -1 ? s : s.slice(at + 1)).trim().toLowerCase() || null;
+}
 
 /**
  * Orchestrate the per-credential test pipeline across a batch, with bounded
@@ -24,7 +33,7 @@ function makeToken(index) {
  * Run the full pipeline for one credential and return a classified Result.
  * Never throws — any error becomes a `dead` result.
  */
-async function testOne(cred, index, seeds, opts, smtp, imap) {
+async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const start = Date.now();
   const token = makeToken(index);
   const subject = (opts.subjectTemplate || 'SMTP Tester {token}').replace('{token}', token);
@@ -104,7 +113,9 @@ async function testOne(cred, index, seeds, opts, smtp, imap) {
               timeoutMs: opts.placementTimeoutMs,
               pollIntervalMs: opts.pollIntervalMs,
             });
-            return { label: seed.label, folder: found.folder, error: found.error };
+            const entry = { label: seed.label, folder: found.folder, error: found.error };
+            if (found.authResults) entry.auth = parseAuthResults(found.authResults);
+            return entry;
           }),
         );
       }
@@ -117,7 +128,8 @@ async function testOne(cred, index, seeds, opts, smtp, imap) {
   }
 
   const { status, reason, perSeed } = classify(step);
-  return {
+
+  const result = {
     cred,
     status,
     reason,
@@ -130,6 +142,58 @@ async function testOne(cred, index, seeds, opts, smtp, imap) {
     triedFallback,
     manualRecipients,
   };
+
+  const deliverability = await runChecks(cred, usedHost, opts, ctx);
+  if (deliverability) result.deliverability = deliverability;
+  if (ctx?.spamScore) result.spamScore = ctx.spamScore;
+
+  return result;
+}
+
+/**
+ * Optional, opt-in deliverability analysis: SPF/DMARC for the From domain and a
+ * DNSBL lookup for the sending host's IP. Results are cached per-domain and
+ * per-host within a batch. Returns undefined when no checks are enabled.
+ */
+async function runChecks(cred, usedHost, opts, ctx) {
+  const checks = opts.checks;
+  const dns = opts.deps?.dns;
+  if (!checks || !dns) return undefined;
+
+  const out = {};
+
+  if (checks.authRecords && dns.resolveTxt) {
+    const domain = domainOf(opts.from || cred.from || cred.user);
+    if (domain) {
+      if (!ctx.domainCache.has(domain)) {
+        ctx.domainCache.set(domain, await checkDomain(domain, { resolveTxt: dns.resolveTxt }));
+      }
+      const { spf, dmarc } = ctx.domainCache.get(domain);
+      out.spf = spf;
+      out.dmarc = dmarc;
+      out.fromDomain = domain;
+    }
+  }
+
+  if (checks.dnsbl && dns.resolve4 && usedHost) {
+    if (!ctx.dnsblCache.has(usedHost)) {
+      ctx.dnsblCache.set(usedHost, await resolveAndCheckBlacklist(usedHost, dns));
+    }
+    out.dnsbl = ctx.dnsblCache.get(usedHost);
+  }
+
+  return Object.keys(out).length ? out : undefined;
+}
+
+async function resolveAndCheckBlacklist(host, dns) {
+  try {
+    const ips = await dns.resolve4(host);
+    const ip = Array.isArray(ips) ? ips[0] : null;
+    if (!ip) return { ip: null, listed: false, lists: [], error: 'could not resolve host IP' };
+    return await checkIp(ip, { resolve4: dns.resolve4 });
+  } catch (err) {
+    return { ip: null, listed: false, lists: [], error: err.message };
+  }
 }
 
 function dedupe(list) {
@@ -166,12 +230,23 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   const results = new Array(creds.length);
   let next = 0;
 
+  // Shared per-batch context: the content spam score (same for every message)
+  // is computed once; DNS lookups are cached by domain and host.
+  const ctx = { domainCache: new Map(), dnsblCache: new Map() };
+  if (opts.checks?.spamScore) {
+    const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();
+    ctx.spamScore = scoreContent({
+      subject: stripToken(opts.subjectTemplate || 'SMTP deliverability test {token}'),
+      text: stripToken(opts.bodyTemplate || ''),
+    });
+  }
+
   async function worker() {
     while (true) {
       if (signal?.aborted) return;
       const index = next++;
       if (index >= creds.length) return;
-      const result = await testOne(creds[index], index, seeds, opts, smtp, imap);
+      const result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
       results[index] = result;
       if (onProgress) onProgress(result, index);
     }

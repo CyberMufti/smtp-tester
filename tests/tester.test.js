@@ -189,6 +189,58 @@ test('manual recipient emails are included in the send and surfaced on the resul
   assert.deepEqual(result.manualRecipients, ['check1@gmail.com', 'check2@outlook.com']);
 });
 
+test('deliverability checks populate SPF/DMARC, DNSBL and spam score when enabled', async () => {
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+    dns: {
+      async resolveTxt(name) {
+        if (name === 'acme.com') return [['v=spf1 -all']];
+        if (name === '_dmarc.acme.com') return [['v=DMARC1; p=reject']];
+        return [];
+      },
+      async resolve4(name) {
+        if (name === 'smtp.acme.com') return ['1.2.3.4'];
+        if (name.endsWith('zen.spamhaus.org')) return ['127.0.0.2'];
+        throw new Error('ENOTFOUND');
+      },
+    },
+  };
+  const creds = [{ host: 'smtp.acme.com', port: 587, user: 'u@acme.com', pass: 'p' }];
+  const [r] = await runBatch(creds, [], {
+    concurrency: 1,
+    deps,
+    from: 'sender@acme.com',
+    checks: { authRecords: true, dnsbl: true, spamScore: true },
+    subjectTemplate: 'Hello {token}',
+    bodyTemplate: 'Body {token}',
+  });
+  assert.equal(r.deliverability.spf.all, '-all');
+  assert.equal(r.deliverability.dmarc.policy, 'reject');
+  assert.equal(r.deliverability.dnsbl.listed, true);
+  assert.deepEqual(r.deliverability.dnsbl.lists, ['zen.spamhaus.org']);
+  assert.ok(r.spamScore && typeof r.spamScore.score === 'number');
+});
+
+test('deliverability checks are skipped (no network) when not enabled', async () => {
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+    dns: {
+      async resolveTxt() { throw new Error('should not be called'); },
+      async resolve4() { throw new Error('should not be called'); },
+    },
+  };
+  const [r] = await runBatch(makeCreds(1), [], { concurrency: 1, deps });
+  assert.equal(r.deliverability, undefined);
+});
+
 test('token passed to send and findToken matches and is unique per credential', async () => {
   const sendTokens = [];
   const findTokens = [];

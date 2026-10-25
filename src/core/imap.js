@@ -114,8 +114,10 @@ export async function findToken(seed, token, opts = {}) {
 
     do {
       for (const target of targets) {
-        if (await searchFolder(client, target.path, token)) {
-          return { found: true, folder: /** @type {'inbox'|'spam'} */ (target.result) };
+        const uid = await searchFolder(client, target.path, token);
+        if (uid) {
+          const authResults = await fetchAuthResults(client, target.path, uid);
+          return { found: true, folder: /** @type {'inbox'|'spam'} */ (target.result), authResults };
         }
       }
       if (Date.now() + pollIntervalMs < deadline) await sleep(pollIntervalMs);
@@ -134,12 +136,27 @@ export async function findToken(seed, token, opts = {}) {
   }
 }
 
-/** Open a mailbox read-only and search its Subject lines for the token. */
+/** Open a mailbox read-only and search its Subject lines for the token; returns a matching UID or null. */
 async function searchFolder(client, path, token) {
   const lock = await client.getMailboxLock(path, { readonly: true });
   try {
     const uids = await client.search({ header: { subject: token } }, { uid: true });
-    return Array.isArray(uids) && uids.length > 0;
+    return Array.isArray(uids) && uids.length > 0 ? uids[uids.length - 1] : null;
+  } finally {
+    lock.release();
+  }
+}
+
+/** Fetch the Authentication-Results header of a delivered message (best-effort). */
+async function fetchAuthResults(client, path, uid) {
+  const lock = await client.getMailboxLock(path, { readonly: true });
+  try {
+    const msg = await client.fetchOne(uid, { headers: ['authentication-results'] }, { uid: true });
+    if (!msg || !msg.headers) return null;
+    const text = msg.headers.toString().trim();
+    return text || null;
+  } catch {
+    return null;
   } finally {
     lock.release();
   }
