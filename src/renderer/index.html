@@ -37,7 +37,7 @@
         <textarea
           id="creds-input"
           spellcheck="false"
-          placeholder="One SMTP per line. Accepted formats:&#10;host:port:user:pass&#10;host,port,user,pass&#10;host|port|user|pass&#10;Optional 5th field = From address. Lines starting with # are ignored."
+          placeholder="Paste or upload SMTP credentials in almost any format:&#10;host:port:user:pass   (also , ; | tab or spaces)&#10;user pass host port   (order is auto-detected)&#10;Or labeled blocks:&#10;  Host: smtp.sendgrid.net&#10;  Port: 587&#10;  Username: apikey&#10;  Password: SG.xxxx&#10;Lines starting with # are ignored."
         ></textarea>
         <div class="parse-summary">
           <span id="parse-count" class="muted">0 credentials</span>

@@ -83,3 +83,103 @@ test('line with too few fields is a ParseError', () => {
   assert.equal(errors.length, 1);
   assert.equal(errors[0].line, 1);
 });
+
+// --- flexible "any format" detection ---------------------------------------
+
+test('whitespace-separated fields parse', () => {
+  const { records } = parse('smtp.example.com 587 user@example.com secret');
+  assert.deepEqual(records[0], {
+    host: 'smtp.example.com',
+    port: 587,
+    user: 'user@example.com',
+    pass: 'secret',
+  });
+});
+
+test('tab-separated fields parse', () => {
+  const { records } = parse('smtp.example.com\t587\tuser@example.com\tsecret');
+  assert.equal(records[0].host, 'smtp.example.com');
+  assert.equal(records[0].port, 587);
+  assert.equal(records[0].pass, 'secret');
+});
+
+test('semicolon-separated fields parse', () => {
+  const { records } = parse('smtp.example.com;587;user@example.com;secret');
+  assert.equal(records[0].port, 587);
+  assert.equal(records[0].user, 'user@example.com');
+});
+
+test('fields in a non-standard order are detected by role (port=numeric, host=hostname)', () => {
+  const { records } = parse('user@example.com secret smtp.example.com 587');
+  assert.equal(records[0].host, 'smtp.example.com');
+  assert.equal(records[0].port, 587);
+  assert.equal(records[0].user, 'user@example.com');
+  assert.equal(records[0].pass, 'secret');
+});
+
+test('labeled key-value block parses into one record', () => {
+  const input = [
+    'Host: smtp.sendgrid.net',
+    'Port: 587',
+    'Username: apikey',
+    'Password: SG.abc123',
+  ].join('\n');
+  const { records, errors } = parse(input);
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0], {
+    host: 'smtp.sendgrid.net',
+    port: 587,
+    user: 'apikey',
+    pass: 'SG.abc123',
+  });
+});
+
+test('two key-value blocks separated by a blank line parse into two records', () => {
+  const input = [
+    'Server: smtp.one.com',
+    'Port = 465',
+    'Login: u1@one.com',
+    'Pwd: p1',
+    '',
+    'Server: smtp.two.com',
+    'Port = 587',
+    'Login: u2@two.com',
+    'Pwd: p2',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records.map((r) => r.host), ['smtp.one.com', 'smtp.two.com']);
+  assert.equal(records[0].port, 465);
+  assert.equal(records[1].user, 'u2@two.com');
+});
+
+test('key-value synonyms and = separator are recognized', () => {
+  const input = [
+    'SMTP Host = mail.acme.io',
+    'SMTP Port = 587',
+    'E-mail: sender@acme.io',
+    'API Key: key-xyz',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].host, 'mail.acme.io');
+  assert.equal(records[0].user, 'sender@acme.io');
+  assert.equal(records[0].pass, 'key-xyz');
+});
+
+test('pipe-delimited password containing pipes keeps the original delimiter', () => {
+  const { records } = parse('smtp.x.com|587|u@x.com|p|a|ss');
+  assert.equal(records[0].pass, 'p|a|ss');
+});
+
+test('mixed delimited lines still parse alongside the new formats', () => {
+  const input = [
+    'a.com:587:u1@a.com:p1',
+    'b.com 2525 u2@b.com p2',
+    'c.com,465,u3@c.com,p3',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 3);
+  assert.deepEqual(records.map((r) => r.port), [587, 2525, 465]);
+});

@@ -29,16 +29,42 @@ seed-testing services use.
 
 ## Input formats
 
-One credential per line. The parser auto-detects the delimiter:
+Paste directly or click **Load file** to import a `.txt`/`.csv`. The parser
+auto-detects the shape, so you rarely have to reformat a provider's export.
+
+**Delimited lines** — one credential per line, fields separated by any of
+`:` `,` `;` `|`, a tab, or spaces:
 
 ```
-host:port:user:pass
-host,port,user,pass
-host|port|user|pass
+smtp.example.com:587:user@example.com:secret
+smtp.example.com,587,user@example.com,secret
+smtp.example.com 587 user@example.com secret
 ```
 
-An optional 5th field sets a custom **From** address. Lines starting with `#`
-are ignored. For CSV, wrap a field in double quotes if it contains a comma.
+Field order doesn't have to be standard — the numeric field is taken as the
+**port** and the hostname-looking field as the **host**, so
+`user pass host port` also parses. A password may contain the delimiter; a
+trailing field is treated as a custom **From** address only when it looks like
+an email. For CSV, wrap a field in double quotes if it contains a comma.
+
+**Labeled key-value blocks** — when lines look like `Label: value` or
+`Label = value`, each blank-line-separated block becomes one credential:
+
+```
+Host: smtp.sendgrid.net
+Port: 587
+Username: apikey
+Password: SG.xxxxxxxx
+
+Server = smtp.mailgun.org
+Port = 587
+Login = postmaster@mg.example.com
+Pwd = secret
+```
+
+Labels are matched by synonym (Host/Server/SMTP, Port, User/Login/Email,
+Password/Pwd/Key, From/Sender), case-insensitively. Lines starting with `#`
+are ignored.
 
 ## Setting up seed mailboxes
 
