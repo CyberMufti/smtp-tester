@@ -205,6 +205,36 @@ It prints a `SPL1.…` license key — send that back to the user.
 > key (invalidating every existing license). It is intentionally excluded from
 > packaged builds, so it never ships to users.
 
+### Activating from a Telegram bot
+
+`scripts/telegram-bot.js` lets you approve users and deliver keys entirely from
+Telegram. Run it on the machine that holds your private key (your PC/server) —
+**never ship the bot or the key to users.**
+
+1. In Telegram, message **@BotFather** → `/newbot` → copy the **bot token**.
+2. Start the bot once and message it `/whoami` — it replies with your numeric
+   **chat id** (that's your admin id).
+3. Run it with your token and admin id:
+
+```bash
+TELEGRAM_BOT_TOKEN=123456:ABC... ADMIN_CHAT_IDS=111111111 npm run bot
+```
+
+**How activation works in Telegram:**
+
+- A user opens the app, copies their **HWID**, and sends it to your bot.
+- You (admin) get a message showing who requested it and the HWID, with buttons:
+  **✅ Activate (never expires)** · **✅ 30 days** · **❌ Deny**.
+- One tap signs the license and the bot **delivers the key straight to the
+  user**, who pastes it into the app. Deny notifies them instead.
+- Shortcut: as an admin you can also just send the bot an HWID (or
+  `/issue <HWID> [days]`) to get the key immediately and forward it yourself.
+
+`ADMIN_CHAT_IDS` is comma-separated for multiple admins. The bot is
+dependency-free (Telegram Bot API over long polling) and keeps no database —
+approvals are encoded in the button, so a restart loses nothing but
+not-yet-answered requests.
+
 ## Running from source
 
 ```bash

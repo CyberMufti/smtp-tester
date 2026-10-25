@@ -17,6 +17,17 @@ export function hwidFromSeed(seed) {
   return hex.match(/.{4}/g).join('-');
 }
 
+/**
+ * Normalize user-submitted text to a canonical HWID, or null if it isn't one.
+ * Accepts any case and surrounding whitespace.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function normalizeHwid(text) {
+  const t = String(text || '').trim().toUpperCase().replace(/\s+/g, '');
+  return /^[0-9A-F]{4}(-[0-9A-F]{4}){5}$/.test(t) ? t : null;
+}
+
 function readMachineGuid() {
   try {
     if (process.platform === 'win32') {

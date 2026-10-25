@@ -12,7 +12,9 @@
     "test": "node --test",
     "dev": "electron .",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "issue-license": "node scripts/issue-license.js",
+    "bot": "node scripts/telegram-bot.js"
   },
   "dependencies": {
     "electron-store": "^10.0.0",
