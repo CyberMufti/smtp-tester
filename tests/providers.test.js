@@ -92,6 +92,28 @@ test('candidatesFor: a custom domain on Microsoft 365 maps to smtp.office365.com
   assert.equal(c[0].host, 'smtp.office365.com');
 });
 
+test('candidatesFor: discovered hosts (SRV/autoconfig) are tried before MX and guesses', () => {
+  const c = candidatesFor(
+    { host: null, port: null, user: 'u@biz.com', pass: 'x' },
+    { mxHosts: ['mx.biz.com'], discovered: [{ host: 'submission.biz.com', port: 587, source: 'srv' }] },
+  );
+  assert.equal(c[0].host, 'submission.biz.com');
+  assert.equal(c[0].port, 587);
+  const mxIdx = c.findIndex((x) => x.host === 'mx.biz.com');
+  const guessIdx = c.findIndex((x) => x.source === 'guessed');
+  assert.ok(0 < mxIdx && mxIdx < guessIdx);
+});
+
+test('candidatesFor: guesses cover smtp/mail/send/mta on 587, 465 and 2525', () => {
+  const c = candidatesFor({ host: null, port: null, user: 'u@biz.com', pass: 'x' });
+  const hp = new Set(c.map((x) => `${x.host}:${x.port}`));
+  for (const prefix of ['smtp', 'mail', 'send', 'mta']) {
+    assert.ok(hp.has(`${prefix}.biz.com:587`), `${prefix}.biz.com:587 missing`);
+  }
+  assert.ok(hp.has('smtp.biz.com:465'));
+  assert.ok(hp.has('smtp.biz.com:2525'));
+});
+
 test('candidatesFor: no host and non-email user yields no candidates', () => {
   const c = candidatesFor({ host: null, port: null, user: 'apikey', pass: 'x' });
   assert.equal(c.length, 0);

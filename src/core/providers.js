@@ -10,6 +10,8 @@
  */
 
 const STANDARD_PORTS = [587, 465];
+const GUESS_PORTS = [587, 465, 2525];
+const GUESS_PREFIXES = ['smtp.', 'mail.', 'send.', 'mta.', 'outgoing.'];
 
 /** Email domain -> SMTP endpoint. Ports listed most-likely first. */
 const PROVIDERS = {
@@ -85,10 +87,10 @@ export function submissionFromMx(mxHosts = []) {
  * a custom-domain `email:password` whose server must be discovered.
  *
  * @param {Credential} cred
- * @param {{mxHosts?:string[]}} [opts]
+ * @param {{mxHosts?:string[], discovered?:{host:string,port:number,source?:string}[]}} [opts]
  * @returns {Candidate[]}
  */
-export function candidatesFor(cred, { mxHosts = [] } = {}) {
+export function candidatesFor(cred, { mxHosts = [], discovered = [] } = {}) {
   const out = [];
   const seen = new Set();
   const add = (host, port, source) => {
@@ -117,12 +119,16 @@ export function candidatesFor(cred, { mxHosts = [] } = {}) {
   // (actual mail servers), then conventional submission hostnames.
   const domain = domainOf(cred.user);
   if (domain && !cred.host) {
-    // If the MX records reveal a known mail platform (Zoho, Google Workspace,
-    // Microsoft 365, …), its submission host is the authoritative first try.
+    // Authoritative discovery first (SRV / autoconfig), exactly as advertised.
+    for (const d of discovered) add(d.host, d.port, d.source || 'discovered');
+    // Then MX records mapped to a known platform's submission host (Zoho, …).
     const viaMx = submissionFromMx(mxHosts);
     if (viaMx) for (const p of viaMx.ports) add(viaMx.host, p, 'detected');
+    // Then the raw MX hosts, then conventional submission hostnames.
     for (const mx of mxHosts) for (const p of STANDARD_PORTS) add(mx, p, 'mx');
-    for (const prefix of ['smtp.', 'mail.']) for (const p of STANDARD_PORTS) add(`${prefix}${domain}`, p, 'guessed');
+    for (const prefix of GUESS_PREFIXES) for (const p of GUESS_PORTS) add(`${prefix}${domain}`, p, 'guessed');
+    // Finally the bare domain itself.
+    for (const p of STANDARD_PORTS) add(domain, p, 'guessed');
   }
 
   return out;

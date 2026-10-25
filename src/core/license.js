@@ -46,7 +46,11 @@ export function issueLicense(hwid, privateKeyPem, { expMs = null } = {}) {
  */
 export function verifyLicense(hwid, licenseKey, publicKeyPem, nowMs = Date.now()) {
   try {
-    const parts = String(licenseKey || '').trim().split('.');
+    // Extract the SPL1 token from whatever was pasted, so surrounding text
+    // (e.g. "License for …:" or stray whitespace) doesn't break activation.
+    const match = String(licenseKey || '').match(/SPL1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+    const token = match ? match[0] : String(licenseKey || '').trim();
+    const parts = token.split('.');
     if (parts.length !== 3 || parts[0] !== PREFIX) {
       return { valid: false, reason: 'not a valid license key' };
     }

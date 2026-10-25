@@ -2,6 +2,7 @@ import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
+import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
@@ -50,16 +51,31 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let triedFallback = false;
 
   try {
-    // For a host-less credential on an unknown (custom) domain, look up the
-    // domain's MX servers so they can be tried alongside guessed smtp./mail.
+    // For a host-less credential on an unknown (custom) domain, actively
+    // discover the submission server: SRV + autoconfig (authoritative) and MX
+    // records, so the real host is found without the user supplying it.
     let mxHosts = [];
-    if (!cred.host && !detectProvider(cred.user) && opts.deps?.dns?.resolveMx) {
-      mxHosts = await resolveMxHosts(domainOf(cred.user), opts.deps.dns);
+    let discovered = [];
+    const dns = opts.deps?.dns;
+    if (!cred.host && !detectProvider(cred.user) && dns) {
+      const domain = domainOf(cred.user);
+      // Discover once per domain, not per credential (a bulk list often has
+      // many accounts on the same domain).
+      if (ctx && !ctx.discoverCache.has(domain)) {
+        const fetchFn =
+          opts.deps.fetch || ((url) => globalThis.fetch(url, { signal: AbortSignal.timeout(5000) }));
+        const [mx, disc] = await Promise.all([
+          dns.resolveMx ? resolveMxHosts(domain, dns) : [],
+          dns.resolveSrv ? discoverHosts(domain, { dns, fetchFn }).catch(() => []) : [],
+        ]);
+        ctx.discoverCache.set(domain, { mxHosts: mx, discovered: disc });
+      }
+      ({ mxHosts, discovered } = ctx?.discoverCache.get(domain) || { mxHosts: [], discovered: [] });
     }
 
     // Build the ordered list of (host, port) endpoints to try: the user's
     // input first, then the detected provider / discovered hosts as fallback.
-    const candidates = candidatesFor(cred, { mxHosts });
+    const candidates = candidatesFor(cred, { mxHosts, discovered });
     let working = null;
     let anyConnected = false;
     let lastConnectError;
@@ -262,7 +278,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
 
   // Shared per-batch context: the content spam score (same for every message)
   // is computed once; DNS lookups are cached by domain and host.
-  const ctx = { domainCache: new Map(), dnsblCache: new Map() };
+  const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map() };
   if (opts.checks?.spamScore) {
     const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();
     ctx.spamScore = scoreContent({

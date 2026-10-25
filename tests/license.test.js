@@ -57,3 +57,10 @@ test('garbage input is rejected without throwing', () => {
   assert.equal(verifyLicense('HWID-ABC', 'not-a-key', pub).valid, false);
   assert.equal(verifyLicense('HWID-ABC', '', pub).valid, false);
 });
+
+test('a key pasted with surrounding text still activates (the SPL1 token is extracted)', () => {
+  const { pub, priv } = keypair();
+  const key = issueLicense('HWID-ABC', priv);
+  const messy = `License for HWID-ABC:\n\n${key}\n\nthanks!`;
+  assert.equal(verifyLicense('HWID-ABC', messy, pub).valid, true);
+});
