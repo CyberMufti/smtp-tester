@@ -77,6 +77,9 @@ async function runBatch() {
     subjectTemplate: settings?.subjectTemplate,
     bodyTemplate: settings?.bodyTemplate,
     manualRecipients,
+    checks: $('#opt-checks').checked
+      ? { authRecords: true, dnsbl: true, spamScore: true }
+      : null,
   };
 
   const total = parsed.records.length;
@@ -119,6 +122,7 @@ $('#filters').addEventListener('click', (e) => {
 
 function renderResults() {
   renderSummary();
+  renderContentScoreBanner();
   const body = $('#results-body');
   const rows = results.filter((r) => activeFilter === 'all' || r.status === activeFilter);
   if (!rows.length) {
@@ -153,6 +157,18 @@ function renderSummary() {
   el.innerHTML = `${chips}<span class="summary-chip summary-total">Total: ${results.length}</span>`;
 }
 
+function renderContentScoreBanner() {
+  const el = $('#content-score-banner');
+  const s = results.find((r) => r.spamScore)?.spamScore;
+  if (!s) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML =
+    `<span class="score-badge score-${s.level}">Content spam score: ${s.score}/${s.max} (${s.level})</span>` +
+    (s.reasons.length ? `<span class="note"> — ${esc(s.reasons.join('; '))}</span>` : ' — looks clean');
+}
+
 function rowHtml(r) {
   const parts = [];
 
@@ -171,6 +187,14 @@ function rowHtml(r) {
     );
   }
 
+  const deliv = deliverabilityBadges(r);
+  if (deliv) parts.push(deliv);
+  const seedAuth = (r.perSeed || [])
+    .filter((s) => s.auth)
+    .map((s) => `<span class="note">${esc(s.label)} auth: ${authBadges(s.auth)}</span>`)
+    .join(' ');
+  if (seedAuth) parts.push(seedAuth);
+
   const host = r.cred.host || (r.usedHost ? `${r.usedHost} (auto)` : 'auto-detect');
   const port = r.cred.port || r.usedPort || '';
   return `<tr>
@@ -184,6 +208,28 @@ function rowHtml(r) {
 
 function statusLabel(s) {
   return s === 'unknown' ? 'unknown placement' : s;
+}
+
+function badge(label, ok, detail) {
+  const cls = ok === true ? 'b-ok' : ok === false ? 'b-bad' : 'b-neutral';
+  return `<span class="dbadge ${cls}">${esc(label)}${detail ? ': ' + esc(detail) : ''}</span>`;
+}
+
+function deliverabilityBadges(r) {
+  const d = r.deliverability;
+  if (!d) return '';
+  const out = [];
+  if (d.spf) out.push(badge('SPF', d.spf.found ? (d.spf.all === '-all' || d.spf.all === '~all') : false, d.spf.found ? d.spf.all || 'set' : 'missing'));
+  if (d.dmarc) out.push(badge('DMARC', d.dmarc.found ? d.dmarc.policy !== 'none' : false, d.dmarc.found ? d.dmarc.policy : 'missing'));
+  if (d.dnsbl) out.push(badge('Blacklist', !d.dnsbl.listed, d.dnsbl.error ? 'n/a' : d.dnsbl.listed ? d.dnsbl.lists.join(', ') : 'clean'));
+  return out.length ? `<span class="badges">${out.join(' ')}</span>` : '';
+}
+
+function authBadges(a) {
+  return ['spf', 'dkim', 'dmarc']
+    .filter((k) => a[k])
+    .map((k) => `${k}=${a[k]}`)
+    .join(' ');
 }
 
 // ---------- Export ----------
@@ -280,6 +326,22 @@ function applySettingsToForm() {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
+
+// ---------- Content scorer ----------
+$('#btn-score').addEventListener('click', async () => {
+  const body = $('#score-body').value;
+  const isHtml = /<[a-z][\s\S]*>/i.test(body);
+  const s = await api.scoreContent({
+    subject: $('#score-subject').value,
+    text: isHtml ? '' : body,
+    html: isHtml ? body : '',
+  });
+  const el = $('#score-result');
+  const reasons = s.reasons.length
+    ? `<ul>${s.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
+    : '<p class="muted">No obvious spam signals found.</p>';
+  el.innerHTML = `<span class="score-badge score-${s.level}">Score: ${s.score}/${s.max} (${s.level})</span>${reasons}`;
+});
 
 // ---------- Boot ----------
 (async function init() {

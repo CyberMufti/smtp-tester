@@ -119,6 +119,31 @@ label.btn { display: inline-flex; align-items: center; }
 
 .note { color: var(--muted); font-size: 12px; }
 
+.checkbox { gap: 6px !important; }
+.checkbox input { width: auto; }
+
+.content-score-banner { margin-bottom: 12px; font-size: 12px; }
+.content-score-banner:empty { display: none; }
+
+.badges { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.dbadge {
+  display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--border);
+}
+.dbadge.b-ok { background: rgba(22, 163, 74, 0.14); color: var(--st-inbox); border-color: transparent; }
+.dbadge.b-bad { background: rgba(220, 38, 38, 0.14); color: var(--st-dead); border-color: transparent; }
+.dbadge.b-neutral { background: var(--bg); color: var(--muted); }
+
+.score-badge {
+  display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; color: #fff;
+}
+.score-low { background: var(--st-inbox); }
+.score-medium { background: var(--st-spam); }
+.score-high { background: var(--st-dead); }
+.score-result { margin-top: 12px; }
+.score-result ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+.score-result li { margin: 3px 0; }
+
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }

@@ -59,6 +59,7 @@
         <div class="run-controls">
           <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
           <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
+          <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
           <span id="seed-note" class="muted"></span>
           <div class="spacer"></div>
           <button id="btn-run" class="btn primary">Test All</button>
@@ -83,6 +84,7 @@
           </div>
         </div>
         <div id="summary" class="summary"></div>
+        <div id="content-score-banner" class="content-score-banner"></div>
         <div class="table-wrap">
           <table id="results-table">
             <thead>
@@ -142,6 +144,27 @@
           <span id="save-status" class="muted"></span>
           <button id="btn-save-settings" class="btn primary">Save settings</button>
         </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Check your campaign content</h2></div>
+        <p class="muted">
+          Placement depends heavily on your actual content. Paste a real subject and body to get a
+          heuristic spam score before you send. (This is a guide, not a guarantee — see the README.)
+        </p>
+        <div class="form-grid">
+          <label class="full">Subject
+            <input id="score-subject" type="text" placeholder="Your campaign subject line" />
+          </label>
+          <label class="full">Body (text or HTML)
+            <textarea id="score-body" rows="5" placeholder="Paste your email body here"></textarea>
+          </label>
+        </div>
+        <div class="run-controls">
+          <div class="spacer"></div>
+          <button id="btn-score" class="btn primary">Score content</button>
+        </div>
+        <div id="score-result" class="score-result"></div>
       </section>
 
       <section class="panel">

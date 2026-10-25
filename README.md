@@ -99,6 +99,30 @@ Settings, the app classifies it automatically too.)
 The results header shows a **live count** of Inbox / Spam / Valid / Unknown /
 Dead as the batch runs.
 
+## Deliverability checks
+
+Tick **Deliverability checks** on the Test screen (on by default) to run three
+extra analyses that explain *why* mail may be landing in spam:
+
+- **SPF / DMARC** — looks up the From domain's SPF (`TXT`) and DMARC
+  (`_dmarc.<domain>` `TXT`) records and flags a missing SPF, a soft/neutral
+  `all` qualifier, or a `p=none` DMARC policy. When you use IMAP seeds, each
+  result also shows **spf/dkim/dmarc as the receiving provider actually
+  evaluated them**, read from the delivered message's `Authentication-Results`
+  header — the most reliable signal there is.
+- **Blacklist (DNSBL)** — resolves the sending host's IP and checks it against
+  Spamhaus, Barracuda, SpamCop, and SORBS. A listed IP is a strong reason for
+  spam placement.
+- **Content spam score** — a fast heuristic pass over the message (ALL-CAPS
+  subject, trigger words, link density, shortened URLs, missing unsubscribe,
+  image-heavy body). Use **Settings → Check your campaign content** to score
+  your *real* campaign copy before sending — this closes the biggest accuracy
+  gap, since the built-in test message isn't your actual content.
+
+These checks are **heuristics and signals, not guarantees**. They tell you where
+the obvious problems are; they can't perfectly predict a specific provider's
+decision. See the accuracy notes above.
+
 ## Setting up seed mailboxes
 
 Placement testing needs at least one mailbox you control, configured in

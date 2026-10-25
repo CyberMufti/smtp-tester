@@ -2,9 +2,13 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
+import { resolveTxt, resolve4 } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { verifySeed } from '../core/imap.js';
+import { scoreContent } from '../core/spamscore.js';
 import { loadSettings, saveSettings } from './store.js';
+
+const dns = { resolveTxt, resolve4 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,7 +57,7 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
   const results = await runBatch(
     creds,
     seeds,
-    { ...opts, signal: currentAbort.signal },
+    { ...opts, signal: currentAbort.signal, deps: { dns } },
     (result, index) => {
       mainWindow?.webContents.send('batch:progress', { result, index });
     },
@@ -62,6 +66,8 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
   mainWindow?.webContents.send('batch:done', { count: results.length });
   return results;
 });
+
+ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
 
 ipcMain.handle('batch:cancel', async () => {
   currentAbort?.abort();

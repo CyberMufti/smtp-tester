@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   testBatch: (creds, seeds, opts) => ipcRenderer.invoke('batch:run', { creds, seeds, opts }),
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportResults: (results, format) => ipcRenderer.invoke('results:export', { results, format }),
+  scoreContent: (content) => ipcRenderer.invoke('content:score', content),
   onProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('batch:progress', handler);
