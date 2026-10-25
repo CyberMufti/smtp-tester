@@ -6,6 +6,7 @@ import { resolveTxt, resolve4 } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { verifySeed } from '../core/imap.js';
 import { scoreContent } from '../core/spamscore.js';
+import { toWorkingTxt } from '../core/export.js';
 import { loadSettings, saveSettings } from './store.js';
 
 const dns = { resolveTxt, resolve4 };
@@ -80,7 +81,10 @@ ipcMain.handle('results:export', async (_e, { results, format }) => {
     filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
   if (canceled || !filePath) return { saved: false };
-  const content = format === 'json' ? toJson(results) : toCsv(results);
+  const content =
+    format === 'json' ? toJson(results)
+    : format === 'txt' ? toWorkingTxt(results, { generatedAt: new Date().toISOString() })
+    : toCsv(results);
   await writeFile(filePath, content, 'utf8');
   return { saved: true, path: filePath };
 });

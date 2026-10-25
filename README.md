@@ -123,6 +123,17 @@ These checks are **heuristics and signals, not guarantees**. They tell you where
 the obvious problems are; they can't perfectly predict a specific provider's
 decision. See the accuracy notes above.
 
+## Saving your working list
+
+The results table always shows the host/port that actually worked — including an
+auto-detected or fallback endpoint, marked `(auto)`. **Save working SMTPs
+(.txt)** writes every non-dead credential to a plain-text file as
+`host:port:username:password` using that resolved endpoint, grouped by Inbox /
+Spam / Valid / Unknown. That file re-imports directly (the group headers are
+`#` comments the parser ignores), so your verified working list becomes the
+input for your next run. CSV/JSON exports with full per-credential detail are
+also available.
+
 ## Setting up seed mailboxes
 
 Placement testing needs at least one mailbox you control, configured in

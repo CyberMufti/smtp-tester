@@ -98,8 +98,10 @@ async function runBatch() {
 function setRunning(on) {
   $('#btn-run').disabled = on;
   $('#btn-cancel').disabled = !on;
-  $('#btn-export-csv').disabled = on || results.length === 0;
-  $('#btn-export-json').disabled = on || results.length === 0;
+  const noResults = results.length === 0;
+  $('#btn-export-csv').disabled = on || noResults;
+  $('#btn-export-json').disabled = on || noResults;
+  $('#btn-export-txt').disabled = on || results.every((r) => r.status === 'dead');
 }
 
 api.onProgress(({ result }) => {
@@ -195,10 +197,13 @@ function rowHtml(r) {
     .join(' ');
   if (seedAuth) parts.push(seedAuth);
 
-  const host = r.cred.host || (r.usedHost ? `${r.usedHost} (auto)` : 'auto-detect');
-  const port = r.cred.port || r.usedPort || '';
+  // Always show the endpoint that actually worked (detected/fallback included).
+  const workedHost = r.usedHost || r.cred.host || 'auto-detect';
+  const workedPort = r.usedPort || r.cred.port || '';
+  const isAuto = r.usedHost && (!r.cred.host || r.triedFallback);
+  const host = `${workedHost}${isAuto ? ' (auto)' : ''}`;
   return `<tr>
-    <td class="mono">${esc(host)}${port ? ':' + esc(port) : ''}</td>
+    <td class="mono">${esc(host)}${workedPort ? ':' + esc(workedPort) : ''}</td>
     <td class="mono">${esc(r.cred.user)}</td>
     <td><span class="status-chip status-${r.status}">${statusLabel(r.status)}</span></td>
     <td>${r.latencyMs} ms</td>
@@ -233,6 +238,7 @@ function authBadges(a) {
 }
 
 // ---------- Export ----------
+$('#btn-export-txt').addEventListener('click', () => doExport('txt'));
 $('#btn-export-csv').addEventListener('click', () => doExport('csv'));
 $('#btn-export-json').addEventListener('click', () => doExport('json'));
 async function doExport(format) {
