@@ -1,0 +1,102 @@
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
+import { runBatch } from '../core/tester.js';
+import { verifySeed } from '../core/imap.js';
+import { loadSettings, saveSettings } from './store.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+let mainWindow;
+let currentAbort = null;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 820,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'SMTP Tester',
+    webPreferences: {
+      preload: join(__dirname, '..', 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false, // preload uses ESM import of nothing privileged; keep false for require-less preload
+    },
+  });
+  mainWindow.removeMenu?.();
+  mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// --- IPC handlers ---------------------------------------------------------
+
+ipcMain.handle('settings:get', async () => loadSettings());
+
+ipcMain.handle('settings:save', async (_e, settings) => saveSettings(settings));
+
+ipcMain.handle('seed:test', async (_e, seed) => verifySeed(seed));
+
+ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
+  currentAbort = new AbortController();
+  const results = await runBatch(
+    creds,
+    seeds,
+    { ...opts, signal: currentAbort.signal },
+    (result, index) => {
+      mainWindow?.webContents.send('batch:progress', { result, index });
+    },
+  );
+  currentAbort = null;
+  mainWindow?.webContents.send('batch:done', { count: results.length });
+  return results;
+});
+
+ipcMain.handle('batch:cancel', async () => {
+  currentAbort?.abort();
+  return true;
+});
+
+ipcMain.handle('results:export', async (_e, { results, format }) => {
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `smtp-results.${format}`,
+    filters: [{ name: format.toUpperCase(), extensions: [format] }],
+  });
+  if (canceled || !filePath) return { saved: false };
+  const content = format === 'json' ? toJson(results) : toCsv(results);
+  await writeFile(filePath, content, 'utf8');
+  return { saved: true, path: filePath };
+});
+
+function toJson(results) {
+  return JSON.stringify(results, null, 2);
+}
+
+function toCsv(results) {
+  const header = ['host', 'port', 'user', 'status', 'reason', 'latencyMs', 'placement'];
+  const rows = results.map((r) => {
+    const placement = (r.perSeed || [])
+      .map((s) => `${s.label}=${s.error ? 'error' : s.folder || 'not found'}`)
+      .join('; ');
+    return [r.cred.host, r.cred.port, r.cred.user, r.status, r.reason, r.latencyMs, placement]
+      .map(csvCell)
+      .join(',');
+  });
+  return [header.join(','), ...rows].join('\n');
+}
+
+function csvCell(value) {
+  const s = String(value ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
