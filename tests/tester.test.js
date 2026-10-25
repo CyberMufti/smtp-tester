@@ -136,6 +136,40 @@ test('tries the input host first, falls back to the detected host, and records w
   assert.equal(result.triedFallback, true);
 });
 
+test('a wrong-but-reachable host that auth-fails still falls back to the detected provider', async () => {
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        if (cred.host === 'smtp-mail.outlook.com') return { connected: true, authenticated: false, error: 'EAUTH' };
+        if (cred.host === 'smtp.gmail.com') return { connected: true, authenticated: true };
+        return { connected: false, error: 'no' };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  // Mislabeled line: Gmail credentials pointed at Outlook's (reachable) server.
+  const creds = [{ host: 'smtp-mail.outlook.com', port: 587, user: 'bob@gmail.com', pass: 'x' }];
+  const [r] = await runBatch(creds, [], { concurrency: 1, deps });
+  assert.equal(r.status, 'valid');
+  assert.equal(r.usedHost, 'smtp.gmail.com');
+  assert.equal(r.triedFallback, true);
+});
+
+test('same-host auth failure with no other provider is dead (no infinite retry)', async () => {
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: false, error: 'EAUTH' }; },
+      async send() { return { accepted: [] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  const creds = [{ host: null, port: null, user: 'me@gmail.com', pass: 'x' }];
+  const [r] = await runBatch(creds, [], { concurrency: 1, deps });
+  assert.equal(r.status, 'dead');
+  assert.match(r.reason, /EAUTH|auth/i);
+});
+
 test('a host-less credential is resolved entirely from the provider', async () => {
   const deps = {
     smtp: {
@@ -223,6 +257,27 @@ test('deliverability checks populate SPF/DMARC, DNSBL and spam score when enable
   assert.equal(r.deliverability.dnsbl.listed, true);
   assert.deepEqual(r.deliverability.dnsbl.lists, ['zen.spamhaus.org']);
   assert.ok(r.spamScore && typeof r.spamScore.score === 'number');
+});
+
+test('no SPF/DMARC lookup (or bogus "missing" result) when there is no real From domain', async () => {
+  let txtCalled = false;
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+    dns: {
+      async resolveTxt() { txtCalled = true; return []; },
+      async resolve4() { throw new Error('ENOTFOUND'); },
+    },
+  };
+  // From unset, username is a SendGrid-style apikey (not an email/domain).
+  const creds = [{ host: 'smtp.sendgrid.net', port: 587, user: 'apikey', pass: 'SG.x' }];
+  const [r] = await runBatch(creds, [], { concurrency: 1, deps, from: '', checks: { authRecords: true } });
+  assert.equal(txtCalled, false, 'should not look up TXT for a non-domain');
+  assert.equal(r.deliverability?.spf, undefined);
+  assert.equal(r.deliverability?.dmarc, undefined);
 });
 
 test('deliverability checks are skipped (no network) when not enabled', async () => {

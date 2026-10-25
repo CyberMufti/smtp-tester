@@ -197,6 +197,34 @@ test('reordered line with no numeric port anywhere is a ParseError', () => {
   assert.match(errors[0].reason, /port/i);
 });
 
+test('a mostly-delimited file is NOT forced into key-value mode by a couple of stray label lines', () => {
+  const input = [
+    'smtp.a.com:587:user1:pass1',
+    'smtp.b.com:587:user2:pass2',
+    'smtp.c.com:587:user3:pass3',
+    'server: smtp.d.com',
+    'port: 587',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 3);
+  assert.deepEqual(records.map((r) => r.host), ['smtp.a.com', 'smtp.b.com', 'smtp.c.com']);
+});
+
+test('key-value block with multiple user/pass pairs under one host yields a record each', () => {
+  const input = [
+    'Host: smtp.a.com',
+    'Port: 587',
+    'User: u1@a.com',
+    'Pass: p1',
+    'User: u2@a.com',
+    'Pass: p2',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records.map((r) => r.user), ['u1@a.com', 'u2@a.com']);
+  assert.ok(records.every((r) => r.host === 'smtp.a.com' && r.port === 587));
+});
+
 test('pipe-delimited password containing pipes keeps the original delimiter', () => {
   const { records } = parse('smtp.x.com|587|u@x.com|p|a|ss');
   assert.equal(records[0].pass, 'p|a|ss');

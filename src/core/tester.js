@@ -7,9 +7,13 @@ import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
 
 function domainOf(addressOrDomain) {
-  const s = String(addressOrDomain || '');
+  const s = String(addressOrDomain || '').trim().toLowerCase();
   const at = s.indexOf('@');
-  return (at === -1 ? s : s.slice(at + 1)).trim().toLowerCase() || null;
+  const candidate = at === -1 ? s : s.slice(at + 1);
+  // Only treat it as a domain if it has an @ (an email) or is itself dotted —
+  // a bare username like "apikey" is not a domain and must not be looked up.
+  if (at === -1 && !candidate.includes('.')) return null;
+  return candidate || null;
 }
 
 /**
@@ -53,9 +57,14 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     let anyConnected = false;
     let lastConnectError;
     let authError;
+    const authFailedHosts = new Set();
 
     for (let i = 0; i < candidates.length; i++) {
       const cand = candidates[i];
+      // A host that already rejected auth won't accept it on another port —
+      // skip it, but keep trying DIFFERENT hosts (e.g. the detected provider),
+      // in case the one that was typed is simply the wrong-but-reachable server.
+      if (authFailedHosts.has(cand.host)) continue;
       const effective = { ...cred, host: cand.host, port: cand.port };
       const v = await smtp.verify(effective, { connectTimeout: opts.connectTimeout });
       if (v.connected && v.authenticated) {
@@ -64,11 +73,10 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         break;
       }
       if (v.connected) {
-        // Host is reachable but auth was rejected — a credential problem, not a
-        // host problem. No point trying other hosts with the same credentials.
         anyConnected = true;
         authError = v.error;
-        break;
+        authFailedHosts.add(cand.host);
+        continue;
       }
       lastConnectError = v.error;
     }

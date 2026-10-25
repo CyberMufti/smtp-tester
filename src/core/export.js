@@ -14,6 +14,22 @@ const GROUPS = [
   ['unknown', 'UNKNOWN PLACEMENT'],
 ];
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Emit one credential line. Normally `host:port:user:pass`, but if the password
+ * ends in a segment that looks like an email, that would be misread as a `from`
+ * field on re-import — so quote the whole line as CSV, where the password stays
+ * a single field.
+ */
+function credLine(host, port, user, pass) {
+  const tail = pass.includes(':') ? pass.slice(pass.lastIndexOf(':') + 1) : '';
+  if (tail && EMAIL_RE.test(tail)) {
+    return `${host},${port},${user},"${pass.replace(/"/g, '""')}"`;
+  }
+  return `${host}:${port}:${user}:${pass}`;
+}
+
 /**
  * @param {Result[]} results
  * @param {{generatedAt?:string}} [opts]
@@ -33,7 +49,7 @@ export function toWorkingTxt(results, { generatedAt = '' } = {}) {
     for (const r of rows) {
       const host = r.usedHost || r.cred.host || '';
       const port = r.usedPort || r.cred.port || '';
-      lines.push(`${host}:${port}:${r.cred.user}:${r.cred.pass}`);
+      lines.push(credLine(host, port, r.cred.user, r.cred.pass));
     }
     lines.push('');
   }

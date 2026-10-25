@@ -63,14 +63,22 @@ export function parse(text) {
   return hasKeyValueLines(lines) ? parseKeyValue(lines) : parseDelimited(lines);
 }
 
-/** True when enough lines look like `Label: value` to treat the input as KV. */
+/**
+ * Treat the input as key-value only when labels are the MAJORITY of the
+ * meaningful lines — otherwise a couple of stray `From:`/`Sender:` notes in a
+ * delimited bulk dump would wrongly switch modes and silently drop every
+ * delimited line.
+ */
 function hasKeyValueLines(lines) {
-  let kv = 0;
+  let labels = 0;
+  let others = 0;
   for (const raw of lines) {
-    const field = labelOf(raw);
-    if (field) kv++;
+    const trimmed = raw.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+    if (labelOf(raw)) labels++;
+    else others++;
   }
-  return kv >= 2;
+  return labels >= 2 && labels > others;
 }
 
 /** If a line is `Label: value` / `Label = value` with a known label, return its field name. */
@@ -112,10 +120,15 @@ function parseKeyValue(lines) {
       current = {};
       startLine = i + 1;
     }
-    // A repeated host label starts a new record.
-    if (field === 'host' && current.host !== undefined) {
+    // Any repeated field starts a new record. When several user/pass pairs are
+    // listed under one host, carry the shared host/port into the new record.
+    if (current[field] !== undefined) {
+      const carryHost = current.host;
+      const carryPort = current.port;
       flush();
       current = {};
+      if (field !== 'host' && carryHost !== undefined) current.host = carryHost;
+      if (field !== 'port' && carryPort !== undefined) current.port = carryPort;
       startLine = i + 1;
     }
     current[field] = value;

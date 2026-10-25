@@ -37,6 +37,27 @@ test('output is re-importable by the parser (comments ignored, 4 working creds)'
   assert.ok(records.every((r) => r.host && r.port && r.user && r.pass));
 });
 
+test('round-trips a password whose last colon-segment looks like an email', () => {
+  const results = [
+    result('valid', { host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'x:admin@foo.com' }, 'smtp.x.com', 587),
+  ];
+  const txt = toWorkingTxt(results, {});
+  const { records, errors } = parse(txt);
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].pass, 'x:admin@foo.com');
+  assert.equal(records[0].user, 'u@x.com');
+  assert.equal(records[0].from, undefined);
+});
+
+test('round-trips a password containing a comma', () => {
+  const results = [
+    result('valid', { host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'a,b:c' }, 'smtp.x.com', 587),
+  ];
+  const { records } = parse(toWorkingTxt(results, {}));
+  assert.equal(records[0].pass, 'a,b:c');
+});
+
 test('empty when there are no working results', () => {
   const txt = toWorkingTxt([result('dead', { host: 'x', port: 1, user: 'u', pass: 'p' }, null, null)], {});
   const { records } = parse(txt);

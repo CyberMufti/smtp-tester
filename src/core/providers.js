@@ -69,7 +69,10 @@ export function candidatesFor(cred) {
 
   if (cred.host) {
     if (validPort(cred.port)) add(cred.host, cred.port, 'input');
-    else for (const p of STANDARD_PORTS) add(cred.host, p, 'input');
+    // Always offer the standard ports on the input host as a fallback: a
+    // valid-but-wrong port (e.g. 25 when the relay listens on 587) shouldn't
+    // make a live credential read as dead.
+    for (const p of STANDARD_PORTS) add(cred.host, p, 'input');
   }
 
   const prov = detectProvider(cred.user);

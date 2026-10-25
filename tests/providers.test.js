@@ -40,6 +40,14 @@ test('candidatesFor: host present but invalid port tries standard ports on that 
   assert.deepEqual(ports, [587, 465]);
 });
 
+test('candidatesFor: a valid-but-wrong port on a custom host still gets standard-port fallbacks', () => {
+  const c = candidatesFor({ host: 'smtp.customrelay.com', port: 25, user: 'apikey', pass: 'x' });
+  const ports = c.filter((cand) => cand.host === 'smtp.customrelay.com').map((cand) => cand.port);
+  assert.ok(ports.includes(25), 'the user-supplied port is tried first');
+  assert.ok(ports.includes(587) && ports.includes(465), 'standard ports are appended as fallback');
+  assert.equal(ports[0], 25);
+});
+
 test('candidatesFor: no host and undetectable user yields no candidates', () => {
   const c = candidatesFor({ host: null, port: null, user: 'apikey', pass: 'x' });
   assert.equal(c.length, 0);

@@ -55,17 +55,22 @@ ipcMain.handle('seed:test', async (_e, seed) => verifySeed(seed));
 
 ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
   currentAbort = new AbortController();
-  const results = await runBatch(
-    creds,
-    seeds,
-    { ...opts, signal: currentAbort.signal, deps: { dns } },
-    (result, index) => {
-      mainWindow?.webContents.send('batch:progress', { result, index });
-    },
-  );
-  currentAbort = null;
-  mainWindow?.webContents.send('batch:done', { count: results.length });
-  return results;
+  try {
+    const results = await runBatch(
+      creds,
+      seeds,
+      { ...opts, signal: currentAbort.signal, deps: { dns } },
+      (result, index) => {
+        mainWindow?.webContents.send('batch:progress', { result, index });
+      },
+    );
+    return results;
+  } finally {
+    // Always clear the abort handle and signal completion, even if the batch
+    // throws, so the renderer never gets stuck in the "running" state.
+    currentAbort = null;
+    mainWindow?.webContents.send('batch:done', { done: true });
+  }
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
