@@ -63,3 +63,15 @@ export async function saveSettings(settings) {
   store.set('settings', merged);
   return merged;
 }
+
+/** @returns {Promise<string|null>} the stored license key, if any */
+export async function getLicenseKey() {
+  const store = await getStore();
+  return store.get('licenseKey') || null;
+}
+
+/** @param {string} key */
+export async function setLicenseKey(key) {
+  const store = await getStore();
+  store.set('licenseKey', key);
+}

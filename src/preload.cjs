@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  getLicense: () => ipcRenderer.invoke('license:get'),
+  activateLicense: (key) => ipcRenderer.invoke('license:activate', key),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   testSeed: (seed) => ipcRenderer.invoke('seed:test', seed),

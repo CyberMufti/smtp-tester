@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
@@ -7,9 +7,13 @@ import { runBatch } from '../core/tester.js';
 import { verifySeed } from '../core/imap.js';
 import { scoreContent } from '../core/spamscore.js';
 import { toWorkingTxt } from '../core/export.js';
-import { loadSettings, saveSettings } from './store.js';
+import { getHwid } from '../core/hwid.js';
+import { verifyLicense } from '../core/license.js';
+import { PUBLIC_KEY_PEM } from '../core/license-public-key.js';
+import { loadSettings, saveSettings, getLicenseKey, setLicenseKey } from './store.js';
 
 const dns = { resolveTxt, resolve4 };
+const TELEGRAM = '@splean_tool';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +50,28 @@ app.on('window-all-closed', () => {
 });
 
 // --- IPC handlers ---------------------------------------------------------
+
+// --- Licensing -----------------------------------------------------------
+
+ipcMain.handle('license:get', async () => {
+  const hwid = getHwid();
+  const key = await getLicenseKey();
+  const activated = key ? verifyLicense(hwid, key, PUBLIC_KEY_PEM).valid : false;
+  return { activated, hwid, telegram: TELEGRAM };
+});
+
+ipcMain.handle('license:activate', async (_e, key) => {
+  const hwid = getHwid();
+  const result = verifyLicense(hwid, String(key || ''), PUBLIC_KEY_PEM);
+  if (result.valid) await setLicenseKey(String(key).trim());
+  return { ...result, hwid };
+});
+
+ipcMain.handle('app:openExternal', async (_e, url) => {
+  if (/^https?:\/\//i.test(String(url))) await shell.openExternal(url);
+});
+
+// --- Settings & testing ---------------------------------------------------
 
 ipcMain.handle('settings:get', async () => loadSettings());
 

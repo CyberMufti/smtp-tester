@@ -349,9 +349,49 @@ $('#btn-score').addEventListener('click', async () => {
   el.innerHTML = `<span class="score-badge score-${s.level}">Score: ${s.score}/${s.max} (${s.level})</span>${reasons}`;
 });
 
+// ---------- License gate ----------
+const licenseOverlay = $('#license-overlay');
+
+$('#license-telegram').addEventListener('click', () => api.openExternal('https://t.me/splean_tool'));
+$('#license-copy').addEventListener('click', async () => {
+  await navigator.clipboard.writeText($('#license-hwid').value);
+  $('#license-copy').textContent = 'Copied ✓';
+  setTimeout(() => ($('#license-copy').textContent = 'Copy'), 1500);
+});
+$('#license-activate').addEventListener('click', async () => {
+  const key = $('#license-key').value.trim();
+  if (!key) return;
+  const res = await api.activateLicense(key);
+  if (res.valid) {
+    licenseOverlay.hidden = true;
+    startApp();
+  } else {
+    $('#license-error').textContent = res.reason || 'Invalid license key';
+  }
+});
+
+async function enforceLicense() {
+  const lic = await api.getLicense();
+  $('#license-hwid').value = lic.hwid;
+  if (lic.activated) {
+    licenseOverlay.hidden = true;
+    return true;
+  }
+  licenseOverlay.hidden = false;
+  return false;
+}
+
 // ---------- Boot ----------
-(async function init() {
+let appStarted = false;
+async function startApp() {
+  if (appStarted) return;
+  appStarted = true;
   settings = await api.getSettings();
   applySettingsToForm();
   refreshParse();
+}
+
+(async function init() {
+  const licensed = await enforceLicense();
+  if (licensed) startApp();
 })();

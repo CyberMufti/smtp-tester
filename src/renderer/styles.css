@@ -144,6 +144,32 @@ label.btn { display: inline-flex; align-items: center; }
 .score-result ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
 .score-result li { margin: 3px 0; }
 
+.license-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  overflow-y: auto;
+}
+.license-overlay[hidden] { display: none; }
+.license-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 28px; max-width: 540px; width: 100%;
+}
+.license-card h1 { font-size: 20px; margin: 18px 0 6px; }
+.license-contact {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border);
+}
+.license-caption { font-size: 13px; }
+.telegram-link {
+  border: none; cursor: pointer; font: inherit; font-weight: 800;
+  background: #2aabee; color: #fff; padding: 8px 16px; border-radius: 8px;
+}
+.telegram-link:hover { filter: brightness(1.07); }
+.hwid-row { display: flex; gap: 8px; align-items: center; }
+.hwid-row input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; letter-spacing: 0.04em; }
+.license-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }

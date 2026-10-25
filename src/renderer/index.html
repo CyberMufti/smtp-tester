@@ -11,6 +11,36 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- ============ LICENSE GATE ============ -->
+    <div id="license-overlay" class="license-overlay">
+      <div class="license-card">
+        <div class="license-contact">
+          <div class="license-caption">contact <b>splean_tool</b> for license key</div>
+          <button id="license-telegram" class="telegram-link">@splean_tool</button>
+        </div>
+        <h1>Activate SMTP Tester</h1>
+        <p class="muted">
+          This copy must be licensed to your machine. Send the Hardware ID below to
+          <b>@splean_tool</b> on Telegram; you'll receive a license key to activate it here.
+        </p>
+
+        <label class="field-label">Your Hardware ID (HWID)</label>
+        <div class="hwid-row">
+          <input id="license-hwid" type="text" readonly />
+          <button id="license-copy" class="btn ghost">Copy</button>
+        </div>
+
+        <label class="field-label" for="license-key">License key</label>
+        <textarea id="license-key" rows="3" spellcheck="false" placeholder="Paste the license key you received"></textarea>
+
+        <div class="license-actions">
+          <span id="license-error" class="err-text"></span>
+          <div class="spacer"></div>
+          <button id="license-activate" class="btn primary">Activate</button>
+        </div>
+      </div>
+    </div>
+
     <header class="topbar">
       <div class="brand">
         <span class="logo">✉</span>

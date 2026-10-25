@@ -165,6 +165,46 @@ running a batch. With **no** seeds configured, the app still reports Dead/Valid
 - All credentials and app passwords are stored **only on your computer**
   (via `electron-store`); nothing is synced anywhere.
 
+## Licensing & activation
+
+The app is gated: on first launch it shows an **activation screen** with the
+machine's **Hardware ID (HWID)** and the Telegram contact **@splean_tool**
+("contact splean_tool for license key"). The user sends you their HWID on
+Telegram; you issue a license key bound to that HWID; they paste it and the app
+unlocks. The key is stored locally so they only activate once.
+
+### How it works
+
+Licensing is **offline and signature-based** (Ed25519):
+
+- The app embeds only the **public** key (`src/core/license-public-key.js`).
+- You hold the **private** key (`owner-keys/private.pem`) — it is **gitignored
+  and must never be committed or shared**.
+- A license key is your signature over the user's HWID, so only you can issue a
+  valid key, and a key only works on the machine it was issued for. Keys can't
+  be forged or shared between machines.
+
+> **Honest limitation:** this prevents forging and key-sharing, but like all
+> client-side licensing it does not stop someone from patching the check out of
+> a local copy. It's a strong deterrent, not unbreakable DRM. A server check
+> would be needed for that.
+
+### Issuing a license (owner)
+
+When a user sends you their HWID on Telegram:
+
+```bash
+node scripts/issue-license.js 16DA-426B-8DEA-32BA-1A4F-939A          # never expires
+node scripts/issue-license.js 16DA-426B-8DEA-32BA-1A4F-939A --days 30  # 30-day license
+```
+
+It prints a `SPL1.…` license key — send that back to the user.
+
+> **Back up `owner-keys/private.pem`.** If you lose it you can't issue new
+> licenses, and you'd have to ship a new app build with a new embedded public
+> key (invalidating every existing license). It is intentionally excluded from
+> packaged builds, so it never ships to users.
+
 ## Running from source
 
 ```bash
