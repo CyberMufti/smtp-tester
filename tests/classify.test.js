@@ -1,0 +1,97 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { classify } from '../src/core/classify.js';
+
+test('not connected -> dead with connection reason', () => {
+  const r = classify({ connected: false, authenticated: false, sent: false, seeds: [] });
+  assert.equal(r.status, 'dead');
+  assert.match(r.reason, /connect/i);
+});
+
+test('connected but not authenticated -> dead with auth error', () => {
+  const r = classify({
+    connected: true,
+    authenticated: false,
+    authError: 'Invalid login: 535 auth failed',
+    sent: false,
+    seeds: [],
+  });
+  assert.equal(r.status, 'dead');
+  assert.equal(r.reason, 'Invalid login: 535 auth failed');
+});
+
+test('authenticated but send failed -> dead with send error', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: false,
+    sendError: 'relay access denied',
+    seeds: [],
+  });
+  assert.equal(r.status, 'dead');
+  assert.equal(r.reason, 'relay access denied');
+});
+
+test('sent with no seeds -> valid (placement not evaluated)', () => {
+  const r = classify({ connected: true, authenticated: true, sent: true, seeds: [] });
+  assert.equal(r.status, 'valid');
+});
+
+test('sent, all seeds inbox -> inbox', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: 'inbox' },
+      { label: 'Outlook', folder: 'inbox' },
+    ],
+  });
+  assert.equal(r.status, 'inbox');
+});
+
+test('sent, any seed spam -> spam (conservative)', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: 'inbox' },
+      { label: 'Outlook', folder: 'spam' },
+    ],
+  });
+  assert.equal(r.status, 'spam');
+});
+
+test('sent, all seeds null folder -> unknown', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: null },
+      { label: 'Outlook', folder: null },
+    ],
+  });
+  assert.equal(r.status, 'unknown');
+});
+
+test('sent, every seed errored -> valid with placement-undetermined note', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: null, error: 'IMAP login failed' },
+      { label: 'Outlook', folder: null, error: 'connection reset' },
+    ],
+  });
+  assert.equal(r.status, 'valid');
+  assert.match(r.reason, /placement/i);
+});
+
+test('perSeed always echoes the passed seed array', () => {
+  const seeds = [{ label: 'Gmail', folder: 'inbox' }];
+  const r = classify({ connected: true, authenticated: true, sent: true, seeds });
+  assert.deepEqual(r.perSeed, seeds);
+});
