@@ -1,0 +1,29 @@
+{
+  "name": "smtp-tester",
+  "version": "1.0.0",
+  "description": "Batch-test bulk SMTP credentials: live/dead, valid, and inbox/spam placement via your own seed mailboxes.",
+  "type": "module",
+  "main": "src/main/index.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "dev": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0",
+    "imapflow": "^1.0.164",
+    "nodemailer": "^6.9.16"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "smtp-server": "^3.13.6"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
