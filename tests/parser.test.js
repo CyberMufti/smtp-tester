@@ -63,18 +63,17 @@ test('CSV quoted field keeps the comma inside the value', () => {
   assert.equal(records[0].pass, 'p,ass');
 });
 
-test('non-numeric port is a ParseError and does not appear in records; neighbors still parse', () => {
+test('host-first line with an invalid port is tolerated (port=null, to be resolved at test time)', () => {
   const input = [
     'good1.com:587:u1@x.com:p1',
     'bad.com:notaport:u@x.com:p',
     'good2.com:465:u2@x.com:p2',
   ].join('\n');
   const { records, errors } = parse(input);
-  assert.equal(records.length, 2);
-  assert.deepEqual(records.map((r) => r.host), ['good1.com', 'good2.com']);
-  assert.equal(errors.length, 1);
-  assert.equal(errors[0].line, 2);
-  assert.match(errors[0].reason, /port/i);
+  assert.equal(records.length, 3);
+  assert.equal(errors.length, 0);
+  assert.equal(records[1].host, 'bad.com');
+  assert.equal(records[1].port, null);
 });
 
 test('line with too few fields is a ParseError', () => {
@@ -166,6 +165,36 @@ test('key-value synonyms and = separator are recognized', () => {
   assert.equal(records[0].host, 'mail.acme.io');
   assert.equal(records[0].user, 'sender@acme.io');
   assert.equal(records[0].pass, 'key-xyz');
+});
+
+test('email:password with no host is accepted for a known provider (host/port null)', () => {
+  const { records, errors } = parse('someone@gmail.com:supersecret');
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0], { host: null, port: null, user: 'someone@gmail.com', pass: 'supersecret' });
+});
+
+test('email:password with an undetectable domain is a ParseError', () => {
+  const { records, errors } = parse('someone@madeup-xyz-domain.com:secret');
+  assert.equal(records.length, 0);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].reason, /host/i);
+});
+
+test('key-value block without a host is accepted for a known provider', () => {
+  const input = ['Email: me@gmail.com', 'Password: apppass1234'].join('\n');
+  const { records, errors } = parse(input);
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].host, null);
+  assert.equal(records[0].user, 'me@gmail.com');
+});
+
+test('reordered line with no numeric port anywhere is a ParseError', () => {
+  const { records, errors } = parse('u@x.com secret foo bar');
+  assert.equal(records.length, 0);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].reason, /port/i);
 });
 
 test('pipe-delimited password containing pipes keeps the original delimiter', () => {

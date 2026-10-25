@@ -21,9 +21,15 @@
  * Blank lines and lines beginning with `#` are ignored (outside KV blocks a
  * blank line is just a separator).
  *
- * @typedef {{host:string,port:number,user:string,pass:string,from?:string}} Credential
+ * A record may omit the host (and port) when the username is an email address
+ * at a known provider — the host/port are then resolved at test time. Such
+ * records carry `host: null` / `port: null`.
+ *
+ * @typedef {{host:(string|null),port:(number|null),user:string,pass:string,from?:string}} Credential
  * @typedef {{line:number,raw:string,reason:string}} ParseError
  */
+
+import { detectProvider } from './providers.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HOSTNAME_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z0-9-]+$/i;
@@ -120,20 +126,23 @@ function parseKeyValue(lines) {
 }
 
 function finalizeKv(fields, line, errors) {
-  for (const required of ['host', 'port', 'user', 'pass']) {
+  for (const required of ['user', 'pass']) {
     if (fields[required] === undefined) {
       errors.push({ line, raw: `block starting at line ${line}`, reason: `missing ${required}` });
       return null;
     }
   }
-  if (!isPort(fields.port)) {
-    errors.push({ line, raw: `block starting at line ${line}`, reason: `invalid port "${fields.port}"` });
+  // Host is optional when the username is a detectable provider email.
+  if (fields.host === undefined && !detectProvider(fields.user)) {
+    errors.push({
+      line,
+      raw: `block starting at line ${line}`,
+      reason: `missing host (and ${fields.user} is not a known provider)`,
+    });
     return null;
   }
-  /** @type {Credential} */
-  const rec = { host: fields.host, port: Number(fields.port), user: fields.user, pass: fields.pass };
-  if (fields.from) rec.from = fields.from;
-  return rec;
+  const port = isPort(fields.port) ? fields.port : null;
+  return cred(fields.host, port, fields.user, fields.pass, fields.from);
 }
 
 function parseDelimited(lines) {
@@ -195,18 +204,25 @@ function splitLine(line) {
  * as the host, with the rest becoming user/pass in order.
  */
 function buildRecord(fields, delim) {
+  // Just an email + password: host/port resolved at test time from the provider.
+  if (fields.length === 2 && EMAIL_RE.test(fields[0])) {
+    return userPassRecord(fields[0], fields[1]);
+  }
+
   if (fields.length < 4) {
-    return { error: `expected at least 4 fields (host, port, user, pass), got ${fields.length}` };
+    return { error: `expected host, port, user, pass — or just "email password" for a known provider` };
   }
 
-  // Standard positional order: host : port : user : pass [: from]
-  if (isPort(fields[1])) {
-    const [host, port, user, ...rest] = fields;
+  // Standard order when the first field is a hostname: host, port, user, pass.
+  // The port is tolerated even if malformed (resolved/retried at test time).
+  if (isHostname(fields[0])) {
+    const [host, portRaw, user, ...rest] = fields;
     const { pass, from } = splitPassFrom(rest, delim);
-    return { record: cred(host, port, user, pass, from) };
+    if (!user || !pass) return { error: `missing username or password` };
+    return { record: cred(host, isPort(portRaw) ? portRaw : null, user, pass, from) };
   }
 
-  // Role detection for reordered input.
+  // Reordered input: find the numeric field (port) and a hostname field.
   const portIdx = fields.findIndex(isPort);
   if (portIdx === -1) {
     return { error: `no numeric port field found` };
@@ -221,6 +237,19 @@ function buildRecord(fields, delim) {
   const user = rest[0];
   const { pass, from } = splitPassFrom(rest.slice(1), delim);
   return { record: cred(fields[hostIdx], fields[portIdx], user, pass, from) };
+}
+
+function isHostname(field) {
+  return HOSTNAME_RE.test(field) && !field.includes('@');
+}
+
+/** Build a host-less record from an email + password, if the provider is known. */
+function userPassRecord(user, pass) {
+  if (!pass) return { error: `missing password` };
+  if (!detectProvider(user)) {
+    return { error: `cannot determine SMTP host for ${user} — include host:port` };
+  }
+  return { record: cred(null, null, user, pass) };
 }
 
 /**
@@ -238,7 +267,12 @@ function splitPassFrom(rest, delim) {
 
 function cred(host, port, user, pass, from) {
   /** @type {Credential} */
-  const record = { host, port: Number(port), user, pass };
+  const record = {
+    host: host || null,
+    port: port === null || port === undefined || port === '' ? null : Number(port),
+    user,
+    pass,
+  };
   if (from) record.from = from;
   return record;
 }
