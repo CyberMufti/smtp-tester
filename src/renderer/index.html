@@ -44,6 +44,18 @@
           <span id="parse-errors" class="err-text"></span>
         </div>
 
+        <label class="field-label" for="manual-recipients">
+          Your test inboxes <span class="muted">(optional)</span> — one email per line. The tool sends a
+          uniquely tagged message to each so you can open your mailbox and confirm Inbox vs Spam yourself.
+          Addresses you've set up as IMAP seeds in Settings are also classified automatically.
+        </label>
+        <textarea
+          id="manual-recipients"
+          rows="2"
+          spellcheck="false"
+          placeholder="you@gmail.com&#10;you@outlook.com"
+        ></textarea>
+
         <div class="run-controls">
           <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
           <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
@@ -70,6 +82,7 @@
             <button id="btn-export-json" class="btn ghost" disabled>Export JSON</button>
           </div>
         </div>
+        <div id="summary" class="summary"></div>
         <div class="table-wrap">
           <table id="results-table">
             <thead>

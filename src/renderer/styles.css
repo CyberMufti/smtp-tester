@@ -108,6 +108,17 @@ label.btn { display: inline-flex; align-items: center; }
 }
 .chip-filter.active { background: var(--text); color: var(--panel); border-color: var(--text); }
 
+.field-label { display: block; margin: 14px 2px 6px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.summary:empty { display: none; }
+.summary-chip {
+  padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; color: #fff;
+}
+.summary-chip.summary-total { background: var(--text); color: var(--panel); }
+
+.note { color: var(--muted); font-size: 12px; }
+
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }

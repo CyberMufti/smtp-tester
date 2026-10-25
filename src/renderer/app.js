@@ -62,6 +62,11 @@ async function runBatch() {
   renderResults();
   setRunning(true);
 
+  const manualRecipients = $('#manual-recipients').value
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const opts = {
     concurrency: Number($('#opt-concurrency').value) || 5,
     connectTimeout: (settings?.connectTimeout) || 10000,
@@ -71,6 +76,7 @@ async function runBatch() {
     from: settings?.from || '',
     subjectTemplate: settings?.subjectTemplate,
     bodyTemplate: settings?.bodyTemplate,
+    manualRecipients,
   };
 
   const total = parsed.records.length;
@@ -112,6 +118,7 @@ $('#filters').addEventListener('click', (e) => {
 });
 
 function renderResults() {
+  renderSummary();
   const body = $('#results-body');
   const rows = results.filter((r) => activeFilter === 'all' || r.status === activeFilter);
   if (!rows.length) {
@@ -123,22 +130,60 @@ function renderResults() {
   body.innerHTML = rows.map(rowHtml).join('');
 }
 
+const SUMMARY_ORDER = [
+  ['inbox', 'Inbox'],
+  ['spam', 'Spam'],
+  ['valid', 'Valid'],
+  ['unknown', 'Unknown'],
+  ['dead', 'Dead'],
+];
+
+function renderSummary() {
+  const el = $('#summary');
+  if (!results.length) {
+    el.innerHTML = '';
+    return;
+  }
+  const counts = {};
+  for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
+  const chips = SUMMARY_ORDER.map(
+    ([key, label]) =>
+      `<span class="summary-chip status-${key}">${label}: ${counts[key] || 0}</span>`,
+  ).join('');
+  el.innerHTML = `${chips}<span class="summary-chip summary-total">Total: ${results.length}</span>`;
+}
+
 function rowHtml(r) {
+  const parts = [];
+
   const seedDetail = (r.perSeed || [])
     .map((s) => `<span class="seed-tag">${esc(s.label)}: <b>${s.error ? 'error' : s.folder || 'not found'}</b></span>`)
     .join('');
-  const detail = seedDetail || esc(r.reason || '');
+  if (seedDetail) parts.push(seedDetail);
+  else if (r.reason) parts.push(esc(r.reason));
+
+  if (r.triedFallback && r.usedHost) {
+    parts.push(`<span class="note">↳ connected via <b>${esc(r.usedHost)}:${esc(r.usedPort)}</b> (auto-detected)</span>`);
+  }
+  if (r.manualRecipients && r.manualRecipients.length && (r.status === 'valid' || r.status === 'inbox' || r.status === 'spam')) {
+    parts.push(
+      `<span class="note">✉ Check ${esc(r.manualRecipients.join(', '))} for subject containing <b class="mono">${esc(r.token)}</b></span>`,
+    );
+  }
+
+  const host = r.cred.host || (r.usedHost ? `${r.usedHost} (auto)` : 'auto-detect');
+  const port = r.cred.port || r.usedPort || '';
   return `<tr>
-    <td class="mono">${esc(r.cred.host)}:${esc(r.cred.port)}</td>
+    <td class="mono">${esc(host)}${port ? ':' + esc(port) : ''}</td>
     <td class="mono">${esc(r.cred.user)}</td>
     <td><span class="status-chip status-${r.status}">${statusLabel(r.status)}</span></td>
     <td>${r.latencyMs} ms</td>
-    <td class="detail">${detail}</td>
+    <td class="detail">${parts.join('<br>')}</td>
   </tr>`;
 }
 
 function statusLabel(s) {
-  return s === 'unknown' ? 'unknown' : s;
+  return s === 'unknown' ? 'unknown placement' : s;
 }
 
 // ---------- Export ----------

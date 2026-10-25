@@ -84,12 +84,23 @@ function toJson(results) {
 }
 
 function toCsv(results) {
-  const header = ['host', 'port', 'user', 'status', 'reason', 'latencyMs', 'placement'];
+  const header = ['host', 'port', 'user', 'status', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
   const rows = results.map((r) => {
     const placement = (r.perSeed || [])
       .map((s) => `${s.label}=${s.error ? 'error' : s.folder || 'not found'}`)
       .join('; ');
-    return [r.cred.host, r.cred.port, r.cred.user, r.status, r.reason, r.latencyMs, placement]
+    return [
+      r.cred.host || '(auto)',
+      r.cred.port || '',
+      r.cred.user,
+      r.status,
+      r.usedHost || '',
+      r.usedPort || '',
+      r.reason,
+      r.latencyMs,
+      placement,
+      r.token || '',
+    ]
       .map(csvCell)
       .join(',');
   });

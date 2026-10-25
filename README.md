@@ -66,6 +66,39 @@ Labels are matched by synonym (Host/Server/SMTP, Port, User/Login/Email,
 Password/Pwd/Key, From/Sender), case-insensitively. Lines starting with `#`
 are ignored.
 
+**Just an email + password** — for a known provider you can skip the host
+entirely; the app fills it in (see below):
+
+```
+someone@gmail.com:app-password
+someone@outlook.com password
+```
+
+## Auto host/port detection & fallback
+
+- **Missing host** — if you supply only `email:password` and the email is at a
+  recognized provider (Gmail, Outlook/Hotmail, Yahoo, iCloud, Zoho, AOL, GMX,
+  Yandex, Office 365, …), the app resolves the SMTP host and port for you.
+- **Wrong host or port** — the app always tries exactly what you typed **first**.
+  Only if that endpoint can't connect does it fall back to the known-correct
+  host/port for the provider before deciding the credential is dead. When a
+  fallback succeeds, the result shows which endpoint actually worked.
+
+AWS SES is region-specific (`email-smtp.<region>.amazonaws.com`) and can't be
+auto-detected — supply its host explicitly.
+
+## Verifying placement yourself
+
+On the Test screen there's a **Your test inboxes** box. Enter one or more of
+your own email addresses; the app sends each credential's uniquely-tagged test
+message to them. Each result row shows the unique token, so you can open your
+mailbox, search for that token, and confirm Inbox vs Spam with your own eyes —
+no IMAP setup required. (If an address is also configured as an IMAP seed in
+Settings, the app classifies it automatically too.)
+
+The results header shows a **live count** of Inbox / Spam / Valid / Unknown /
+Dead as the batch runs.
+
 ## Setting up seed mailboxes
 
 Placement testing needs at least one mailbox you control, configured in
