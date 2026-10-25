@@ -39,7 +39,12 @@ async function testOne(cred, index, seeds, opts, smtp, imap) {
     else if (!v.authenticated) step.authError = v.error;
 
     if (v.connected && v.authenticated) {
-      const recipients = seeds.length > 0 ? seeds.map((s) => s.address) : [opts.from || cred.from || cred.user];
+      // Only seeds with a real address can receive mail or be searched.
+      const activeSeeds = seeds.filter((s) => s.address && String(s.address).trim());
+      const recipients =
+        activeSeeds.length > 0
+          ? activeSeeds.map((s) => s.address)
+          : [opts.from || cred.from || cred.user];
       const sendRes = await smtp.send(cred, {
         to: recipients.join(', '),
         from: opts.from || cred.from || cred.user,
@@ -50,9 +55,9 @@ async function testOne(cred, index, seeds, opts, smtp, imap) {
       step.sent = (sendRes.accepted?.length ?? 0) > 0;
       if (!step.sent) step.sendError = sendRes.error || 'message not accepted by server';
 
-      if (step.sent && seeds.length > 0) {
+      if (step.sent && activeSeeds.length > 0) {
         step.seeds = await Promise.all(
-          seeds.map(async (seed) => {
+          activeSeeds.map(async (seed) => {
             const found = await imap.findToken(seed, token, {
               timeoutMs: opts.placementTimeoutMs,
               pollIntervalMs: opts.pollIntervalMs,

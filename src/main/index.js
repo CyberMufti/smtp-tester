@@ -22,7 +22,7 @@ function createWindow() {
       preload: join(__dirname, '..', 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // preload uses ESM import of nothing privileged; keep false for require-less preload
+      sandbox: true,
     },
   });
   mainWindow.removeMenu?.();

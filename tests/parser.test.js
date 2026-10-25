@@ -46,6 +46,18 @@ test('colon-format password may contain colons (split caps at 4 fields)', () => 
   assert.equal(records[0].from, undefined);
 });
 
+test('colon-format password with a SINGLE embedded colon is not split into a bogus from', () => {
+  const { records } = parse('smtp.x.com:587:u@x.com:pa:ss');
+  assert.equal(records[0].pass, 'pa:ss');
+  assert.equal(records[0].from, undefined);
+});
+
+test('colon-format 5th field is only treated as from when it is a recognizable email', () => {
+  const { records } = parse('smtp.example.com:587:user@example.com:secret:from@example.com');
+  assert.equal(records[0].pass, 'secret');
+  assert.equal(records[0].from, 'from@example.com');
+});
+
 test('CSV quoted field keeps the comma inside the value', () => {
   const { records } = parse('smtp.x.com,587,u@x.com,"p,ass"');
   assert.equal(records[0].pass, 'p,ass');

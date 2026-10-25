@@ -50,7 +50,9 @@ function makeClient(seed) {
     secure: (seed.imapPort || 993) === 993,
     auth: { user: seed.imapUser, pass: seed.imapPassword },
     logger: false,
-    tls: { rejectUnauthorized: false },
+    // Seed mailboxes are well-known providers with valid certificates; keep
+    // certificate verification ON so the user's app-password can't be captured
+    // by a man-in-the-middle on the IMAP connection.
   });
 }
 

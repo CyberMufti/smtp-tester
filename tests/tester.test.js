@@ -92,6 +92,25 @@ test('pipeline short-circuits: not-authenticated skips send and findToken', asyn
   assert.equal(findCalled, false);
 });
 
+test('a seed without an address does not inject "undefined" into the recipient list', async () => {
+  let sentTo = null;
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { sentTo = opts.to; return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const seeds = [
+    { label: 'Good', address: 'good@x.com' },
+    { label: 'Missing' }, // no address
+  ];
+  await runBatch(makeCreds(1), seeds, { concurrency: 1, deps });
+  assert.ok(sentTo, 'send should have been called');
+  // Only the valid address — no trailing blank or "undefined" recipient.
+  assert.equal(sentTo, 'good@x.com');
+});
+
 test('token passed to send and findToken matches and is unique per credential', async () => {
   const sendTokens = [];
   const findTokens = [];

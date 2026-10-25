@@ -21,6 +21,8 @@
  * @typedef {{line:number,raw:string,reason:string}} ParseError
  */
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /** @returns {{records: Credential[], errors: ParseError[]}} */
 export function parse(text) {
   const records = [];
@@ -77,11 +79,18 @@ function splitLine(line) {
   if (!delimiter) throw new Error('no recognized delimiter (expected : , or |)');
 
   const parts = line.split(delimiter);
-  if (parts.length <= 5) return parts.map((p) => p.trim());
+  if (parts.length <= 4) return parts.map((p) => p.trim());
 
-  // Cap at 5: fields 1-4 are host/port/user, then the rest rejoin as pass.
-  // (host, port, user, pass-with-delimiters). No `from` in this overflow case.
+  // 5+ fields: host, port, user are fixed; everything after is the password,
+  // which may itself contain the delimiter. A trailing field is only treated
+  // as `from` when it is a recognizable email — otherwise it stays in the
+  // password (so a password like "pa:ss" is not corrupted into pass+from).
   const [host, port, user, ...rest] = parts;
+  const last = rest[rest.length - 1].trim();
+  if (rest.length >= 2 && EMAIL_RE.test(last)) {
+    const pass = rest.slice(0, -1).join(delimiter);
+    return [host.trim(), port.trim(), user.trim(), pass, last];
+  }
   return [host.trim(), port.trim(), user.trim(), rest.join(delimiter)];
 }
 
