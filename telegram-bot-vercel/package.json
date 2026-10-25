@@ -1,0 +1,7 @@
+{
+  "name": "smtp-tester-license-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram license-activation webhook for SMTP Tester (Vercel serverless)."
+}
