@@ -111,6 +111,84 @@ test('a seed without an address does not inject "undefined" into the recipient l
   assert.equal(sentTo, 'good@x.com');
 });
 
+test('tries the input host first, falls back to the detected host, and records which worked', async () => {
+  const verifyCalls = [];
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        verifyCalls.push(`${cred.host}:${cred.port}`);
+        // The user's typed host is wrong; the detected Gmail host works.
+        if (cred.host === 'wrong.host.com') return { connected: false, error: 'ECONNREFUSED' };
+        if (cred.host === 'smtp.gmail.com') return { connected: true, authenticated: true };
+        return { connected: false, error: 'ECONNREFUSED' };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const creds = [{ host: 'wrong.host.com', port: 587, user: 'me@gmail.com', pass: 'x' }];
+  const [result] = await runBatch(creds, [], { concurrency: 1, deps });
+  // Input tried before the detected fallback.
+  assert.equal(verifyCalls[0], 'wrong.host.com:587');
+  assert.ok(verifyCalls.includes('smtp.gmail.com:587'));
+  assert.equal(result.status, 'valid');
+  assert.equal(result.usedHost, 'smtp.gmail.com');
+  assert.equal(result.triedFallback, true);
+});
+
+test('a host-less credential is resolved entirely from the provider', async () => {
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        return cred.host === 'smtp.gmail.com'
+          ? { connected: true, authenticated: true }
+          : { connected: false, error: 'no' };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const creds = [{ host: null, port: null, user: 'me@gmail.com', pass: 'x' }];
+  const [result] = await runBatch(creds, [], { concurrency: 1, deps });
+  assert.equal(result.status, 'valid');
+  assert.equal(result.usedHost, 'smtp.gmail.com');
+});
+
+test('a credential with no connectable candidate is dead (could not connect)', async () => {
+  const deps = {
+    smtp: {
+      async verify() { return { connected: false, error: 'ECONNREFUSED' }; },
+      async send() { return { accepted: [] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  const creds = [{ host: 'nope.example.com', port: 587, user: 'u@unknownxyz.com', pass: 'x' }];
+  const [result] = await runBatch(creds, [], { concurrency: 1, deps });
+  assert.equal(result.status, 'dead');
+});
+
+test('manual recipient emails are included in the send and surfaced on the result', async () => {
+  let sentTo = null;
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { sentTo = opts.to; return { accepted: opts.to.split(', ') }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const creds = [{ host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'p' }];
+  const [result] = await runBatch(creds, [], {
+    concurrency: 1,
+    deps,
+    manualRecipients: ['check1@gmail.com', 'check2@outlook.com'],
+  });
+  assert.ok(sentTo.includes('check1@gmail.com'));
+  assert.ok(sentTo.includes('check2@outlook.com'));
+  // The result carries the token so the user can search their inbox.
+  assert.ok(result.token && result.token.startsWith('SMTPTEST-'));
+  assert.deepEqual(result.manualRecipients, ['check1@gmail.com', 'check2@outlook.com']);
+});
+
 test('token passed to send and findToken matches and is unique per credential', async () => {
   const sendTokens = [];
   const findTokens = [];
