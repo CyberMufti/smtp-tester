@@ -1,4 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import electronUpdater from 'electron-updater';
+
+const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
@@ -63,6 +66,12 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+  // Check the public releases repo for a newer version, download it, and notify;
+  // it installs on quit. Packaged builds only (no-op in dev), never fatal.
+  if (app.isPackaged) {
+    autoUpdater.on('error', (e) => recordCrash('autoUpdater', e));
+    autoUpdater.checkForUpdatesAndNotify().catch((e) => recordCrash('autoUpdater', e));
+  }
 });
 
 app.on('window-all-closed', () => {

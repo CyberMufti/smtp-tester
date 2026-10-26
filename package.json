@@ -1,6 +1,6 @@
 {
   "name": "smtp-tester",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Batch-test bulk SMTP credentials: live/dead, valid, and inbox/spam placement via your own seed mailboxes.",
   "author": "SMTP Tester",
   "type": "module",
@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "electron-store": "^10.0.0",
+    "electron-updater": "^6.8.11",
     "imapflow": "^1.0.164",
     "nodemailer": "^6.9.16",
     "socks": "^2.8.10"

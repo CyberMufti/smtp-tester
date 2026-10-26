@@ -36,10 +36,20 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build ${{ matrix.platform }}
-        run: npx electron-builder --${{ matrix.platform }} --publish never
+      # Build and publish to the public downloads repo. --publish always uploads
+      # the installer AND the auto-update metadata (latest.yml / latest-mac.yml +
+      # blockmaps) to a release tagged with the package version, so electron-updater
+      # can detect and fetch new versions. Falls back to a no-publish build when
+      # the token isn't configured.
+      - name: Build & publish ${{ matrix.platform }}
+        if: ${{ env.DOWNLOADS_TOKEN != '' }}
+        run: npx electron-builder --${{ matrix.platform }} --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+
+      - name: Build ${{ matrix.platform }} (no publish)
+        if: ${{ env.DOWNLOADS_TOKEN == '' }}
+        run: npx electron-builder --${{ matrix.platform }} --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
@@ -50,15 +60,3 @@ jobs:
             dist/*.zip
             dist/*.exe
           if-no-files-found: ignore
-
-      - name: Publish installer to public downloads release
-        if: ${{ env.DOWNLOADS_TOKEN != '' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
-        run: |
-          for f in dist/*.exe dist/*.dmg; do
-            [ -e "$f" ] || continue
-            echo "Publishing $f"
-            gh release upload v1.0.0 "$f" --clobber --repo CyberMufti/smtp-tester-downloads
-          done

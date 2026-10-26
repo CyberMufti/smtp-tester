@@ -2,6 +2,13 @@ appId: com.smtptester.app
 productName: SMTP Tester
 directories:
   output: dist
+# Auto-update feed + release target: the public downloads repo, so the app can
+# check for updates with no authentication.
+publish:
+  provider: github
+  owner: CyberMufti
+  repo: smtp-tester-downloads
+  releaseType: release
 files:
   - src/**/*
   - package.json
