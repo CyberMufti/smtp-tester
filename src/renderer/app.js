@@ -107,8 +107,13 @@ function setRunning(on) {
 }
 
 // Cap how many rows live in the DOM so very large runs stay snappy. Every
-// result is still kept in `results` for counts and exports.
-const ROW_CAP = 500;
+// result is still kept in `results` for counts and exports. Configurable.
+function currentRowCap() {
+  const v = $('#opt-rowcap')?.value;
+  return v === 'all' ? Infinity : Number(v) || 500;
+}
+
+$('#opt-rowcap').addEventListener('change', renderResults);
 
 api.onProgress(({ result }) => {
   results.push(result);
@@ -130,16 +135,18 @@ function appendResultRow(r) {
   const empty = body.querySelector('.empty-row');
   if (empty) empty.remove();
   body.insertAdjacentHTML('beforeend', rowHtml(r));
-  // Keep only the newest ROW_CAP rows in the DOM.
-  while (body.children.length > ROW_CAP) body.removeChild(body.firstElementChild);
+  // Keep only the newest N rows in the DOM.
+  const cap = currentRowCap();
+  while (body.children.length > cap) body.removeChild(body.firstElementChild);
 }
 
 function renderRowsNote() {
   const el = $('#rows-note');
   if (!el) return;
+  const cap = currentRowCap();
   el.textContent =
-    results.length > ROW_CAP
-      ? `Showing the newest ${ROW_CAP} rows of ${results.length} — all ${results.length} are included in exports and the counts above.`
+    results.length > cap
+      ? `Showing the newest ${cap} rows of ${results.length} — all ${results.length} are included in exports and the counts above.`
       : '';
 }
 api.onDone(() => {
@@ -168,8 +175,9 @@ function renderResults() {
     }</td></tr>`;
     return;
   }
-  // Render only the newest ROW_CAP matching rows to keep the DOM light.
-  body.innerHTML = rows.slice(-ROW_CAP).map(rowHtml).join('');
+  // Render only the newest N matching rows to keep the DOM light.
+  const cap = currentRowCap();
+  body.innerHTML = (cap === Infinity ? rows : rows.slice(-cap)).map(rowHtml).join('');
 }
 
 const SUMMARY_ORDER = [
@@ -353,6 +361,7 @@ function collectSettings() {
     pollIntervalMs: (Number($('#set-poll').value) || 5) * 1000,
     concurrency: Number($('#opt-concurrency').value) || 5,
     placementTimeoutMs: (Number($('#opt-timeout').value) || 90) * 1000,
+    rowCap: $('#opt-rowcap').value,
     seeds: $$('.seed-card').map(readSeedRow),
   };
 }
@@ -380,6 +389,7 @@ function applySettingsToForm() {
   $('#set-poll').value = Math.round((settings.pollIntervalMs || 5000) / 1000);
   $('#opt-concurrency').value = settings.concurrency || 5;
   $('#opt-timeout').value = Math.round((settings.placementTimeoutMs || 90000) / 1000);
+  $('#opt-rowcap').value = settings.rowCap || '500';
   seedsList.innerHTML = '';
   (settings.seeds || []).forEach(addSeedRow);
   updateSeedNote();

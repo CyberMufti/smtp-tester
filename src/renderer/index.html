@@ -89,6 +89,14 @@
         <div class="run-controls">
           <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
           <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
+          <label>Show rows
+            <select id="opt-rowcap">
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+              <option value="2000">2000</option>
+              <option value="all">All</option>
+            </select>
+          </label>
           <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
           <span id="seed-note" class="muted"></span>
           <div class="spacer"></div>

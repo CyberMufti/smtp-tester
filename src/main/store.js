@@ -22,6 +22,7 @@ export function defaultSettings() {
     placementTimeoutMs: 90000,
     pollIntervalMs: 5000,
     from: '',
+    rowCap: '500',
     subjectTemplate: 'SMTP deliverability test {token}',
     bodyTemplate:
       'This is an automated SMTP deliverability test.\n\nToken: {token}\n\nYou can safely ignore this message.',
