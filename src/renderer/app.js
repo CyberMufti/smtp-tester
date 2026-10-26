@@ -491,24 +491,47 @@ $('#relay-test').addEventListener('click', async () => {
     placementTimeoutMs: (settings?.placementTimeoutMs) || 90000,
     pollIntervalMs: (settings?.pollIntervalMs) || 5000,
   });
+  out.innerHTML = relayResultHtml(res, { placement: true });
+});
+
+$('#relay-check').addEventListener('click', async () => {
+  const out = $('#relay-result');
+  const from = $('#relay-from').value.trim();
+  const host = $('#relay-host').value.trim();
+  const port = Number($('#relay-port').value) || 587;
+  if (!from || !host) {
+    out.innerHTML = '<p class="err-text">Enter your From address and relay host first.</p>';
+    return;
+  }
+  out.innerHTML = '<p class="muted">Re-reading your IP and probing the relay…</p>';
+  const ip = await api.getPublicIp();
+  $('#relay-ip').textContent = ip.ip || `unknown (${ip.error || 'no network'})`;
+  // Probe authorization from this connection by sending a tiny message to self.
+  const res = await api.relayTest({ host, port, from, recipients: [from], seeds: [] });
+  out.innerHTML =
+    `<p class="muted">Tested from IP <b class="mono">${esc(ip.ip || '?')}</b></p>` +
+    relayResultHtml(res, { placement: false });
+});
+
+function relayResultHtml(res, { placement }) {
   const accepted = res.accepted && res.accepted.length;
   const lines = [];
   if (accepted) {
-    lines.push(`<span class="score-badge score-low">Relay accepted (no auth) — your IP is authorized ✓</span>`);
+    lines.push(`<span class="score-badge score-low">Relay accepted (no auth) — this connection's IP is authorized ✓</span>`);
     lines.push(`<p>Accepted for: ${esc(res.accepted.join(', '))}</p>`);
   } else {
-    lines.push(`<span class="score-badge score-high">Relay did NOT accept</span>`);
+    lines.push(`<span class="score-badge score-high">Relay did NOT accept from this connection</span>`);
     lines.push(`<p class="err-text">${esc(res.error || 'rejected')}</p>`);
-    lines.push(`<p class="muted">If this says relay/auth denied, add your IP above to the relay's allow-list (Workspace: Apps → Google Workspace → Gmail → Routing → SMTP relay service; 365: connector / direct send).</p>`);
+    lines.push(`<p class="muted">If this says relay/auth denied, allow-list the IP above (Workspace: Apps → Google Workspace → Gmail → Routing → SMTP relay service; 365: connector / direct send).</p>`);
   }
   if (res.response) lines.push(`<p class="note mono">Server: ${esc(res.response)}</p>`);
-  if (res.perSeed && res.perSeed.length) {
+  if (placement && res.perSeed && res.perSeed.length) {
     lines.push('<p>Placement: ' + res.perSeed.map((s) => `${esc(s.label)}=<b>${s.error ? 'error' : s.folder || 'not found'}</b>`).join(', ') + '</p>');
-  } else if (accepted) {
+  } else if (placement && accepted) {
     lines.push(`<p class="note">Check your inbox for subject containing <b class="mono">${esc(res.token)}</b> to confirm inbox vs spam.</p>`);
   }
-  out.innerHTML = lines.join('');
-});
+  return lines.join('');
+}
 
 async function initRelay() {
   applyRelayProvider();

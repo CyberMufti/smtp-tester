@@ -158,8 +158,12 @@
           works for domains and relays you administer.
         </p>
         <div class="ip-box">
-          Your current public IP: <b id="relay-ip" class="mono">checking…</b>
-          <span class="muted">— allow-list this IP in your Workspace/365 relay settings.</span>
+          <div>Your current public IP: <b id="relay-ip" class="mono">checking…</b>
+            <span class="muted">— allow-list this IP in your Workspace/365 relay settings.</span></div>
+          <div class="run-controls" style="margin-top:10px">
+            <button id="relay-check" class="btn ghost">Check this connection now</button>
+            <span class="muted">Re-reads your IP (after connecting a VPN) and tests if the relay accepts mail from here.</span>
+          </div>
         </div>
 
         <div class="form-grid">
