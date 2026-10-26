@@ -5,8 +5,8 @@ import { writeFile } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
-import { verifySeed, findToken } from '../core/imap.js';
-import { sendViaRelay, buildProxyUrl } from '../core/smtp.js';
+import { verifySeed } from '../core/imap.js';
+import { buildProxyUrl } from '../core/smtp.js';
 import { scoreContent } from '../core/spamscore.js';
 import { toWorkingTxt } from '../core/export.js';
 import { getHwid } from '../core/hwid.js';
@@ -120,42 +120,6 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
-
-// Your public IP — so you can allow-list it on your Workspace/365 relay.
-ipcMain.handle('relay:myip', async () => {
-  try {
-    const r = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(6000) });
-    return { ip: (await r.text()).trim() };
-  } catch (err) {
-    return { error: err.message };
-  }
-});
-
-// Test an IP-authorized relay (no auth) you control, and report placement.
-ipcMain.handle('relay:test', async (_e, { host, port, from, recipients, seeds, placementTimeoutMs, pollIntervalMs, proxyConfig }) => {
-  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const token = `SMTPTEST-RELAY-${stamp}`;
-  const res = await sendViaRelay(host, Number(port), {
-    to: (recipients || []).join(', '),
-    from,
-    subject: `SMTP relay test ${token}`,
-    text: `Automated relay test. Token: ${token}`,
-    connectTimeout: 20000,
-    proxy: proxyUrlFrom(proxyConfig),
-  });
-
-  const perSeed = [];
-  if (res.accepted?.length && Array.isArray(seeds)) {
-    for (const seed of seeds.filter((s) => s.address && s.imapHost)) {
-      const found = await findToken(seed, token, {
-        timeoutMs: placementTimeoutMs || 90000,
-        pollIntervalMs: pollIntervalMs || 5000,
-      });
-      perSeed.push({ label: seed.label, folder: found.folder, error: found.error });
-    }
-  }
-  return { ...res, perSeed, token };
-});
 
 ipcMain.handle('batch:cancel', async () => {
   currentAbort?.abort();

@@ -1,5 +1,4 @@
 import { parse } from '../core/parser.js';
-import { office365RelayHost, domainOf } from '../core/providers.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -467,99 +466,6 @@ async function enforceLicense() {
   return false;
 }
 
-// ---------- Relay (no-auth) ----------
-function applyRelayProvider() {
-  const provider = $('#relay-provider').value;
-  const host = $('#relay-host');
-  const port = $('#relay-port');
-  if (provider === 'gmail') {
-    host.value = 'smtp-relay.gmail.com';
-    port.value = 587;
-    host.readOnly = true;
-  } else if (provider === 'o365') {
-    const domain = domainOf($('#relay-from').value) || '';
-    host.value = domain ? office365RelayHost(domain) : '';
-    port.value = 25;
-    host.readOnly = true;
-  } else {
-    host.readOnly = false;
-  }
-}
-$('#relay-provider').addEventListener('change', applyRelayProvider);
-$('#relay-from').addEventListener('input', () => {
-  if ($('#relay-provider').value === 'o365') applyRelayProvider();
-});
-
-$('#relay-test').addEventListener('click', async () => {
-  const out = $('#relay-result');
-  const recipients = $('#relay-recipients').value.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
-  const from = $('#relay-from').value.trim();
-  const host = $('#relay-host').value.trim();
-  const port = Number($('#relay-port').value) || 587;
-  if (!from || !host || !recipients.length) {
-    out.innerHTML = '<p class="err-text">Fill in the From address, relay host, and at least one recipient.</p>';
-    return;
-  }
-  out.innerHTML = '<p class="muted">Sending…</p>';
-  const res = await api.relayTest({
-    host,
-    port,
-    from,
-    recipients,
-    seeds: (settings?.seeds || []).filter((s) => recipients.includes(s.address)),
-    placementTimeoutMs: (settings?.placementTimeoutMs) || 90000,
-    pollIntervalMs: (settings?.pollIntervalMs) || 5000,
-    proxyConfig: settings?.proxy,
-  });
-  out.innerHTML = relayResultHtml(res, { placement: true });
-});
-
-$('#relay-check').addEventListener('click', async () => {
-  const out = $('#relay-result');
-  const from = $('#relay-from').value.trim();
-  const host = $('#relay-host').value.trim();
-  const port = Number($('#relay-port').value) || 587;
-  if (!from || !host) {
-    out.innerHTML = '<p class="err-text">Enter your From address and relay host first.</p>';
-    return;
-  }
-  out.innerHTML = '<p class="muted">Re-reading your IP and probing the relay…</p>';
-  const ip = await api.getPublicIp();
-  $('#relay-ip').textContent = ip.ip || `unknown (${ip.error || 'no network'})`;
-  // Probe authorization from this connection by sending a tiny message to self.
-  const res = await api.relayTest({ host, port, from, recipients: [from], seeds: [], proxyConfig: settings?.proxy });
-  const via = settings?.proxy?.enabled ? ` (via proxy ${esc(settings.proxy.host)})` : '';
-  out.innerHTML =
-    `<p class="muted">Tested from IP <b class="mono">${esc(ip.ip || '?')}</b>${via}</p>` +
-    relayResultHtml(res, { placement: false });
-});
-
-function relayResultHtml(res, { placement }) {
-  const accepted = res.accepted && res.accepted.length;
-  const lines = [];
-  if (accepted) {
-    lines.push(`<span class="score-badge score-low">Relay accepted (no auth) — this connection's IP is authorized ✓</span>`);
-    lines.push(`<p>Accepted for: ${esc(res.accepted.join(', '))}</p>`);
-  } else {
-    lines.push(`<span class="score-badge score-high">Relay did NOT accept from this connection</span>`);
-    lines.push(`<p class="err-text">${esc(res.error || 'rejected')}</p>`);
-    lines.push(`<p class="muted">If this says relay/auth denied, allow-list the IP above (Workspace: Apps → Google Workspace → Gmail → Routing → SMTP relay service; 365: connector / direct send).</p>`);
-  }
-  if (res.response) lines.push(`<p class="note mono">Server: ${esc(res.response)}</p>`);
-  if (placement && res.perSeed && res.perSeed.length) {
-    lines.push('<p>Placement: ' + res.perSeed.map((s) => `${esc(s.label)}=<b>${s.error ? 'error' : s.folder || 'not found'}</b>`).join(', ') + '</p>');
-  } else if (placement && accepted) {
-    lines.push(`<p class="note">Check your inbox for subject containing <b class="mono">${esc(res.token)}</b> to confirm inbox vs spam.</p>`);
-  }
-  return lines.join('');
-}
-
-async function initRelay() {
-  applyRelayProvider();
-  const ip = await api.getPublicIp();
-  $('#relay-ip').textContent = ip.ip || `unknown (${ip.error || 'no network'})`;
-}
-
 // ---------- Boot ----------
 let appStarted = false;
 async function startApp() {
@@ -568,7 +474,6 @@ async function startApp() {
   settings = await api.getSettings();
   applySettingsToForm();
   refreshParse();
-  initRelay();
 }
 
 (async function init() {

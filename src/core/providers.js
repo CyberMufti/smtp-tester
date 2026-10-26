@@ -44,17 +44,6 @@ export function detectProvider(emailOrDomain) {
   return domain ? PROVIDERS[domain] || null : null;
 }
 
-/**
- * Microsoft 365's per-tenant relay endpoint (used for direct send / SMTP relay
- * connectors, IP-authorized, no password): `domain-com.mail.protection.outlook.com`.
- * @param {string} domain e.g. "example.com"
- * @returns {string|null}
- */
-export function office365RelayHost(domain) {
-  const d = String(domain || '').trim().toLowerCase();
-  return d ? `${d.replace(/\./g, '-')}.mail.protection.outlook.com` : null;
-}
-
 /** Extract the lowercased domain from an email address, or null. */
 export function domainOf(email) {
   if (!email || typeof email !== 'string') return null;

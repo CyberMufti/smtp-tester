@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { SMTPServer } from 'smtp-server';
-import { verify, send, sendViaRelay, buildProxyUrl } from '../src/core/smtp.js';
+import { verify, send, buildProxyUrl } from '../src/core/smtp.js';
 
 /** Start an SMTPServer that accepts user "good"/"pass"; return { server, port }. */
 function startServer(onData) {
@@ -75,32 +75,6 @@ test('buildProxyUrl builds a socks5 URL, with and without credentials', () => {
   );
   assert.equal(buildProxyUrl({ host: '', port: 1080 }), null);
   assert.equal(buildProxyUrl(null), null);
-});
-
-test('sendViaRelay sends with no authentication to an open relay and reports acceptance', async () => {
-  // A relay that accepts mail without auth (IP-authorized, like a configured
-  // Workspace/365 relay from an allow-listed IP).
-  const relay = await new Promise((resolve) => {
-    const server = new SMTPServer({
-      authOptional: true,
-      disabledCommands: ['STARTTLS', 'AUTH'],
-      onData(stream, _s, cb) { stream.on('data', () => {}); stream.on('end', cb); },
-    });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.server.address().port }));
-  });
-  try {
-    const res = await sendViaRelay('127.0.0.1', relay.port, {
-      to: 'dest@example.com',
-      from: 'me@mydomain.com',
-      subject: 'relay test',
-      text: 'hi',
-      connectTimeout: 5000,
-    });
-    assert.ok(res.accepted.includes('dest@example.com'));
-    assert.ok(!res.error);
-  } finally {
-    relay.server.close();
-  }
 });
 
 test('send delivers to the accepting server and reports accepted recipient', async () => {
