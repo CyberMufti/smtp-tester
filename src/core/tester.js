@@ -49,6 +49,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let usedHost = null;
   let usedPort = null;
   let triedFallback = false;
+  const attempts = [];
 
   try {
     // For a host-less credential on an unknown (custom) domain, actively
@@ -90,17 +91,24 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       if (authFailedHosts.has(cand.host)) continue;
       const effective = { ...cred, host: cand.host, port: cand.port };
       const v = await smtp.verify(effective, { connectTimeout: opts.connectTimeout });
+      const record = { host: cand.host, port: cand.port, source: cand.source };
       if (v.connected && v.authenticated) {
+        record.outcome = 'ok';
+        attempts.push(record);
         working = cand;
         triedFallback = i > 0;
         break;
       }
       if (v.connected) {
+        record.outcome = `auth rejected${v.error ? ` (${v.error})` : ''}`;
+        attempts.push(record);
         anyConnected = true;
         authError = v.error;
         authFailedHosts.add(cand.host);
         continue;
       }
+      record.outcome = v.error || 'could not connect';
+      attempts.push(record);
       lastConnectError = v.error;
     }
 
@@ -172,6 +180,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     usedPort,
     triedFallback,
     manualRecipients,
+    attempts,
   };
 
   const deliverability = await runChecks(cred, usedHost, opts, ctx);

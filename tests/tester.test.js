@@ -249,6 +249,29 @@ test('manual recipient emails are included in the send and surfaced on the resul
   assert.deepEqual(result.manualRecipients, ['check1@gmail.com', 'check2@outlook.com']);
 });
 
+test('records each host/port attempted and its outcome', async () => {
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        if (cred.port === 465) return { connected: true, authenticated: true };
+        return { connected: false, error: 'ECONNREFUSED' };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  // Input host with a wrong port; candidates become 2525, 587, 465 on that host.
+  const [r] = await runBatch([{ host: 'multi.com', port: 2525, user: 'u@multi.com', pass: 'p' }], [], {
+    concurrency: 1,
+    deps,
+  });
+  assert.ok(Array.isArray(r.attempts));
+  assert.equal(r.attempts.length, 3);
+  assert.deepEqual(r.attempts.map((a) => a.port), [2525, 587, 465]);
+  assert.equal(r.attempts[2].outcome, 'ok');
+  assert.match(r.attempts[0].outcome, /ECONNREFUSED/i);
+});
+
 test('deliverability checks populate SPF/DMARC, DNSBL and spam score when enabled', async () => {
   const deps = {
     smtp: {

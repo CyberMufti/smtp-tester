@@ -189,6 +189,15 @@ function rowHtml(r) {
     );
   }
 
+  if ((r.status === 'dead' || r.status === 'unknown') && r.attempts && r.attempts.length) {
+    const list = r.attempts
+      .map((a) => `${esc(a.host)}:${esc(a.port)} — ${esc(a.outcome)}`)
+      .join('<br>');
+    parts.push(
+      `<details class="tried"><summary>Tried ${r.attempts.length} endpoint${r.attempts.length === 1 ? '' : 's'}</summary>${list}</details>`,
+    );
+  }
+
   const deliv = deliverabilityBadges(r);
   if (deliv) parts.push(deliv);
   const seedAuth = (r.perSeed || [])

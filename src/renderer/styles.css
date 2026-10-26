@@ -118,6 +118,9 @@ label.btn { display: inline-flex; align-items: center; }
 .summary-chip.summary-total { background: var(--text); color: var(--panel); }
 
 .note { color: var(--muted); font-size: 12px; }
+.tried { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.tried summary { cursor: pointer; color: var(--st-unknown); }
+.tried { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .checkbox { gap: 6px !important; }
 .checkbox input { width: auto; }
