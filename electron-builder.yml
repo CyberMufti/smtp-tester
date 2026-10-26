@@ -7,11 +7,19 @@ files:
   - package.json
   - "!**/*.map"
 mac:
-  target:
-    - dmg
-    - zip
+  artifactName: SMTP-Tester-${version}-${arch}.${ext}
   category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
 win:
+  artifactName: SMTP-Tester-Setup-${version}.${ext}
   target:
     - nsis
 nsis:
