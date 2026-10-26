@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { SMTPServer } from 'smtp-server';
-import { verify, send, sendViaRelay } from '../src/core/smtp.js';
+import { verify, send, sendViaRelay, buildProxyUrl } from '../src/core/smtp.js';
 
 /** Start an SMTPServer that accepts user "good"/"pass"; return { server, port }. */
 function startServer(onData) {
@@ -60,6 +60,21 @@ test('verify reports connected=false when nothing is listening', async () => {
   );
   assert.equal(res.connected, false);
   assert.ok(res.error);
+});
+
+test('buildProxyUrl builds a socks5 URL, with and without credentials', () => {
+  assert.equal(buildProxyUrl({ host: '1.2.3.4', port: 1080 }), 'socks5://1.2.3.4:1080');
+  assert.equal(
+    buildProxyUrl({ host: 'proxy.example.com', port: 1080, user: 'u', pass: 'p' }),
+    'socks5://u:p@proxy.example.com:1080',
+  );
+  // special characters in credentials are URL-encoded
+  assert.equal(
+    buildProxyUrl({ host: 'h', port: 1080, user: 'a@b', pass: 'p:s@w' }),
+    'socks5://a%40b:p%3As%40w@h:1080',
+  );
+  assert.equal(buildProxyUrl({ host: '', port: 1080 }), null);
+  assert.equal(buildProxyUrl(null), null);
 });
 
 test('sendViaRelay sends with no authentication to an open relay and reports acceptance', async () => {

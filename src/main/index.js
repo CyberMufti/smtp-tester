@@ -6,7 +6,7 @@ import { appendFileSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { verifySeed, findToken } from '../core/imap.js';
-import { sendViaRelay } from '../core/smtp.js';
+import { sendViaRelay, buildProxyUrl } from '../core/smtp.js';
 import { scoreContent } from '../core/spamscore.js';
 import { toWorkingTxt } from '../core/export.js';
 import { getHwid } from '../core/hwid.js';
@@ -16,6 +16,11 @@ import { loadSettings, saveSettings, getLicenseKey, setLicenseKey } from './stor
 
 const dns = { resolveTxt, resolve4, resolveMx, resolveSrv };
 const TELEGRAM = '@splean_tool';
+
+/** Build a SOCKS proxy URL from a saved proxy config, or null when disabled/empty. */
+function proxyUrlFrom(cfg) {
+  return cfg && cfg.enabled ? buildProxyUrl(cfg) : null;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -100,7 +105,7 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
     const results = await runBatch(
       creds,
       seeds,
-      { ...opts, signal: currentAbort.signal, deps: { dns } },
+      { ...opts, proxy: proxyUrlFrom(opts.proxyConfig), signal: currentAbort.signal, deps: { dns } },
       (result, index) => {
         mainWindow?.webContents.send('batch:progress', { result, index });
       },
@@ -127,7 +132,7 @@ ipcMain.handle('relay:myip', async () => {
 });
 
 // Test an IP-authorized relay (no auth) you control, and report placement.
-ipcMain.handle('relay:test', async (_e, { host, port, from, recipients, seeds, placementTimeoutMs, pollIntervalMs }) => {
+ipcMain.handle('relay:test', async (_e, { host, port, from, recipients, seeds, placementTimeoutMs, pollIntervalMs, proxyConfig }) => {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const token = `SMTPTEST-RELAY-${stamp}`;
   const res = await sendViaRelay(host, Number(port), {
@@ -136,6 +141,7 @@ ipcMain.handle('relay:test', async (_e, { host, port, from, recipients, seeds, p
     subject: `SMTP relay test ${token}`,
     text: `Automated relay test. Token: ${token}`,
     connectTimeout: 20000,
+    proxy: proxyUrlFrom(proxyConfig),
   });
 
   const perSeed = [];

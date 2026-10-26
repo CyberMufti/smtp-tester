@@ -1,4 +1,26 @@
 import nodemailer from 'nodemailer';
+import { SocksClient } from 'socks';
+
+// nodemailer needs a reference to a socks module to use SOCKS proxies.
+const socksModule = { SocksClient };
+
+/**
+ * Build a SOCKS proxy URL from parts, or null if no host/port.
+ * @param {{host:string, port:(number|string), user?:string, pass?:string, type?:string}} p
+ * @returns {string|null}
+ */
+export function buildProxyUrl(p) {
+  if (!p || !p.host || !p.port) return null;
+  const type = p.type || 'socks5';
+  const auth = p.user ? `${encodeURIComponent(p.user)}:${encodeURIComponent(p.pass || '')}@` : '';
+  return `${type}://${auth}${p.host}:${p.port}`;
+}
+
+/** Attach SOCKS proxy routing to a nodemailer transport when a proxy URL is given. */
+function applyProxy(transport, proxyUrl) {
+  if (proxyUrl) transport.set('proxy_socks_module', socksModule);
+  return transport;
+}
 
 /**
  * SMTP connectivity + send, built on nodemailer.
@@ -6,8 +28,8 @@ import nodemailer from 'nodemailer';
  * @typedef {{host:string, port:number, user:string, pass:string, from?:string}} Credential
  */
 
-function buildTransport(cred, { connectTimeout = 10000, sendTimeout } = {}) {
-  return nodemailer.createTransport({
+function buildTransport(cred, { connectTimeout = 10000, sendTimeout, proxy } = {}) {
+  const transport = nodemailer.createTransport({
     host: cred.host,
     port: cred.port,
     secure: cred.port === 465,
@@ -17,7 +39,9 @@ function buildTransport(cred, { connectTimeout = 10000, sendTimeout } = {}) {
     socketTimeout: sendTimeout ?? connectTimeout,
     // These are test/relay credentials; don't fail on self-signed certs.
     tls: { rejectUnauthorized: false },
+    proxy: proxy || undefined, // route via SOCKS proxy so the egress IP is the proxy's
   });
+  return applyProxy(transport, proxy);
 }
 
 /**
@@ -58,17 +82,21 @@ export async function verify(cred, opts = {}) {
  * control (your Google Workspace / Microsoft 365 relay from an allow-listed IP).
  * @returns {Promise<{accepted:string[], response?:string, messageId?:string, error?:string}>}
  */
-export async function sendViaRelay(host, port, { to, from, subject, text, html, connectTimeout = 15000 } = {}) {
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    connectionTimeout: connectTimeout,
-    greetingTimeout: connectTimeout,
-    socketTimeout: connectTimeout,
-    tls: { rejectUnauthorized: false },
-    // no `auth` — relay is authorized by sending IP, not credentials
-  });
+export async function sendViaRelay(host, port, { to, from, subject, text, html, connectTimeout = 15000, proxy } = {}) {
+  const transport = applyProxy(
+    nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      connectionTimeout: connectTimeout,
+      greetingTimeout: connectTimeout,
+      socketTimeout: connectTimeout,
+      tls: { rejectUnauthorized: false },
+      proxy: proxy || undefined,
+      // no `auth` — relay is authorized by sending IP, not credentials
+    }),
+    proxy,
+  );
   try {
     const info = await transport.sendMail({ from, to, subject, text, html });
     return { accepted: info.accepted ?? [], response: info.response, messageId: info.messageId };
@@ -83,8 +111,8 @@ export async function sendViaRelay(host, port, { to, from, subject, text, html, 
  * Send a message through the credential's SMTP server.
  * @returns {Promise<{accepted:string[], messageId?:string, error?:string}>}
  */
-export async function send(cred, { to, from, subject, text, html, sendTimeout = 15000 } = {}) {
-  const transport = buildTransport(cred, { connectTimeout: sendTimeout, sendTimeout });
+export async function send(cred, { to, from, subject, text, html, sendTimeout = 15000, proxy } = {}) {
+  const transport = buildTransport(cred, { connectTimeout: sendTimeout, sendTimeout, proxy });
   try {
     const info = await transport.sendMail({
       from: from || cred.from || cred.user,

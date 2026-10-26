@@ -95,7 +95,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       // in case the one that was typed is simply the wrong-but-reachable server.
       if (authFailedHosts.has(cand.host)) continue;
       const effective = { ...cred, host: cand.host, port: cand.port };
-      const v = await smtp.verify(effective, { connectTimeout: opts.connectTimeout });
+      const v = await smtp.verify(effective, { connectTimeout: opts.connectTimeout, proxy: opts.proxy });
       const record = { host: cand.host, port: cand.port, source: cand.source };
       if (v.connected && v.authenticated) {
         record.outcome = 'ok';
@@ -150,6 +150,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         subject,
         text,
         sendTimeout: opts.sendTimeout,
+        proxy: opts.proxy,
       });
       step.sent = (sendRes.accepted?.length ?? 0) > 0;
       if (!step.sent) step.sendError = sendRes.error || 'message not accepted by server';

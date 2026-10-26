@@ -23,6 +23,7 @@ export function defaultSettings() {
     pollIntervalMs: 5000,
     from: '',
     rowCap: '500',
+    proxy: { enabled: false, host: '', port: 1080, user: '', pass: '' },
     subjectTemplate: 'SMTP deliverability test {token}',
     bodyTemplate:
       'This is an automated SMTP deliverability test.\n\nToken: {token}\n\nYou can safely ignore this message.',

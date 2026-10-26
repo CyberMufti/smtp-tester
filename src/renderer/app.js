@@ -83,6 +83,7 @@ async function runBatch() {
     checks: $('#opt-checks').checked
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
+    proxyConfig: settings?.proxy,
   };
 
   const total = parsed.records.length;
@@ -315,6 +316,11 @@ async function doExport(format) {
 const seedsList = $('#seeds-list');
 $('#btn-add-seed').addEventListener('click', () => addSeedRow({}));
 $('#btn-save-settings').addEventListener('click', saveSettings);
+$('#btn-save-proxy').addEventListener('click', async () => {
+  settings = await api.saveSettings(collectSettings());
+  $('#proxy-save-status').textContent = settings.proxy?.enabled ? 'Saved ✓ (proxy on)' : 'Saved ✓ (proxy off)';
+  setTimeout(() => ($('#proxy-save-status').textContent = ''), 2500);
+});
 
 function addSeedRow(seed) {
   const tpl = $('#seed-row-tpl').content.cloneNode(true);
@@ -363,6 +369,13 @@ function collectSettings() {
     concurrency: Number($('#opt-concurrency').value) || 5,
     placementTimeoutMs: (Number($('#opt-timeout').value) || 90) * 1000,
     rowCap: $('#opt-rowcap').value,
+    proxy: {
+      enabled: $('#proxy-enabled').checked,
+      host: $('#proxy-host').value.trim(),
+      port: Number($('#proxy-port').value) || 1080,
+      user: $('#proxy-user').value.trim(),
+      pass: $('#proxy-pass').value,
+    },
     seeds: $$('.seed-card').map(readSeedRow),
   };
 }
@@ -391,6 +404,12 @@ function applySettingsToForm() {
   $('#opt-concurrency').value = settings.concurrency || 5;
   $('#opt-timeout').value = Math.round((settings.placementTimeoutMs || 90000) / 1000);
   $('#opt-rowcap').value = settings.rowCap || '500';
+  const px = settings.proxy || {};
+  $('#proxy-enabled').checked = !!px.enabled;
+  $('#proxy-host').value = px.host || '';
+  $('#proxy-port').value = px.port || 1080;
+  $('#proxy-user').value = px.user || '';
+  $('#proxy-pass').value = px.pass || '';
   seedsList.innerHTML = '';
   (settings.seeds || []).forEach(addSeedRow);
   updateSeedNote();
@@ -490,6 +509,7 @@ $('#relay-test').addEventListener('click', async () => {
     seeds: (settings?.seeds || []).filter((s) => recipients.includes(s.address)),
     placementTimeoutMs: (settings?.placementTimeoutMs) || 90000,
     pollIntervalMs: (settings?.pollIntervalMs) || 5000,
+    proxyConfig: settings?.proxy,
   });
   out.innerHTML = relayResultHtml(res, { placement: true });
 });
@@ -507,9 +527,10 @@ $('#relay-check').addEventListener('click', async () => {
   const ip = await api.getPublicIp();
   $('#relay-ip').textContent = ip.ip || `unknown (${ip.error || 'no network'})`;
   // Probe authorization from this connection by sending a tiny message to self.
-  const res = await api.relayTest({ host, port, from, recipients: [from], seeds: [] });
+  const res = await api.relayTest({ host, port, from, recipients: [from], seeds: [], proxyConfig: settings?.proxy });
+  const via = settings?.proxy?.enabled ? ` (via proxy ${esc(settings.proxy.host)})` : '';
   out.innerHTML =
-    `<p class="muted">Tested from IP <b class="mono">${esc(ip.ip || '?')}</b></p>` +
+    `<p class="muted">Tested from IP <b class="mono">${esc(ip.ip || '?')}</b>${via}</p>` +
     relayResultHtml(res, { placement: false });
 });
 
