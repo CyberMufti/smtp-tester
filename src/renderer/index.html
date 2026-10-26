@@ -106,6 +106,29 @@
         </div>
       </section>
 
+      <section class="panel">
+        <details>
+          <summary><b>SOCKS5 proxy</b> — route all testing through your own proxy (optional)</summary>
+          <p class="muted">
+            Send every connection (tests and relay) through a SOCKS5 proxy <b>you provide</b>, so the egress
+            IP is the proxy's instead of this computer's — e.g. a proxy on your own VPS so you can work from
+            any laptop.
+          </p>
+          <label class="checkbox"><input id="proxy-enabled" type="checkbox" /> Use my SOCKS5 proxy for all connections</label>
+          <div class="form-grid" style="margin-top:10px">
+            <label>Proxy host <input id="proxy-host" type="text" placeholder="proxy.example.com or 1.2.3.4" /></label>
+            <label>Port <input id="proxy-port" type="number" value="1080" /></label>
+            <label>Username <span class="muted">(optional)</span> <input id="proxy-user" type="text" /></label>
+            <label>Password <span class="muted">(optional)</span> <input id="proxy-pass" type="password" /></label>
+          </div>
+          <div class="run-controls">
+            <div class="spacer"></div>
+            <span id="proxy-save-status" class="muted"></span>
+            <button id="btn-save-proxy" class="btn primary">Save proxy</button>
+          </div>
+        </details>
+      </section>
+
       <section class="panel results-panel">
         <div class="panel-head">
           <h2>Results <span id="progress-label" class="muted"></span></h2>
@@ -232,27 +255,6 @@
           <div class="spacer"></div>
           <span id="save-status" class="muted"></span>
           <button id="btn-save-settings" class="btn primary">Save settings</button>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head"><h2>SOCKS5 proxy</h2></div>
-        <p class="muted">
-          Route all SMTP connections (tests and relay sends) through a SOCKS5 proxy you provide, so the
-          sending egress IP is the proxy's instead of this computer's. Useful for sending from a fixed IP
-          you control (e.g. a proxy on your VPS) regardless of which machine or network you're on.
-        </p>
-        <label class="checkbox"><input id="proxy-enabled" type="checkbox" /> Use SOCKS5 proxy for all connections</label>
-        <div class="form-grid" style="margin-top:10px">
-          <label>Proxy host <input id="proxy-host" type="text" placeholder="proxy.example.com or 1.2.3.4" /></label>
-          <label>Port <input id="proxy-port" type="number" value="1080" /></label>
-          <label>Username <span class="muted">(optional)</span> <input id="proxy-user" type="text" /></label>
-          <label>Password <span class="muted">(optional)</span> <input id="proxy-pass" type="password" /></label>
-        </div>
-        <div class="run-controls">
-          <div class="spacer"></div>
-          <span id="proxy-save-status" class="muted"></span>
-          <button id="btn-save-proxy" class="btn primary">Save proxy settings</button>
         </div>
       </section>
 
