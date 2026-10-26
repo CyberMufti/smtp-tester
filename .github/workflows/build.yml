@@ -23,6 +23,8 @@ jobs:
       # repo) to auto-publish installers. When unset, the publish step is
       # skipped and the build still succeeds.
       DOWNLOADS_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+      WIN_CERT_B64: ${{ secrets.WINDOWS_CERT_B64 }}
+      WIN_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,6 +38,17 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # Expose code-signing env to electron-builder ONLY on Windows AND only when
+      # a cert is configured. Setting CSC_LINK empty on macOS breaks its signing
+      # path, so the vars must be absent there — hence this gated step instead of
+      # inline `env:` on the build step.
+      - name: Prepare Windows code signing
+        if: ${{ matrix.platform == 'win' && env.WIN_CERT_B64 != '' }}
+        shell: bash
+        run: |
+          echo "CSC_LINK=$WIN_CERT_B64" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$WIN_CERT_PASSWORD" >> "$GITHUB_ENV"
+
       # Build and publish to the public downloads repo. --publish always uploads
       # the installer AND the auto-update metadata (latest.yml / latest-mac.yml +
       # blockmaps) to a release tagged with the package version, so electron-updater
@@ -46,17 +59,10 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
-          # Windows code signing turns on automatically once these repo secrets
-          # exist (a base64 .pfx + its password). Empty = unsigned build, as now.
-          CSC_LINK: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_B64 || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_PASSWORD || '' }}
 
       - name: Build ${{ matrix.platform }} (no publish)
         if: ${{ env.DOWNLOADS_TOKEN == '' }}
         run: npx electron-builder --${{ matrix.platform }} --publish never
-        env:
-          CSC_LINK: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_B64 || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_PASSWORD || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
