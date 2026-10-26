@@ -206,13 +206,13 @@ function rowHtml(r) {
     .join(' ');
   if (seedAuth) parts.push(seedAuth);
 
-  // Always show the endpoint that actually worked (detected/fallback included).
-  const workedHost = r.usedHost || r.cred.host || 'auto-detect';
-  const workedPort = r.usedPort || r.cred.port || '';
-  const isAuto = r.usedHost && (!r.cred.host || r.triedFallback);
-  const host = `${workedHost}${isAuto ? ' (auto)' : ''}`;
+  // Show the endpoint that worked; if nothing authenticated, show the host it
+  // actually reached (e.g. the provider server that refused the login) rather
+  // than a bare "auto-detect".
+  const ep = reachedEndpoint(r);
+  const host = `${ep.host}${ep.auto ? ' (auto)' : ''}`;
   return `<tr>
-    <td class="mono">${esc(host)}${workedPort ? ':' + esc(workedPort) : ''}</td>
+    <td class="mono">${esc(host)}${ep.port ? ':' + esc(ep.port) : ''}</td>
     <td class="mono">${esc(r.cred.user)}</td>
     <td><span class="status-chip status-${r.status}">${statusLabel(r.status)}</span></td>
     <td>${r.latencyMs} ms</td>
@@ -222,6 +222,17 @@ function rowHtml(r) {
 
 function statusLabel(s) {
   return s === 'unknown' ? 'unknown placement' : s;
+}
+
+// Pick the host/port to show in the table: the one that worked, else the one
+// the app actually reached (an auth-rejected server is most informative).
+function reachedEndpoint(r) {
+  if (r.usedHost) return { host: r.usedHost, port: r.usedPort, auto: !r.cred.host || r.triedFallback };
+  if (r.cred.host) return { host: r.cred.host, port: r.cred.port, auto: false };
+  const attempts = r.attempts || [];
+  const pick = attempts.find((a) => /auth rejected/i.test(a.outcome)) || attempts[attempts.length - 1];
+  if (pick) return { host: pick.host, port: pick.port, auto: true };
+  return { host: 'auto-detect', port: '', auto: false };
 }
 
 function badge(label, ok, detail) {

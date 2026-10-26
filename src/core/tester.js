@@ -7,6 +7,11 @@ import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
 
+// Candidate sources whose auth failure is definitive — the host is certainly
+// right (it's the provider/SRV/autoconfig/MX server), so there's no point
+// trying guessed hostnames afterward.
+const AUTHORITATIVE_SOURCES = new Set(['detected', 'srv', 'autoconfig', 'mx']);
+
 function domainOf(addressOrDomain) {
   const s = String(addressOrDomain || '').trim().toLowerCase();
   const at = s.indexOf('@');
@@ -105,6 +110,10 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         anyConnected = true;
         authError = v.error;
         authFailedHosts.add(cand.host);
+        // An authoritative server rejecting auth is definitive (right host,
+        // login refused — wrong password or a provider policy like M365's
+        // disabled SMTP AUTH). Stop instead of trying guessed hostnames.
+        if (AUTHORITATIVE_SOURCES.has(cand.source)) break;
         continue;
       }
       record.outcome = v.error || 'could not connect';

@@ -272,6 +272,35 @@ test('records each host/port attempted and its outcome', async () => {
   assert.match(r.attempts[0].outcome, /ECONNREFUSED/i);
 });
 
+test('stops immediately when an authoritative (detected) host rejects auth — no pointless guesses', async () => {
+  const deps = {
+    smtp: {
+      async verify(cred) {
+        // The detected provider host rejects auth (e.g. M365 SMTP AUTH disabled);
+        // anything else would succeed — so if it keeps going, status would be valid.
+        if (cred.host === 'smtp.zoho.com') {
+          return { connected: true, authenticated: false, error: '535 SmtpClientAuthentication is disabled' };
+        }
+        return { connected: true, authenticated: true };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+    dns: {
+      async resolveMx(domain) {
+        return domain === 'biz.com' ? [{ exchange: 'mx.zoho.com', priority: 10 }] : [];
+      },
+    },
+  };
+  const [r] = await runBatch([{ host: null, port: null, user: 'u@biz.com', pass: 'x' }], [], {
+    concurrency: 1,
+    deps,
+  });
+  assert.equal(r.status, 'dead');
+  assert.equal(r.attempts.length, 1, 'should stop after the authoritative host auth-fails');
+  assert.equal(r.attempts[0].host, 'smtp.zoho.com');
+});
+
 test('deliverability checks populate SPF/DMARC, DNSBL and spam score when enabled', async () => {
   const deps = {
     smtp: {
