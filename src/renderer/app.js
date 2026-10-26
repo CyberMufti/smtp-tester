@@ -61,6 +61,8 @@ async function runBatch() {
   results = [];
   renderResults();
   setRunning(true);
+  $('#progress-bar').hidden = false;
+  $('#progress-fill').style.width = '0%';
 
   const manualRecipients = $('#manual-recipients').value
     .split(/[\n,;]+/)
@@ -104,11 +106,19 @@ function setRunning(on) {
   $('#btn-export-txt').disabled = on || results.every((r) => r.status === 'dead');
 }
 
+// Cap how many rows live in the DOM so very large runs stay snappy. Every
+// result is still kept in `results` for counts and exports.
+const ROW_CAP = 500;
+
 api.onProgress(({ result }) => {
   results.push(result);
-  $('#progress-label').textContent = `${results.length} / ${parsed.records.length}`;
+  const total = parsed.records.length;
+  $('#progress-label').textContent = `${results.length} / ${total}`;
+  const fill = $('#progress-fill');
+  if (fill) fill.style.width = `${total ? Math.round((results.length / total) * 100) : 0}%`;
   renderSummary();
   renderContentScoreBanner();
+  renderRowsNote();
   // Append just this row instead of rebuilding the whole table — rebuilding on
   // every result is O(n^2) and freezes/crashes the window on large batches.
   appendResultRow(result);
@@ -120,9 +130,21 @@ function appendResultRow(r) {
   const empty = body.querySelector('.empty-row');
   if (empty) empty.remove();
   body.insertAdjacentHTML('beforeend', rowHtml(r));
+  // Keep only the newest ROW_CAP rows in the DOM.
+  while (body.children.length > ROW_CAP) body.removeChild(body.firstElementChild);
+}
+
+function renderRowsNote() {
+  const el = $('#rows-note');
+  if (!el) return;
+  el.textContent =
+    results.length > ROW_CAP
+      ? `Showing the newest ${ROW_CAP} rows of ${results.length} — all ${results.length} are included in exports and the counts above.`
+      : '';
 }
 api.onDone(() => {
   $('#progress-label').textContent = `${results.length} tested`;
+  $('#progress-fill').style.width = '100%';
 });
 
 // ---------- Results table ----------
@@ -137,6 +159,7 @@ $('#filters').addEventListener('click', (e) => {
 function renderResults() {
   renderSummary();
   renderContentScoreBanner();
+  renderRowsNote();
   const body = $('#results-body');
   const rows = results.filter((r) => activeFilter === 'all' || r.status === activeFilter);
   if (!rows.length) {
@@ -145,7 +168,8 @@ function renderResults() {
     }</td></tr>`;
     return;
   }
-  body.innerHTML = rows.map(rowHtml).join('');
+  // Render only the newest ROW_CAP matching rows to keep the DOM light.
+  body.innerHTML = rows.slice(-ROW_CAP).map(rowHtml).join('');
 }
 
 const SUMMARY_ORDER = [

@@ -128,6 +128,12 @@ label.btn { display: inline-flex; align-items: center; }
 .content-score-banner { margin-bottom: 12px; font-size: 12px; }
 .content-score-banner:empty { display: none; }
 
+.progress-bar { height: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 12px; }
+.progress-bar[hidden] { display: none; }
+.progress-fill { height: 100%; width: 0%; background: var(--primary); transition: width 0.2s ease; }
+.rows-note { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.rows-note:empty { display: none; }
+
 .badges { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .dbadge {
   display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;
