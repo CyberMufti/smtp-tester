@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { verifySeed } from '../core/imap.js';
@@ -19,6 +20,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainWindow;
 let currentAbort = null;
+
+// Record unexpected errors to a log file (and keep the app alive) so a stray
+// failure during a large run can be diagnosed instead of silently closing.
+function recordCrash(kind, err) {
+  const line = `${new Date().toISOString()} [${kind}] ${(err && (err.stack || err.message)) || err}\n`;
+  try {
+    appendFileSync(join(app.getPath('userData'), 'smtp-tester-crash.log'), line);
+  } catch {
+    /* best-effort */
+  }
+}
+process.on('uncaughtException', (err) => recordCrash('uncaughtException', err));
+process.on('unhandledRejection', (err) => recordCrash('unhandledRejection', err));
 
 function createWindow() {
   mainWindow = new BrowserWindow({

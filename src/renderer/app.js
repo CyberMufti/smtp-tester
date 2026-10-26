@@ -107,8 +107,20 @@ function setRunning(on) {
 api.onProgress(({ result }) => {
   results.push(result);
   $('#progress-label').textContent = `${results.length} / ${parsed.records.length}`;
-  renderResults();
+  renderSummary();
+  renderContentScoreBanner();
+  // Append just this row instead of rebuilding the whole table — rebuilding on
+  // every result is O(n^2) and freezes/crashes the window on large batches.
+  appendResultRow(result);
 });
+
+function appendResultRow(r) {
+  if (!(activeFilter === 'all' || r.status === activeFilter)) return;
+  const body = $('#results-body');
+  const empty = body.querySelector('.empty-row');
+  if (empty) empty.remove();
+  body.insertAdjacentHTML('beforeend', rowHtml(r));
+}
 api.onDone(() => {
   $('#progress-label').textContent = `${results.length} tested`;
 });
