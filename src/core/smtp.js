@@ -54,6 +54,32 @@ export async function verify(cred, opts = {}) {
 }
 
 /**
+ * Send through an IP-authorized relay with NO authentication — for a relay you
+ * control (your Google Workspace / Microsoft 365 relay from an allow-listed IP).
+ * @returns {Promise<{accepted:string[], response?:string, messageId?:string, error?:string}>}
+ */
+export async function sendViaRelay(host, port, { to, from, subject, text, html, connectTimeout = 15000 } = {}) {
+  const transport = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    connectionTimeout: connectTimeout,
+    greetingTimeout: connectTimeout,
+    socketTimeout: connectTimeout,
+    tls: { rejectUnauthorized: false },
+    // no `auth` — relay is authorized by sending IP, not credentials
+  });
+  try {
+    const info = await transport.sendMail({ from, to, subject, text, html });
+    return { accepted: info.accepted ?? [], response: info.response, messageId: info.messageId };
+  } catch (err) {
+    return { accepted: [], error: err.message, response: err.response };
+  } finally {
+    transport.close();
+  }
+}
+
+/**
  * Send a message through the credential's SMTP server.
  * @returns {Promise<{accepted:string[], messageId?:string, error?:string}>}
  */

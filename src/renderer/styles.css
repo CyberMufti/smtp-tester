@@ -211,6 +211,8 @@ tbody tr:hover { background: var(--bg); }
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .form-grid .full { grid-column: 1 / -1; }
 
+.ip-box { padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
+
 .help p { margin: 8px 0; }
 details summary { cursor: pointer; font-weight: 600; }
 

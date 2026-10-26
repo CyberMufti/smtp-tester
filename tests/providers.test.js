@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectProvider, candidatesFor } from '../src/core/providers.js';
+import { detectProvider, candidatesFor, office365RelayHost } from '../src/core/providers.js';
 
 test('detects Gmail from an email address', () => {
   const p = detectProvider('someone@gmail.com');
@@ -117,6 +117,12 @@ test('candidatesFor: guesses cover smtp/mail/send/mta on 587, 465 and 2525', () 
 test('candidatesFor: no host and non-email user yields no candidates', () => {
   const c = candidatesFor({ host: null, port: null, user: 'apikey', pass: 'x' });
   assert.equal(c.length, 0);
+});
+
+test('office365RelayHost derives the tenant MX endpoint from a domain', () => {
+  assert.equal(office365RelayHost('example.com'), 'example-com.mail.protection.outlook.com');
+  assert.equal(office365RelayHost('sub.example.co.uk'), 'sub-example-co-uk.mail.protection.outlook.com');
+  assert.equal(office365RelayHost(''), null);
 });
 
 test('candidatesFor: does not duplicate a candidate already covered by input', () => {

@@ -48,6 +48,7 @@
       </div>
       <nav class="tabs">
         <button class="tab active" data-tab="test">Test</button>
+        <button class="tab" data-tab="relay">Relay</button>
         <button class="tab" data-tab="settings">Settings</button>
       </nav>
     </header>
@@ -144,6 +145,49 @@
             </tbody>
           </table>
         </div>
+      </section>
+    </main>
+
+    <!-- ============ RELAY SCREEN ============ -->
+    <main id="screen-relay" class="screen">
+      <section class="panel">
+        <div class="panel-head"><h2>Relay test (no authentication)</h2></div>
+        <p class="muted">
+          Test an <b>IP-authorized relay you own</b> — your Google Workspace SMTP relay or Microsoft 365
+          relay/direct-send — which sends without a password based on the allow-listed sending IP. This only
+          works for domains and relays you administer.
+        </p>
+        <div class="ip-box">
+          Your current public IP: <b id="relay-ip" class="mono">checking…</b>
+          <span class="muted">— allow-list this IP in your Workspace/365 relay settings.</span>
+        </div>
+
+        <div class="form-grid">
+          <label>Relay provider
+            <select id="relay-provider">
+              <option value="gmail">Google Workspace (smtp-relay.gmail.com)</option>
+              <option value="o365">Microsoft 365 (tenant relay / direct send)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>From address (your domain)
+            <input id="relay-from" type="text" placeholder="sender@yourdomain.com" />
+          </label>
+          <label>Relay host
+            <input id="relay-host" type="text" placeholder="smtp-relay.gmail.com" />
+          </label>
+          <label>Port
+            <input id="relay-port" type="number" value="587" />
+          </label>
+          <label class="full">Send test to (one email per line — use an inbox you can check)
+            <textarea id="relay-recipients" rows="2" spellcheck="false" placeholder="you@yourdomain.com"></textarea>
+          </label>
+        </div>
+        <div class="run-controls">
+          <div class="spacer"></div>
+          <button id="relay-test" class="btn primary">Send relay test</button>
+        </div>
+        <div id="relay-result" class="score-result"></div>
       </section>
     </main>
 

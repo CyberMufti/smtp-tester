@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportResults: (results, format) => ipcRenderer.invoke('results:export', { results, format }),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
+  getPublicIp: () => ipcRenderer.invoke('relay:myip'),
+  relayTest: (opts) => ipcRenderer.invoke('relay:test', opts),
   onProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('batch:progress', handler);
