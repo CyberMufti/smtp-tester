@@ -473,6 +473,88 @@ async function enforceLicense() {
   return false;
 }
 
+// ---------- Health monitor ----------
+let monitorState = null;
+
+function fmtTime(ts) {
+  if (!ts) return 'never';
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return String(ts);
+  }
+}
+
+function renderMonitorStatus() {
+  const m = monitorState || {};
+  const n = (m.creds || []).length;
+  $('#monitor-status').textContent =
+    `${n} credential${n === 1 ? '' : 's'} monitored · ${m.enabled ? 'ON' : 'off'} · last check: ${fmtTime(m.lastCheck)}`;
+}
+
+$('#monitor-creds').addEventListener('input', () => {
+  const r = parse($('#monitor-creds').value);
+  $('#monitor-creds-count').textContent = `${r.records.length} parsed`;
+});
+
+$('#btn-monitor-savelist').addEventListener('click', async () => {
+  const { records } = dedupeCredentials(parse($('#monitor-creds').value).records);
+  monitorState = await api.setMonitorCreds(records);
+  $('#monitor-save-status').textContent = `Saved ${records.length} ✓`;
+  renderMonitorStatus();
+  setTimeout(() => ($('#monitor-save-status').textContent = ''), 2500);
+});
+
+$('#btn-monitor-save').addEventListener('click', async () => {
+  monitorState = await api.saveMonitor({
+    enabled: $('#monitor-enabled').checked,
+    intervalHours: Number($('#monitor-interval').value) || 6,
+    alertBotToken: $('#monitor-token').value.trim(),
+    alertChatId: $('#monitor-chatid').value.trim(),
+  });
+  $('#monitor-save-status').textContent = monitorState.enabled ? 'Saved ✓ (monitoring on)' : 'Saved ✓ (off)';
+  renderMonitorStatus();
+  setTimeout(() => ($('#monitor-save-status').textContent = ''), 2500);
+});
+
+$('#btn-monitor-check').addEventListener('click', async () => {
+  $('#monitor-log').innerHTML = '<p class="muted">Checking…</p>';
+  const res = await api.checkMonitorNow();
+  monitorState = await api.getMonitor();
+  renderMonitorStatus();
+  if (!res.count) {
+    $('#monitor-log').innerHTML = '<p class="muted">No credentials saved to monitor yet.</p>';
+  } else if (res.died.length) {
+    $('#monitor-log').innerHTML =
+      `<span class="score-badge score-high">${res.died.length} went dead</span>` +
+      `<ul>${res.died.map((d) => `<li>${esc(d.user)} — ${esc(d.reason || 'dead')}</li>`).join('')}</ul>`;
+  } else {
+    $('#monitor-log').innerHTML = `<span class="score-badge score-low">All ${res.count} still OK</span>`;
+  }
+});
+
+api.onMonitorChecked((summary) => {
+  renderMonitorStatus();
+  if (summary.died?.length) {
+    $('#monitor-log').innerHTML =
+      `<span class="score-badge score-high">${summary.died.length} went dead at ${fmtTime(summary.at)}</span>` +
+      `<ul>${summary.died.map((d) => `<li>${esc(d.user)} — ${esc(d.reason || 'dead')}</li>`).join('')}</ul>`;
+  }
+});
+
+async function initMonitor() {
+  monitorState = await api.getMonitor();
+  $('#monitor-creds').value = (monitorState.creds || [])
+    .map((c) => `${c.host || ''}:${c.port || ''}:${c.user}:${c.pass}`.replace(/^::/, ''))
+    .join('\n');
+  $('#monitor-creds-count').textContent = `${(monitorState.creds || []).length} parsed`;
+  $('#monitor-interval').value = String(monitorState.intervalHours || 6);
+  $('#monitor-enabled').checked = !!monitorState.enabled;
+  $('#monitor-token').value = monitorState.alertBotToken || '';
+  $('#monitor-chatid').value = monitorState.alertChatId || '';
+  renderMonitorStatus();
+}
+
 // ---------- Boot ----------
 let appStarted = false;
 async function startApp() {
@@ -481,6 +563,7 @@ async function startApp() {
   settings = await api.getSettings();
   applySettingsToForm();
   refreshParse();
+  initMonitor();
 }
 
 (async function init() {

@@ -11,6 +11,15 @@ contextBridge.exposeInMainWorld('api', {
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportResults: (results, format) => ipcRenderer.invoke('results:export', { results, format }),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
+  getMonitor: () => ipcRenderer.invoke('monitor:get'),
+  saveMonitor: (patch) => ipcRenderer.invoke('monitor:save', patch),
+  setMonitorCreds: (creds) => ipcRenderer.invoke('monitor:setCreds', creds),
+  checkMonitorNow: () => ipcRenderer.invoke('monitor:checkNow'),
+  onMonitorChecked: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('monitor:checked', handler);
+    return () => ipcRenderer.removeListener('monitor:checked', handler);
+  },
   onProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('batch:progress', handler);

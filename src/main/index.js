@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Notification } from 'electron';
 import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
@@ -13,9 +13,10 @@ import { buildProxyUrl } from '../core/smtp.js';
 import { scoreContent } from '../core/spamscore.js';
 import { toWorkingTxt } from '../core/export.js';
 import { getHwid } from '../core/hwid.js';
+import { monitorDiff } from '../core/monitor.js';
 import { verifyLicense } from '../core/license.js';
 import { PUBLIC_KEY_PEM } from '../core/license-public-key.js';
-import { loadSettings, saveSettings, getLicenseKey, setLicenseKey } from './store.js';
+import { loadSettings, saveSettings, getLicenseKey, setLicenseKey, getMonitor, saveMonitor } from './store.js';
 
 const dns = { resolveTxt, resolve4, resolveMx, resolveSrv };
 const TELEGRAM = '@splean_tool';
@@ -23,6 +24,80 @@ const TELEGRAM = '@splean_tool';
 /** Build a SOCKS proxy URL from a saved proxy config, or null when disabled/empty. */
 function proxyUrlFrom(cfg) {
   return cfg && cfg.enabled ? buildProxyUrl(cfg) : null;
+}
+
+// --- Health monitor -------------------------------------------------------
+
+let monitorTimer = null;
+
+/** Build runBatch options from saved settings (shared by batch + monitor). */
+function optsFromSettings(s) {
+  return {
+    concurrency: s.concurrency || 5,
+    connectTimeout: s.connectTimeout,
+    sendTimeout: s.sendTimeout,
+    placementTimeoutMs: s.placementTimeoutMs,
+    pollIntervalMs: s.pollIntervalMs,
+    from: s.from,
+    subjectTemplate: s.subjectTemplate,
+    bodyTemplate: s.bodyTemplate,
+    proxy: proxyUrlFrom(s.proxy),
+    retries: 1,
+    deps: { dns },
+  };
+}
+
+async function sendTelegramAlert(m, text) {
+  if (!m.alertBotToken || !m.alertChatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${m.alertBotToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: m.alertChatId, text, parse_mode: 'HTML' }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (err) {
+    recordCrash('telegramAlert', err);
+  }
+}
+
+async function runMonitorCheck() {
+  const m = await getMonitor();
+  if (!m.creds?.length) return { count: 0, died: [] };
+  const settings = await loadSettings();
+  const results = await runBatch(m.creds, settings.seeds || [], optsFromSettings(settings));
+  const { died, newMap } = monitorDiff(m.statuses || {}, results);
+  await saveMonitor({ statuses: newMap, lastCheck: Date.now() });
+
+  if (died.length) {
+    const lines = died.map((d) => `• ${d.cred.user} (${d.usedHost || d.cred.host || 'auto'})`).join('\n');
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'SMTP Tester — credentials went dead',
+        body: `${died.length} monitored SMTP${died.length === 1 ? '' : 's'} stopped working.`,
+      }).show();
+    }
+    await sendTelegramAlert(
+      m,
+      `⚠️ <b>${died.length} monitored SMTP${died.length === 1 ? '' : 's'} went dead:</b>\n${lines}`,
+    );
+  }
+
+  const summary = { count: results.length, died: died.map((d) => ({ user: d.cred.user, reason: d.reason })), at: Date.now() };
+  mainWindow?.webContents.send('monitor:checked', summary);
+  return summary;
+}
+
+async function restartMonitorSchedule() {
+  if (monitorTimer) {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+  }
+  const m = await getMonitor();
+  if (m.enabled && m.creds?.length) {
+    const ms = Math.max(1, Number(m.intervalHours) || 6) * 3600 * 1000;
+    monitorTimer = setInterval(() => runMonitorCheck().catch((e) => recordCrash('monitor', e)), ms);
+  }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -72,6 +147,7 @@ app.whenReady().then(() => {
     autoUpdater.on('error', (e) => recordCrash('autoUpdater', e));
     autoUpdater.checkForUpdatesAndNotify().catch((e) => recordCrash('autoUpdater', e));
   }
+  restartMonitorSchedule().catch((e) => recordCrash('monitor', e));
 });
 
 app.on('window-all-closed', () => {
@@ -138,6 +214,21 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
+
+// --- Health monitor IPC ---
+ipcMain.handle('monitor:get', async () => getMonitor());
+ipcMain.handle('monitor:save', async (_e, patch) => {
+  const m = await saveMonitor(patch);
+  await restartMonitorSchedule();
+  return m;
+});
+ipcMain.handle('monitor:setCreds', async (_e, creds) => {
+  // New list resets the known statuses (baseline re-established on next check).
+  const m = await saveMonitor({ creds: creds || [], statuses: {} });
+  await restartMonitorSchedule();
+  return m;
+});
+ipcMain.handle('monitor:checkNow', async () => runMonitorCheck());
 
 ipcMain.handle('batch:cancel', async () => {
   currentAbort?.abort();

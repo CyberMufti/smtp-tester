@@ -66,6 +66,32 @@ export async function saveSettings(settings) {
   return merged;
 }
 
+/** Default health-monitor state (stored separately from settings). */
+export function defaultMonitor() {
+  return {
+    enabled: false,
+    intervalHours: 6,
+    alertBotToken: '',
+    alertChatId: '',
+    creds: [],
+    statuses: {},
+    lastCheck: null,
+  };
+}
+
+export async function getMonitor() {
+  const store = await getStore();
+  return { ...defaultMonitor(), ...(store.get('monitor') || {}) };
+}
+
+/** Merge a patch into the stored monitor state. */
+export async function saveMonitor(patch) {
+  const store = await getStore();
+  const merged = { ...defaultMonitor(), ...(store.get('monitor') || {}), ...(patch || {}) };
+  store.set('monitor', merged);
+  return merged;
+}
+
 /** @returns {Promise<string|null>} the stored license key, if any */
 export async function getLicenseKey() {
   const store = await getStore();

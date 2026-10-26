@@ -48,6 +48,7 @@
       </div>
       <nav class="tabs">
         <button class="tab active" data-tab="test">Test</button>
+        <button class="tab" data-tab="monitor">Monitor</button>
         <button class="tab" data-tab="settings">Settings</button>
       </nav>
     </header>
@@ -167,6 +168,53 @@
             </tbody>
           </table>
         </div>
+      </section>
+    </main>
+
+    <!-- ============ MONITOR SCREEN ============ -->
+    <main id="screen-monitor" class="screen">
+      <section class="panel">
+        <div class="panel-head"><h2>Health monitor</h2></div>
+        <p class="muted">
+          Re-test a saved list on a schedule and alert you when a previously-live SMTP goes dead.
+          Runs while the app is open. Uses your current seeds, proxy, and sending settings.
+        </p>
+        <label class="field-label">Monitored credentials (one per line — same formats as the Test screen)</label>
+        <textarea id="monitor-creds" rows="5" spellcheck="false" placeholder="host:port:user:pass  (or email:password)"></textarea>
+        <div class="run-controls">
+          <span id="monitor-creds-count" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="btn-monitor-savelist" class="btn ghost">Save list</button>
+        </div>
+
+        <div class="form-grid" style="margin-top:12px">
+          <label>Check every
+            <select id="monitor-interval">
+              <option value="1">1 hour</option>
+              <option value="3">3 hours</option>
+              <option value="6">6 hours</option>
+              <option value="12">12 hours</option>
+              <option value="24">24 hours</option>
+            </select>
+          </label>
+          <label class="checkbox" style="align-self:end"><input id="monitor-enabled" type="checkbox" /> Monitoring on</label>
+          <label>Alert Telegram bot token <span class="muted">(optional)</span>
+            <input id="monitor-token" type="password" placeholder="123456:ABC…" />
+          </label>
+          <label>Alert Telegram chat id <span class="muted">(optional)</span>
+            <input id="monitor-chatid" type="text" placeholder="your numeric id" />
+          </label>
+        </div>
+        <p class="muted">Leave the Telegram fields blank to get only a desktop notification. Use your own bot (from @BotFather) and your chat id.</p>
+
+        <div class="run-controls">
+          <span id="monitor-status" class="muted"></span>
+          <div class="spacer"></div>
+          <span id="monitor-save-status" class="muted"></span>
+          <button id="btn-monitor-check" class="btn ghost">Check now</button>
+          <button id="btn-monitor-save" class="btn primary">Save monitor settings</button>
+        </div>
+        <div id="monitor-log" class="score-result"></div>
       </section>
     </main>
 
