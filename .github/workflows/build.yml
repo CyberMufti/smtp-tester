@@ -46,10 +46,17 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.DOWNLOADS_TOKEN }}
+          # Windows code signing turns on automatically once these repo secrets
+          # exist (a base64 .pfx + its password). Empty = unsigned build, as now.
+          CSC_LINK: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_B64 || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_PASSWORD || '' }}
 
       - name: Build ${{ matrix.platform }} (no publish)
         if: ${{ env.DOWNLOADS_TOKEN == '' }}
         run: npx electron-builder --${{ matrix.platform }} --publish never
+        env:
+          CSC_LINK: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_B64 || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'win' && secrets.WINDOWS_CERT_PASSWORD || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
