@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse } from '../src/core/parser.js';
+import { parse, dedupeCredentials } from '../src/core/parser.js';
 
 test('parses colon-delimited host:port:user:pass', () => {
   const { records, errors } = parse('smtp.example.com:587:user@example.com:secret');
@@ -84,6 +84,29 @@ test('line with too few fields is a ParseError', () => {
 });
 
 // --- flexible "any format" detection ---------------------------------------
+
+test('dedupeCredentials removes exact duplicates, keeping the first and order', () => {
+  const recs = [
+    { host: 'a.com', port: 587, user: 'u@a.com', pass: 'p' },
+    { host: 'b.com', port: 587, user: 'u@b.com', pass: 'p' },
+    { host: 'a.com', port: 587, user: 'u@a.com', pass: 'p' }, // dup of #1
+    { host: 'a.com', port: 465, user: 'u@a.com', pass: 'p' }, // different port, not a dup
+  ];
+  const { records, removed } = dedupeCredentials(recs);
+  assert.equal(removed, 1);
+  assert.equal(records.length, 3);
+  assert.deepEqual(records.map((r) => `${r.host}:${r.port}`), ['a.com:587', 'b.com:587', 'a.com:465']);
+});
+
+test('dedupeCredentials treats host-less (email-only) duplicates by user+pass', () => {
+  const recs = [
+    { host: null, port: null, user: 'x@gmail.com', pass: 'k' },
+    { host: null, port: null, user: 'x@gmail.com', pass: 'k' },
+  ];
+  const { records, removed } = dedupeCredentials(recs);
+  assert.equal(records.length, 1);
+  assert.equal(removed, 1);
+});
 
 test('whitespace-separated fields parse', () => {
   const { records } = parse('smtp.example.com 587 user@example.com secret');

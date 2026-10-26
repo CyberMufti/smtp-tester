@@ -101,15 +101,24 @@ ipcMain.handle('seed:test', async (_e, seed) => verifySeed(seed));
 
 ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
   currentAbort = new AbortController();
+  // Crash-safe autosave: stream results to disk so a close/crash mid-run keeps
+  // everything tested so far (recoverable from userData/last-run.json).
+  const autosavePath = join(app.getPath('userData'), 'last-run.json');
+  const collected = [];
   try {
     const results = await runBatch(
       creds,
       seeds,
       { ...opts, proxy: proxyUrlFrom(opts.proxyConfig), signal: currentAbort.signal, deps: { dns } },
       (result, index) => {
+        collected.push(result);
         mainWindow?.webContents.send('batch:progress', { result, index });
+        if (collected.length % 25 === 0) {
+          writeFile(autosavePath, JSON.stringify(collected)).catch(() => {});
+        }
       },
     );
+    await writeFile(autosavePath, JSON.stringify(results)).catch(() => {});
     return results;
   } finally {
     // Always clear the abort handle and signal completion, even if the batch

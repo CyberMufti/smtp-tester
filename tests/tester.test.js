@@ -301,6 +301,46 @@ test('stops immediately when an authoritative (detected) host rejects auth — n
   assert.equal(r.attempts[0].host, 'smtp.zoho.com');
 });
 
+test('retries a transient connection failure and succeeds, without retrying auth failures', async () => {
+  // Transient: fails to connect on the first pass (2 candidates), succeeds after.
+  let calls = 0;
+  const transientDeps = {
+    smtp: {
+      async verify() {
+        calls++;
+        return calls <= 2 ? { connected: false, error: 'ECONNREFUSED' } : { connected: true, authenticated: true };
+      },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const [r] = await runBatch([{ host: 'h.com', port: 587, user: 'u@h.com', pass: 'p' }], [], {
+    concurrency: 1,
+    deps: transientDeps,
+    retries: 1,
+    retryBackoffMs: 0,
+  });
+  assert.equal(r.status, 'valid', 'transient connect failure should be retried and recover');
+
+  // Auth failure is permanent — must NOT be retried.
+  let authCalls = 0;
+  const authDeps = {
+    smtp: {
+      async verify() { authCalls++; return { connected: true, authenticated: false, error: 'EAUTH' }; },
+      async send() { return { accepted: [] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  const [r2] = await runBatch([{ host: 'h.com', port: 587, user: 'u@h.com', pass: 'p' }], [], {
+    concurrency: 1,
+    deps: authDeps,
+    retries: 3,
+    retryBackoffMs: 0,
+  });
+  assert.equal(r2.status, 'dead');
+  assert.equal(authCalls, 1, 'auth failure should not trigger retries');
+});
+
 test('deliverability checks populate SPF/DMARC, DNSBL and spam score when enabled', async () => {
   const deps = {
     smtp: {

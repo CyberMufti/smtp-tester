@@ -178,10 +178,20 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
 
   const { status, reason, perSeed } = classify(step);
 
+  // Categorize a dead result so the orchestrator can retry transient (connect)
+  // failures but never retry a permanent auth/send rejection.
+  let deadReason;
+  if (status === 'dead') {
+    if (!step.connected) deadReason = 'connect';
+    else if (!step.authenticated) deadReason = 'auth';
+    else deadReason = 'send';
+  }
+
   const result = {
     cred,
     status,
     reason,
+    deadReason,
     perSeed,
     latencyMs: Date.now() - start,
     token,
@@ -311,7 +321,14 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       if (signal?.aborted) return;
       const index = next++;
       if (index >= creds.length) return;
-      const result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
+      let result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
+      // Retry transient connection failures (not auth/send rejections) with backoff.
+      const maxRetries = opts.retries ?? 0;
+      for (let attempt = 0; attempt < maxRetries && result.deadReason === 'connect' && !signal?.aborted; attempt++) {
+        await new Promise((r) => setTimeout(r, opts.retryBackoffMs ?? 2000));
+        if (signal?.aborted) break;
+        result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
+      }
       results[index] = result;
       if (onProgress) onProgress(result, index);
     }

@@ -29,6 +29,23 @@
  * @typedef {{line:number,raw:string,reason:string}} ParseError
  */
 
+/**
+ * Remove exact-duplicate credentials, preserving first occurrence and order.
+ * @param {Credential[]} records
+ * @returns {{records: Credential[], removed: number}}
+ */
+export function dedupeCredentials(records) {
+  const seen = new Set();
+  const out = [];
+  for (const r of records || []) {
+    const key = `${r.host || ''}|${r.port || ''}|${r.user}|${r.pass}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return { records: out, removed: (records || []).length - out.length };
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HOSTNAME_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z0-9-]+$/i;
 

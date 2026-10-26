@@ -1,4 +1,4 @@
-import { parse } from '../core/parser.js';
+import { parse, dedupeCredentials } from '../core/parser.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -6,6 +6,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 let settings = null;
 let parsed = { records: [], errors: [] };
+let runTotal = 0;
 let results = [];
 let activeFilter = 'all';
 let running = false;
@@ -64,6 +65,12 @@ async function runBatch() {
   $('#progress-bar').hidden = false;
   $('#progress-fill').style.width = '0%';
 
+  const { records: creds, removed } = dedupeCredentials(parsed.records);
+  runTotal = creds.length;
+  if (removed) {
+    $('#parse-errors').textContent = `${removed} duplicate${removed === 1 ? '' : 's'} removed — testing ${creds.length}.`;
+  }
+
   const manualRecipients = $('#manual-recipients').value
     .split(/[\n,;]+/)
     .map((s) => s.trim())
@@ -83,13 +90,14 @@ async function runBatch() {
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
     proxyConfig: settings?.proxy,
+    retries: 1,
+    retryBackoffMs: 2000,
   };
 
-  const total = parsed.records.length;
-  $('#progress-label').textContent = `0 / ${total}`;
+  $('#progress-label').textContent = `0 / ${runTotal}`;
 
   try {
-    await api.testBatch(parsed.records, settings?.seeds || [], opts);
+    await api.testBatch(creds, settings?.seeds || [], opts);
   } catch (err) {
     $('#parse-errors').textContent = `Run failed: ${err.message}`;
   } finally {
@@ -118,10 +126,9 @@ $('#opt-rowcap').addEventListener('change', renderResults);
 
 api.onProgress(({ result }) => {
   results.push(result);
-  const total = parsed.records.length;
-  $('#progress-label').textContent = `${results.length} / ${total}`;
+  $('#progress-label').textContent = `${results.length} / ${runTotal}`;
   const fill = $('#progress-fill');
-  if (fill) fill.style.width = `${total ? Math.round((results.length / total) * 100) : 0}%`;
+  if (fill) fill.style.width = `${runTotal ? Math.round((results.length / runTotal) * 100) : 0}%`;
   renderSummary();
   renderContentScoreBanner();
   renderRowsNote();
