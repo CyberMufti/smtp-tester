@@ -14,6 +14,7 @@
  * @typedef {{ host: string, port: number, type: 4|5, user?: string, pass?: string }} ProxyEntry
  */
 import https from 'node:https';
+import fsDefault from 'node:fs';
 import { SocksClient } from 'socks';
 
 export const DEFAULT_SOURCES = [
@@ -199,6 +200,48 @@ export class ProxyPool {
   /** @returns {{ total: number, valid: number }} */
   size() {
     return { total: this.raw.length, valid: this.valid.length };
+  }
+
+  /**
+   * Persist the current valid pool to disk. Never throws.
+   * @param {string} filePath
+   * @param {{ fs?: any }} [opts]
+   * @returns {Promise<boolean>}
+   */
+  async save(filePath, opts = {}) {
+    const fsm = opts.fs || fsDefault;
+    try {
+      const payload = { version: 1, scrapedAt: Date.now(), valid: this.valid };
+      await fsm.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
+      this.scrapedAt = payload.scrapedAt;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Restore the pool from disk. Missing/corrupt file = empty pool. Never throws.
+   * @param {string} filePath
+   * @param {{ fs?: any }} [opts]
+   * @returns {Promise<{ loaded: number, scrapedAt: number|null }>}
+   */
+  async load(filePath, opts = {}) {
+    const fsm = opts.fs || fsDefault;
+    try {
+      const raw = await fsm.promises.readFile(filePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.valid)) {
+        this.valid = parsed.valid.filter((e) => e && e.host && e.port);
+        this.index = 0;
+        this.scrapedAt = parsed.scrapedAt || null;
+        return { loaded: this.valid.length, scrapedAt: this.scrapedAt };
+      }
+    } catch { /* missing/corrupt → empty */ }
+    this.valid = [];
+    this.index = 0;
+    this.scrapedAt = null;
+    return { loaded: 0, scrapedAt: null };
   }
 
   /** Remove a proxy from the valid pool. Idempotent. Returns number removed. */

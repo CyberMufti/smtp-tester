@@ -226,7 +226,13 @@ function createWindow() {
   mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
 }
 
-app.whenReady().then(() => {
+function proxyPoolPath() {
+  return join(app.getPath('userData'), 'proxy-pool.json');
+}
+
+app.whenReady().then(async () => {
+  // Restore the scraped pool BEFORE the window opens so the renderer sees it.
+  try { await proxyPool.load(proxyPoolPath()); } catch { /* noop */ }
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -419,6 +425,7 @@ ipcMain.handle('proxy:scrape', async (event) => {
         try { event.sender.send('proxy:progress', { phase: 'validating', done, total }); } catch {}
       },
     });
+    try { await proxyPool.save(proxyPoolPath()); } catch { /* noop */ }
     return { fetched: scraped.fetched, parsed: scraped.parsed, sources: scraped.sources, tested: validated.tested, valid: validated.valid, skipped: validated.skipped, size: proxyPool.size() };
   } catch (err) {
     recordCrash('proxyScrape', err);
@@ -428,11 +435,13 @@ ipcMain.handle('proxy:scrape', async (event) => {
 
 ipcMain.handle('proxy:status', async () => ({
   size: proxyPool.size(),
+  scrapedAt: proxyPool.scrapedAt || null,
   sample: proxyPool.valid.slice(0, 3).map((e) => e.host + ':' + e.port),
 }));
 
 ipcMain.handle('proxy:clear', async () => {
   proxyPool.clear();
+  try { await proxyPool.save(proxyPoolPath()); } catch { /* noop */ }
   return { size: proxyPool.size() };
 });
 

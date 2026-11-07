@@ -1166,4 +1166,13 @@ async function startApp() {
 (async function init() {
   const licensed = await enforceLicense();
   if (licensed) startApp();
+  // Show restored proxy pool on launch (from prior session's save).
+  try {
+    const s = await api.proxyStatus?.();
+    const el = $('#proxy-pool-status');
+    if (el && s && s.size && s.size.valid > 0) {
+      const when = s.scrapedAt ? new Date(s.scrapedAt).toLocaleString() : 'unknown';
+      el.textContent = 'Pool: ' + s.size.valid + ' valid / ' + s.size.total + ' tested (restored ' + when + ')';
+    }
+  } catch { /* noop */ }
 })();

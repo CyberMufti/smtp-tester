@@ -106,3 +106,54 @@ test('clear resets raw and valid', async () => {
   assert.deepEqual(pool.size(), { total: 0, valid: 0 });
   assert.equal(pool.getNext(), null);
 });
+
+test('save/load roundtrip preserves valid proxies and scrapedAt', async () => {
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const tmpPath = path.join(os.tmpdir(), 'proxy-pool-test-' + Date.now() + '.json');
+  try {
+    const pool = new ProxyPool();
+    pool.valid = [
+      { host: '1.1.1.1', port: 1080, type: 5 },
+      { host: '2.2.2.2', port: 1080, type: 5, user: 'u', pass: 'p' },
+    ];
+    const saved = await pool.save(tmpPath);
+    assert.equal(saved, true);
+    assert.ok(pool.scrapedAt > 0);
+
+    const pool2 = new ProxyPool();
+    const loaded = await pool2.load(tmpPath);
+    assert.equal(loaded.loaded, 2);
+    assert.equal(pool2.valid.length, 2);
+    assert.equal(pool2.valid[0].host, '1.1.1.1');
+    assert.equal(pool2.valid[1].user, 'u');
+    assert.ok(pool2.scrapedAt > 0);
+  } finally {
+    await fs.promises.unlink(tmpPath).catch(() => {});
+  }
+});
+
+test('load on missing file is a no-op (empty pool, no throw)', async () => {
+  const pool = new ProxyPool();
+  const res = await pool.load('/nonexistent/path-' + Date.now() + '.json');
+  assert.equal(res.loaded, 0);
+  assert.equal(pool.valid.length, 0);
+  assert.equal(pool.scrapedAt, null);
+});
+
+test('load on corrupt file is a no-op (empty pool, no throw)', async () => {
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const tmpPath = path.join(os.tmpdir(), 'proxy-pool-corrupt-' + Date.now() + '.json');
+  try {
+    await fs.promises.writeFile(tmpPath, 'not valid json {{{', 'utf8');
+    const pool = new ProxyPool();
+    const res = await pool.load(tmpPath);
+    assert.equal(res.loaded, 0);
+    assert.equal(pool.valid.length, 0);
+  } finally {
+    await fs.promises.unlink(tmpPath).catch(() => {});
+  }
+});
