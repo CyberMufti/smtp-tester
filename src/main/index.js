@@ -16,6 +16,7 @@ import { runCpanelChecks } from '../core/cpanel.js';
 import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
 import { runSSHChecks } from '../core/ssh.js';
+import { ProxyPool } from '../core/proxy_pool.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
@@ -116,6 +117,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainWindow;
 let currentAbort = null;
+
+const proxyPool = new ProxyPool();
 
 // --- Email-auth Python sidecar auto-setup ---------------------------------
 // The sidecar's script + requirements ship read-only in the app; its venv is
@@ -395,6 +398,31 @@ async function loadBreachSet(path) {
 
 // Offline credential-hygiene audit: stream an account export (email:password)
 // and flag weak / reused / breached passwords. No SMTP, no network.
+// --- Proxy pool (scraped SOCKS) ---
+// Stateful pool, survives across batches. Scraped from SpeedX lists,
+// validated against Cloudflare DNS, round-robin via getNext().
+
+ipcMain.handle('proxy:scrape', async () => {
+  try {
+    const scraped = await proxyPool.scrape();
+    const validated = await proxyPool.validate();
+    return { fetched: scraped.fetched, parsed: scraped.parsed, sources: scraped.sources, tested: validated.tested, valid: validated.valid, size: proxyPool.size() };
+  } catch (err) {
+    recordCrash('proxyScrape', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('proxy:status', async () => ({
+  size: proxyPool.size(),
+  sample: proxyPool.valid.slice(0, 3).map((e) => e.host + ':' + e.port),
+}));
+
+ipcMain.handle('proxy:clear', async () => {
+  proxyPool.clear();
+  return { size: proxyPool.size() };
+});
+
 ipcMain.handle('hygiene:auditFile', async (_e, { filePath, breachFilePath }) => {
   try {
     const breachedHashes = await loadBreachSet(breachFilePath ? String(breachFilePath) : '');
