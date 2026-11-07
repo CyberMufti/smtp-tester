@@ -18,6 +18,11 @@ import fsDefault from 'node:fs';
 import { SocksClient } from 'socks';
 
 export const DEFAULT_SOURCES = [
+  // Proxyscrape API — protocol-prefixed lines (socks5://ip:port)
+  'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text',
+  // Spys.one — HTML table (extracted via regex in scrape())
+  'https://spys.one/en/socks-proxy-list/',
+  // SpeedX lists (kept as proven baseline)
   'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt',
   'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt',
 ];
@@ -32,15 +37,48 @@ export const DEFAULT_VALIDATE_CONCURRENCY = 50;
  *   ip:port
  *   ip:port:user:pass  (some lists use this for authenticated proxies)
  */
-export function parseProxyLine(line, type = 5) {
+export function parseProxyLine(line, typeHint = 5) {
   const s = String(line || '').trim();
   if (!s || s.startsWith('#')) return null;
+
+  // URL format: protocol://[user:pass@]host:port
+  const urlMatch = s.match(/^(socks5|socks4|http|https):\/\/(.+)$/i);
+  if (urlMatch) {
+    const scheme = urlMatch[1].toLowerCase();
+    if (scheme === 'http' || scheme === 'https') return null; // app can't route via HTTP proxies
+    const type = scheme === 'socks4' ? 4 : 5;
+    let rest = urlMatch[2];
+    let user, pass;
+    const at = rest.lastIndexOf('@');
+    if (at !== -1) {
+      const auth = rest.slice(0, at);
+      rest = rest.slice(at + 1);
+      const colon = auth.indexOf(':');
+      if (colon !== -1) {
+        user = decodeURIComponent(auth.slice(0, colon));
+        pass = decodeURIComponent(auth.slice(colon + 1));
+      } else {
+        user = decodeURIComponent(auth);
+        pass = '';
+      }
+    }
+    const parts = rest.split(':');
+    if (parts.length !== 2) return null;
+    const host = parts[0].trim();
+    const port = Number(parts[1]);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
+    const entry = { host, port, type };
+    if (user) { entry.user = user; entry.pass = pass; }
+    return entry;
+  }
+
+  // Bare format: host:port[:user:pass]
   const parts = s.split(':');
   if (parts.length < 2) return null;
   const host = parts[0].trim();
   const port = Number(parts[1]);
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
-  const entry = { host, port, type };
+  const entry = { host, port, type: typeHint };
   if (parts.length >= 4) {
     entry.user = parts[2];
     entry.pass = parts[3];
@@ -127,6 +165,20 @@ export class ProxyPool {
       const body = await fetchFn(src);
       if (!body) continue;
       sourcesOk++;
+      // HTML bodies (Spys.one, etc.): extract ip:port pairs from markup
+      const isHtml = /<html|<table|<tr|<td|<div/i.test(body.slice(0, 500));
+      if (isHtml) {
+        const matches = body.match(/\b(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})\b/g) || [];
+        for (const m of matches) {
+          const entry = parseProxyLine(m, type);
+          if (!entry) continue;
+          const key = `${entry.type}:${entry.host}:${entry.port}:${entry.user || ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          this.raw.push(entry);
+        }
+        continue;
+      }
       for (const line of body.split(/\r?\n/)) {
         const entry = parseProxyLine(line, type);
         if (!entry) continue;
