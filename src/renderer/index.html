@@ -368,6 +368,31 @@
       </section>
 
       <section class="panel">
+        <div class="panel-head"><h2>SSH login check</h2></div>
+        <p class="muted">
+          Check which of <b>your own</b> servers still accept their SSH login — one account per line
+          as <code>host:username:password</code> (the password may contain colons). The port below
+          is applied to every account; connections use the app-wide SOCKS proxy if one is set.
+        </p>
+        <div class="form-grid">
+          <label>SSH port
+            <input id="ssh-port" type="number" min="1" max="65535" value="22" />
+          </label>
+          <label>Concurrency
+            <input id="ssh-concurrency" type="number" min="1" max="50" value="5" />
+          </label>
+        </div>
+        <label class="full">Accounts
+          <textarea id="ssh-input" rows="5" placeholder="server.yourdomain.com:root:secret&#10;10.0.0.5:deploy:secret"></textarea>
+        </label>
+        <div class="panel-actions">
+          <button id="btn-ssh-check" class="btn primary">Check logins</button>
+          <span id="ssh-progress" class="muted"></span>
+        </div>
+        <div id="ssh-result"></div>
+      </section>
+
+      <section class="panel">
         <div class="panel-head"><h2>Email authentication check</h2></div>
         <p class="muted">
           Check a <b>domain you send from</b> for SPF, DKIM, and DMARC. With the optional Python

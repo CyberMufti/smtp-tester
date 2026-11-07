@@ -15,6 +15,7 @@ import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
 import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
+import { runSSHChecks } from '../core/ssh.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
@@ -345,6 +346,33 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
     return { results, summary, total: results.length };
   } catch (err) {
     recordCrash('whmCheck', err);
+    return { error: err.message };
+  }
+});
+
+// Batch SSH login check for servers you operate (port 22), routed through the
+// app-wide SOCKS proxy when one is configured.
+ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
+  try {
+    const list = Array.isArray(targets) ? targets : [];
+    const settings = await loadSettings();
+    const results = await runSSHChecks(
+      list,
+      {
+        concurrency: Number(opts?.concurrency) || 5,
+        port: Number(opts?.port) || 22,
+        timeout: Number(opts?.timeout) || 10000,
+        proxyUrl: proxyUrlFrom(settings?.proxy),
+      },
+      (result, index) => mainWindow?.webContents.send('ssh:progress', { result, index, total: list.length }),
+    );
+    const summary = results.reduce(
+      (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
+      { valid: 0, invalid: 0, unreachable: 0 },
+    );
+    return { results, summary, total: results.length };
+  } catch (err) {
+    recordCrash('sshCheck', err);
     return { error: err.message };
   }
 });

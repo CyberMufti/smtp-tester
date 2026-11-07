@@ -26,6 +26,12 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('whm:progress', handler);
     return () => ipcRenderer.removeListener('whm:progress', handler);
   },
+  checkSsh: (targets, opts) => ipcRenderer.invoke('ssh:check', { targets, opts }),
+  onSshProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('ssh:progress', handler);
+    return () => ipcRenderer.removeListener('ssh:progress', handler);
+  },
   auditHygiene: (filePath, breachFilePath) => ipcRenderer.invoke('hygiene:auditFile', { filePath, breachFilePath }),
   testBatch: (creds, seeds, opts) => ipcRenderer.invoke('batch:run', { creds, seeds, opts }),
   // Resolve a dropped/picked File to its absolute path (Electron 32+ removed

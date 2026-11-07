@@ -21,7 +21,8 @@
     "electron-updater": "^6.8.11",
     "imapflow": "^1.0.164",
     "nodemailer": "^6.9.16",
-    "socks": "^2.8.10"
+    "socks": "^2.8.10",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",

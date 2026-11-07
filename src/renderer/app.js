@@ -868,6 +868,60 @@ $('#btn-whm-check').addEventListener('click', async () => {
   }
 });
 
+// ---------- SSH login check ----------
+const SSH_STATUS = {
+  valid: ['ok', 'Login works'],
+  invalid: ['bad', 'Login rejected'],
+  unreachable: ['bad', 'Down / unreachable'],
+};
+
+function renderSshRows(results) {
+  return results
+    .map((r) => {
+      const [cls, label] = SSH_STATUS[r.status] || ['neutral', r.status];
+      return `<li><span class="dbadge b-${cls}">${esc(label)}</span> <span class="mono">${esc(r.host)}:${esc(String(r.port))}</span> — ${esc(r.username || r.user)}${r.detail ? ` <span class="muted">(${esc(String(r.detail))})</span>` : ''}</li>`;
+    })
+    .join('');
+}
+
+$('#btn-ssh-check').addEventListener('click', async () => {
+  const out = $('#ssh-result');
+  const prog = $('#ssh-progress');
+  const port = Number($('#ssh-port').value) || 22;
+  const concurrency = Number($('#ssh-concurrency').value) || 5;
+  const targets = parseCpanelLines($('#ssh-input').value, port); // host:user:pass, shared parser
+  if (!targets.length) {
+    out.innerHTML = '<p class="err-text">Add at least one account as host:username:password.</p>';
+    return;
+  }
+  const btn = $('#btn-ssh-check');
+  btn.disabled = true;
+  out.innerHTML = '';
+  prog.textContent = `0 / ${targets.length}`;
+  let done = 0;
+  const off = api.onSshProgress(() => {
+    done++;
+    prog.textContent = `${done} / ${targets.length}`;
+  });
+  try {
+    const rep = await api.checkSsh(targets, { port, concurrency });
+    if (rep.error) {
+      out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
+      return;
+    }
+    const s = rep.summary;
+    const badge =
+      `<span class="score-badge score-low">${s.valid} up</span> ` +
+      `<span class="score-badge score-high">${s.invalid + s.unreachable} need attention</span>`;
+    const note = `<span class="note"> — valid: ${s.valid}, rejected: ${s.invalid}, down: ${s.unreachable}</span>`;
+    out.innerHTML = `${badge}${note}<ul>${renderSshRows(rep.results)}</ul>`;
+  } finally {
+    off?.();
+    prog.textContent = '';
+    btn.disabled = false;
+  }
+});
+
 // ---------- Email authentication check ----------
 function authBadge(label, verdict) {
   // verdict: 'ok' | 'bad' | 'neutral'
