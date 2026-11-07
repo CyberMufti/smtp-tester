@@ -1,7 +1,37 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { SMTPServer } from 'smtp-server';
-import { verify, send, buildProxyUrl } from '../src/core/smtp.js';
+import { verify, send, buildProxyUrl, buildAuth } from '../src/core/smtp.js';
+
+test('buildAuth uses password auth when no OAuth payload is present', () => {
+  const a = buildAuth({ user: 'u@example.com', pass: 'secret' });
+  assert.deepEqual(a, { user: 'u@example.com', pass: 'secret' });
+});
+
+test('buildAuth builds an XOAUTH2 auth from a ready access token', () => {
+  const a = buildAuth({ user: 'u@example.com', pass: 'ignored', oauth: { accessToken: 'ya29.abc' } });
+  assert.equal(a.type, 'OAuth2');
+  assert.equal(a.user, 'u@example.com');
+  assert.equal(a.accessToken, 'ya29.abc');
+  assert.equal(a.pass, undefined); // password is not used in OAuth mode
+});
+
+test('buildAuth builds an XOAUTH2 auth from a refresh-token set', () => {
+  const a = buildAuth({
+    user: 'u@example.com',
+    oauth: { clientId: 'cid', clientSecret: 'csec', refreshToken: 'rt', accessUrl: 'https://oauth2.example/token' },
+  });
+  assert.equal(a.type, 'OAuth2');
+  assert.deepEqual(
+    { clientId: a.clientId, clientSecret: a.clientSecret, refreshToken: a.refreshToken, accessUrl: a.accessUrl },
+    { clientId: 'cid', clientSecret: 'csec', refreshToken: 'rt', accessUrl: 'https://oauth2.example/token' },
+  );
+});
+
+test('buildAuth falls back to password when oauth has neither token', () => {
+  const a = buildAuth({ user: 'u@example.com', pass: 'secret', oauth: { clientId: 'cid' } });
+  assert.deepEqual(a, { user: 'u@example.com', pass: 'secret' });
+});
 
 /** Start an SMTPServer that accepts user "good"/"pass"; return { server, port }. */
 function startServer(onData) {

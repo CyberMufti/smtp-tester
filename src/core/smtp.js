@@ -25,15 +25,40 @@ function applyProxy(transport, proxyUrl) {
 /**
  * SMTP connectivity + send, built on nodemailer.
  *
- * @typedef {{host:string, port:number, user:string, pass:string, from?:string}} Credential
+ * A credential authenticates either with a password or with OAuth 2.0 (XOAUTH2)
+ * — the latter is required for Gmail / Microsoft 365 accounts that have basic
+ * SMTP AUTH disabled. OAuth can be a ready access token, or a
+ * clientId/clientSecret/refreshToken set that nodemailer exchanges for one.
+ *
+ * @typedef {{accessToken?:string, clientId?:string, clientSecret?:string, refreshToken?:string, accessUrl?:string, expires?:number}} OAuth2
+ * @typedef {{host:string, port:number, user:string, pass?:string, from?:string, oauth?:OAuth2}} Credential
  */
+
+/**
+ * Build the nodemailer `auth` object for a credential. Pure — chooses OAuth2
+ * when the credential carries a usable OAuth payload (an access token, or a
+ * refresh token to mint one), otherwise plain user/password.
+ * @param {Credential} cred
+ * @returns {object}
+ */
+export function buildAuth(cred) {
+  const o = cred.oauth;
+  if (o && (o.accessToken || o.refreshToken)) {
+    const auth = { type: 'OAuth2', user: cred.user };
+    for (const k of ['accessToken', 'clientId', 'clientSecret', 'refreshToken', 'accessUrl', 'expires']) {
+      if (o[k] != null) auth[k] = o[k];
+    }
+    return auth;
+  }
+  return { user: cred.user, pass: cred.pass };
+}
 
 function buildTransport(cred, { connectTimeout = 10000, sendTimeout, proxy } = {}) {
   const transport = nodemailer.createTransport({
     host: cred.host,
     port: cred.port,
     secure: cred.port === 465,
-    auth: { user: cred.user, pass: cred.pass },
+    auth: buildAuth(cred),
     connectionTimeout: connectTimeout,
     greetingTimeout: connectTimeout,
     socketTimeout: sendTimeout ?? connectTimeout,

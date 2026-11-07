@@ -11,3 +11,6 @@ python/__pycache__/
 *.pyc
 python/dist/
 python/build/
+
+# aider assistant artifacts
+.aider*
