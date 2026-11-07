@@ -31,5 +31,41 @@
   },
   "allowScripts": {
     "electron@33.4.11": true
+  },
+  "build": {
+    "appId": "com.smtp-tester.app",
+    "productName": "SMTP Tester",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "python/**/*",
+      "package.json",
+      "!python/.venv/**",
+      "!python/dist/**",
+      "!tests/**",
+      "!scripts/**",
+      "!telegram-bot-vercel/**",
+      "!**/*.test.js",
+      "!**/*.md"
+    ],
+    "asarUnpack": [
+      "python/**"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "identity": null
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
