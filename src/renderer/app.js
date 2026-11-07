@@ -161,6 +161,9 @@ function buildRunOpts() {
     checks: $('#opt-checks').checked
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
+    // On an auth rejection, probe the domain's mail server (RCPT TO) to tell
+    // "wrong password" from "account doesn't exist".
+    verifyRecipients: $('#opt-verify-recipients')?.checked || false,
     proxyConfig: settings?.proxy,
     retries: 1,
     retryBackoffMs: 2000,
@@ -390,6 +393,10 @@ function rowHtml(r) {
     .join('');
   if (seedDetail) parts.push(seedDetail);
   else if (r.reason) parts.push(esc(r.reason));
+
+  // Account-existence verdict (only present when a server refused the login).
+  if (r.userExists === false) parts.push('<span class="dbadge b-bad">account not found</span>');
+  else if (r.userExists === true) parts.push('<span class="dbadge b-ok">account exists</span>');
 
   if (r.triedFallback && r.usedHost) {
     parts.push(`<span class="note">↳ connected via <b>${esc(r.usedHost)}:${esc(r.usedPort)}</b> (auto-detected)</span>`);

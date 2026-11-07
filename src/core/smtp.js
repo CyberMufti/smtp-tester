@@ -94,7 +94,9 @@ export async function verify(cred, opts = {}) {
     return { connected: true, authenticated: true };
   } catch (err) {
     if (isAuthError(err)) {
-      return { connected: true, authenticated: false, error: err.message };
+      const msg = String(err.message || '').toLowerCase();
+      const userExists = !msg.includes('550') && !msg.includes('user unknown') && !msg.includes('no such user');
+      return { connected: true, authenticated: false, userExists, error: err.message };
     }
     return { connected: false, authenticated: false, error: err.message };
   } finally {

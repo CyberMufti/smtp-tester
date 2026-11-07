@@ -469,3 +469,59 @@ test('token passed to send and findToken matches and is unique per credential', 
   // Tokens are unique across credentials.
   assert.equal(new Set(findTokens).size, 3);
 });
+
+test('verifyRecipients: an RCPT probe sets userExists on an auth-rejected credential', async () => {
+  // SMTP that connects but always rejects auth.
+  const smtp = {
+    async verify() {
+      return { connected: true, authenticated: false, error: '535 auth failed' };
+    },
+    async send() {
+      return { accepted: [] };
+    },
+  };
+  const probed = [];
+  const verifyRecipient = async (address) => {
+    probed.push(address);
+    // "known" accounts exist; others don't.
+    return { exists: address.startsWith('known'), code: address.startsWith('known') ? 250 : 550 };
+  };
+  const creds = [
+    { host: 'mail.x.com', port: 587, user: 'known@x.com', pass: 'bad' },
+    { host: 'mail.x.com', port: 587, user: 'ghost@x.com', pass: 'bad' },
+  ];
+  const results = await runBatch(creds, [], {
+    concurrency: 2,
+    verifyRecipients: true,
+    deps: { smtp, verifyRecipient },
+  });
+
+  const known = results.find((r) => r.cred.user === 'known@x.com');
+  const ghost = results.find((r) => r.cred.user === 'ghost@x.com');
+  assert.equal(known.status, 'dead');
+  assert.equal(known.userExists, true);
+  assert.equal(ghost.userExists, false);
+  assert.match(ghost.reason, /account not found/i);
+  assert.equal(probed.length, 2); // probe ran for both auth-rejected creds
+});
+
+test('without verifyRecipients, no RCPT probe runs', async () => {
+  const smtp = {
+    async verify() {
+      return { connected: true, authenticated: false, error: '535 auth failed' };
+    },
+    async send() {
+      return { accepted: [] };
+    },
+  };
+  let probeCalls = 0;
+  const verifyRecipient = async () => {
+    probeCalls++;
+    return { exists: false };
+  };
+  await runBatch([{ host: 'mail.x.com', port: 587, user: 'u@x.com', pass: 'bad' }], [], {
+    concurrency: 1,
+    deps: { smtp, verifyRecipient },
+  });
+  assert.equal(probeCalls, 0);
+});

@@ -67,7 +67,14 @@ export function toWorkingTxt(results, { generatedAt = '' } = {}) {
   return lines.join('\n');
 }
 
-const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
+const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'userExists', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
+
+/** 'yes'/'no' when the account-existence probe had a verdict, else blank. */
+function userExistsCell(r) {
+  if (r.userExists === true) return 'yes';
+  if (r.userExists === false) return 'no';
+  return '';
+}
 
 /** Header row for the CSV export. */
 export function csvHeaderLine() {
@@ -84,6 +91,7 @@ export function csvRowLine(r) {
     r.cred.port || '',
     r.cred.user,
     r.status,
+    userExistsCell(r),
     r.usedHost || '',
     r.usedPort || '',
     r.reason,

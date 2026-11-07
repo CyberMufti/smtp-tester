@@ -22,7 +22,17 @@ export function classify(s) {
     return { status: 'dead', reason: s.connectError || 'could not connect to server', perSeed };
   }
   if (!s.authenticated) {
-    return { status: 'dead', reason: s.authError || 'authentication failed', perSeed };
+    // The server connected but refused the login. `userExists` (from the SMTP
+    // probe) distinguishes "account not recognized" from "account exists, login
+    // refused (e.g. wrong password)". It is only meaningful here, so it is only
+    // attached on an auth rejection.
+    const base = s.authError || 'authentication failed';
+    const out = { status: 'dead', reason: base, perSeed };
+    if (s.userExists !== undefined) {
+      out.userExists = s.userExists;
+      if (s.userExists === false) out.reason = `${base} — account not found on server`;
+    }
+    return out;
   }
   if (!s.sent) {
     return { status: 'dead', reason: s.sendError || 'server rejected the message', perSeed };

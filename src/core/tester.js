@@ -6,6 +6,7 @@ import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
+import { verifyRecipient as realVerifyRecipient } from './rcptcheck.js';
 
 // Candidate sources whose auth failure is definitive — the host is certainly
 // right (it's the provider/SRV/autoconfig/MX server), so there's no point
@@ -28,7 +29,7 @@ function domainOf(addressOrDomain) {
  *
  * @typedef {import('./parser.js').Credential} Credential
  * @typedef {import('./imap.js').Seed} Seed
- * @typedef {{cred:Credential, status:string, reason:string, perSeed:any[], latencyMs:number}} Result
+ * @typedef {{cred:Credential, status:string, reason:string, userExists?:boolean, perSeed:any[], latencyMs:number}} Result
  */
 
 let tokenCounter = 0;
@@ -105,6 +106,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         break;
       }
       if (v.connected) {
+        step.userExists = v.userExists;   // <-- ADD THIS LINE
         record.outcome = `auth rejected${v.error ? ` (${v.error})` : ''}`;
         attempts.push(record);
         anyConnected = true;
@@ -130,6 +132,20 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       step.connected = true;
       step.authenticated = false;
       step.authError = authError;
+      // The login was refused. When enabled, settle whether the account itself
+      // exists with an RCPT TO probe against the domain's mail server — the
+      // reliable signal, overriding the weak auth-message heuristic.
+      if (opts.verifyRecipients) {
+        const verifyRecipient = opts.deps?.verifyRecipient ?? realVerifyRecipient;
+        const probeHost = cred.host || (await resolveMxHosts(domainOf(cred.user), dns || {}))[0];
+        if (probeHost) {
+          const probe = await verifyRecipient(cred.user, {
+            host: probeHost,
+            timeout: opts.connectTimeout,
+          }).catch(() => null);
+          if (probe && probe.exists != null) step.userExists = probe.exists;
+        }
+      }
     } else {
       step.connected = false;
       step.connectError =
@@ -176,7 +192,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     else step.sendError = err.message;
   }
 
-  const { status, reason, perSeed } = classify(step);
+  const { status, reason, perSeed, userExists } = classify(step);
 
   // Categorize a dead result so the orchestrator can retry transient (connect)
   // failures but never retry a permanent auth/send rejection.
@@ -192,6 +208,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     status,
     reason,
     deadReason,
+    userExists,
     perSeed,
     latencyMs: Date.now() - start,
     token,

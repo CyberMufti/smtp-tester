@@ -95,3 +95,38 @@ test('perSeed always echoes the passed seed array', () => {
   const r = classify({ connected: true, authenticated: true, sent: true, seeds });
   assert.deepEqual(r.perSeed, seeds);
 });
+
+test('auth rejected with userExists:false -> dead, flagged not-found, reason notes it', () => {
+  const r = classify({
+    connected: true,
+    authenticated: false,
+    authError: 'Invalid login: 550 user unknown',
+    userExists: false,
+    sent: false,
+    seeds: [],
+  });
+  assert.equal(r.status, 'dead');
+  assert.equal(r.userExists, false);
+  assert.match(r.reason, /not found|does not exist|no such/i);
+});
+
+test('auth rejected with userExists:true -> dead, flagged exists, reason unchanged', () => {
+  const r = classify({
+    connected: true,
+    authenticated: false,
+    authError: 'Invalid login: 535 bad password',
+    userExists: true,
+    sent: false,
+    seeds: [],
+  });
+  assert.equal(r.status, 'dead');
+  assert.equal(r.userExists, true);
+  assert.equal(r.reason, 'Invalid login: 535 bad password');
+});
+
+test('userExists is not attached to non-auth outcomes', () => {
+  const connectFail = classify({ connected: false, authenticated: false, sent: false, seeds: [] });
+  assert.equal('userExists' in connectFail, false);
+  const ok = classify({ connected: true, authenticated: true, sent: true, seeds: [] });
+  assert.equal('userExists' in ok, false);
+});
