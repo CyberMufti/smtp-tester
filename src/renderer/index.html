@@ -131,6 +131,23 @@
         </details>
       </section>
 
+      <section class="panel">
+        <details>
+          <summary><b>Scraped proxy pool</b> — auto-rotate free SOCKS proxies</summary>
+          <p class="muted">
+            Scrapes free SOCKS proxy lists from public sources, validates each against Cloudflare DNS,
+            and rotates the survivors across SMTP and SSH batches. Falls back to your manual proxy above
+            if the pool is empty.
+          </p>
+          <div class="run-controls">
+            <span id="proxy-pool-status" class="muted">Pool: 0 valid / 0 tested</span>
+            <div class="spacer"></div>
+            <button id="btn-proxy-clear" class="btn ghost">Clear pool</button>
+            <button id="btn-proxy-scrape" class="btn primary">Scrape &amp; Validate</button>
+          </div>
+        </details>
+      </section>
+
       <section class="panel results-panel">
         <div class="panel-head">
           <h2>Results <span id="progress-label" class="muted"></span></h2>

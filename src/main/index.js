@@ -405,11 +405,17 @@ async function loadBreachSet(path) {
 // Stateful pool, survives across batches. Scraped from SpeedX lists,
 // validated against Cloudflare DNS, round-robin via getNext().
 
-ipcMain.handle('proxy:scrape', async () => {
+ipcMain.handle('proxy:scrape', async (event) => {
   try {
     const scraped = await proxyPool.scrape();
-    const validated = await proxyPool.validate();
-    return { fetched: scraped.fetched, parsed: scraped.parsed, sources: scraped.sources, tested: validated.tested, valid: validated.valid, size: proxyPool.size() };
+    try { event.sender.send('proxy:progress', { phase: 'scraped', parsed: scraped.parsed, fetched: scraped.fetched }); } catch {}
+    const validated = await proxyPool.validate({
+      maxProxies: 200,
+      onProgress: (done, total) => {
+        try { event.sender.send('proxy:progress', { phase: 'validating', done, total }); } catch {}
+      },
+    });
+    return { fetched: scraped.fetched, parsed: scraped.parsed, sources: scraped.sources, tested: validated.tested, valid: validated.valid, skipped: validated.skipped, size: proxyPool.size() };
   } catch (err) {
     recordCrash('proxyScrape', err);
     return { error: err.message };

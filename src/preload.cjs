@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('api', {
   scrapeProxies: () => ipcRenderer.invoke('proxy:scrape'),
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
   clearProxies: () => ipcRenderer.invoke('proxy:clear'),
+  onProxyProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('proxy:progress', handler);
+    return () => ipcRenderer.removeListener('proxy:progress', handler);
+  },
   onSshProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('ssh:progress', handler);

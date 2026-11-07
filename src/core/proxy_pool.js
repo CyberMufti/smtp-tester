@@ -22,8 +22,8 @@ export const DEFAULT_SOURCES = [
 ];
 
 export const DEFAULT_VALIDATE_TARGET = { host: '1.1.1.1', port: 53 };
-export const DEFAULT_VALIDATE_TIMEOUT = 5000;
-export const DEFAULT_VALIDATE_CONCURRENCY = 20;
+export const DEFAULT_VALIDATE_TIMEOUT = 3000;
+export const DEFAULT_VALIDATE_CONCURRENCY = 50;
 
 /**
  * Parse a raw line from a proxy list into a ProxyEntry, or null.
@@ -151,9 +151,13 @@ export class ProxyPool {
     const target = this.validateTarget;
     const timeout = this.validateTimeout;
     const concurrency = Math.max(1, this.validateConcurrency);
-    const input = this.raw.slice();
+    const maxProxies = Math.max(1, Number(opts.maxProxies) || 200);
+    const onProgress = opts.onProgress;
+    const input = this.raw.slice(0, maxProxies);
+    const skipped = Math.max(0, this.raw.length - input.length);
     const results = new Array(input.length);
     let next = 0;
+    let done = 0;
 
     async function worker() {
       while (next < input.length) {
@@ -164,13 +168,15 @@ export class ProxyPool {
         let ok = false;
         try { ok = await checkFn(url, { target, timeout }); } catch { ok = false; }
         results[i] = ok ? entry : null;
+        done++;
+        try { onProgress?.(done, input.length); } catch { /* ignore */ }
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, input.length) }, worker));
 
     this.valid = results.filter(Boolean);
     this.index = 0;
-    return { tested: input.length, valid: this.valid.length };
+    return { tested: input.length, valid: this.valid.length, skipped };
   }
 
   /**

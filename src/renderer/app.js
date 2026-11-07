@@ -491,6 +491,36 @@ $('#btn-save-proxy').addEventListener('click', async () => {
   setTimeout(() => ($('#proxy-save-status').textContent = ''), 2500);
 });
 
+// ---------- Proxy pool scraper ----------
+$('#btn-proxy-scrape').addEventListener('click', async () => {
+  const status = $('#proxy-pool-status');
+  const btn = $('#btn-proxy-scrape');
+  btn.disabled = true;
+  status.textContent = 'Scraping proxy lists…';
+  const off = api.onProxyProgress?.((p) => {
+    if (p.phase === 'scraped') status.textContent = 'Scraped ' + p.parsed + ' proxies. Validating first 200…';
+    else if (p.phase === 'validating') status.textContent = 'Validating… ' + p.done + '/' + p.total;
+  });
+  try {
+    const rep = await api.scrapeProxies();
+    if (rep.error) {
+      status.textContent = 'Scrape failed: ' + rep.error;
+    } else {
+      const skipNote = rep.skipped > 0 ? ' — skipped ' + rep.skipped + ' (cap 200)' : '';
+      status.textContent = 'Pool: ' + rep.valid + ' valid / ' + rep.tested + ' tested (' + rep.parsed + ' raw)' + skipNote;
+    }
+  } finally {
+    off?.();
+    btn.disabled = false;
+  }
+});
+
+$('#btn-proxy-clear').addEventListener('click', async () => {
+  const status = $('#proxy-pool-status');
+  const rep = await api.clearProxies();
+  status.textContent = 'Pool cleared (' + (rep.size?.valid ?? 0) + ' remaining)';
+});
+
 function addSeedRow(seed) {
   const tpl = $('#seed-row-tpl').content.cloneNode(true);
   const card = tpl.querySelector('.seed-card');
@@ -738,7 +768,7 @@ $('#btn-cpanel-check').addEventListener('click', async () => {
     prog.textContent = `${done} / ${targets.length}`;
   });
   try {
-    const rep = await api.checkCpanel(targets, { port, concurrency });
+    const rep = await api.checkCpanel(targets, { maxPerSec: Number($('#opt-maxrate').value) || 0,  port, concurrency });
     if (rep.error) {
       out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
       return;
@@ -795,7 +825,7 @@ $('#btn-webmail-check').addEventListener('click', async () => {
     prog.textContent = `${done} / ${targets.length}`;
   });
   try {
-    const rep = await api.checkWebmail(targets, { port, path, concurrency });
+    const rep = await api.checkWebmail(targets, { maxPerSec: Number($('#opt-maxrate').value) || 0,  port, path, concurrency });
     if (rep.error) {
       out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
       return;
@@ -850,7 +880,7 @@ $('#btn-whm-check').addEventListener('click', async () => {
     prog.textContent = `${done} / ${targets.length}`;
   });
   try {
-    const rep = await api.checkWhm(targets, { port, concurrency });
+    const rep = await api.checkWhm(targets, { maxPerSec: Number($('#opt-maxrate').value) || 0,  port, concurrency });
     if (rep.error) {
       out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
       return;
@@ -904,7 +934,7 @@ $('#btn-ssh-check').addEventListener('click', async () => {
     prog.textContent = `${done} / ${targets.length}`;
   });
   try {
-    const rep = await api.checkSsh(targets, { port, concurrency });
+    const rep = await api.checkSsh(targets, { maxPerSec: Number($('#opt-maxrate').value) || 0,  port, concurrency });
     if (rep.error) {
       out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
       return;
