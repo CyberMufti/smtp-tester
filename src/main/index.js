@@ -14,6 +14,8 @@ import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
 import { checkEmailAuth } from '../core/authcheck.js';
+import { makeExec } from '../core/pyauth.js';
+import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { verifySeed } from '../core/imap.js';
@@ -112,6 +114,50 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let mainWindow;
 let currentAbort = null;
 
+// --- Email-auth Python sidecar auto-setup ---------------------------------
+// The sidecar's script + requirements ship read-only in the app; its venv is
+// created in the writable user-data dir on first run. No manual activation.
+function pythonDir() {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'python')
+    : join(__dirname, '..', '..', 'python');
+}
+const sidecarScript = () => join(pythonDir(), 'authcheck.py');
+const sidecarVenvDir = () => join(app.getPath('userData'), 'py-auth-venv');
+
+let sidecarPython = null;
+let sidecarStatus = { state: 'pending' }; // pending | ready | unavailable
+
+/** Build the auth-check exec bound to the provisioned interpreter (or default). */
+function authExec() {
+  return makeExec({ python: sidecarPython || undefined, script: sidecarScript() });
+}
+
+/** Provision the sidecar venv in the background; never fatal — JS fallback covers failure. */
+async function bootstrapSidecar() {
+  try {
+    const res = await ensureSidecarEnv({
+      venvDir: sidecarVenvDir(),
+      requirements: join(pythonDir(), 'requirements.txt'),
+      script: sidecarScript(),
+      log: (m) => {
+        sidecarStatus = { state: 'pending', message: m };
+        mainWindow?.webContents.send('auth:status', sidecarStatus);
+      },
+    });
+    if (res.ready) {
+      sidecarPython = res.python || venvPython(sidecarVenvDir());
+      sidecarStatus = { state: 'ready' };
+    } else {
+      sidecarStatus = { state: 'unavailable', reason: res.reason, detail: res.detail };
+    }
+  } catch (err) {
+    recordCrash('sidecarBootstrap', err);
+    sidecarStatus = { state: 'unavailable', reason: 'error', detail: err.message };
+  }
+  mainWindow?.webContents.send('auth:status', sidecarStatus);
+}
+
 // Record unexpected errors to a log file (and keep the app alive) so a stray
 // failure during a large run can be diagnosed instead of silently closing.
 function recordCrash(kind, err) {
@@ -155,6 +201,9 @@ app.whenReady().then(() => {
     autoUpdater.checkForUpdatesAndNotify().catch((e) => recordCrash('autoUpdater', e));
   }
   restartMonitorSchedule().catch((e) => recordCrash('monitor', e));
+  // Auto-provision the email-auth sidecar in the background so the feature is
+  // ready without any manual setup. Harmless if it can't complete.
+  bootstrapSidecar();
 });
 
 app.on('window-all-closed', () => {
@@ -352,11 +401,15 @@ ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
 // Python sidecar when available, falling back to the built-in JS record checks.
 ipcMain.handle('auth:check', async (_e, request) => {
   try {
-    return await checkEmailAuth(request || {}, { resolveTxt });
+    return await checkEmailAuth(request || {}, { resolveTxt, exec: authExec() });
   } catch (err) {
     return { error: err.message };
   }
 });
+
+// Current state of the auto-provisioned sidecar, so the UI can show setup
+// progress and whether checks run with full (Python) or fallback (JS) accuracy.
+ipcMain.handle('auth:status', async () => sidecarStatus);
 
 // --- Health monitor IPC ---
 ipcMain.handle('monitor:get', async () => getMonitor());

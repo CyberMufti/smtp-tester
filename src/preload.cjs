@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('api', {
   exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
   checkEmailAuth: (request) => ipcRenderer.invoke('auth:check', request),
+  getAuthStatus: () => ipcRenderer.invoke('auth:status'),
+  onAuthStatus: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('auth:status', handler);
+    return () => ipcRenderer.removeListener('auth:status', handler);
+  },
   getMonitor: () => ipcRenderer.invoke('monitor:get'),
   saveMonitor: (patch) => ipcRenderer.invoke('monitor:save', patch),
   setMonitorCreds: (creds) => ipcRenderer.invoke('monitor:setCreds', creds),

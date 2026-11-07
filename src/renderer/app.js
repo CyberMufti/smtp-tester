@@ -787,6 +787,23 @@ function renderAuthReport(rep) {
   return `${engine}<ul><li>${spfLine}</li><li>${dkimLine}</li><li>${dmarcLine}</li></ul>`;
 }
 
+// Reflect the auto-provisioning state of the Python sidecar — no manual setup.
+function renderAuthStatus(st) {
+  const el = $('#auth-status');
+  if (!el || !st) return;
+  if (st.state === 'ready') {
+    el.textContent = '✓ High-accuracy checks ready';
+  } else if (st.state === 'pending') {
+    el.textContent = st.message || 'Setting up high-accuracy checks…';
+  } else {
+    // unavailable — the feature still works via the JS fallback.
+    const why = st.reason === 'python-not-found' ? 'no Python found' : st.reason || 'unavailable';
+    el.textContent = `Using built-in checks (${why})`;
+  }
+}
+if (api.getAuthStatus) api.getAuthStatus().then(renderAuthStatus);
+api.onAuthStatus?.(renderAuthStatus);
+
 $('#btn-auth-check').addEventListener('click', async () => {
   const out = $('#auth-result');
   const domain = $('#auth-domain').value.trim();

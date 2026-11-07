@@ -72,6 +72,17 @@ function defaultExec(args, stdin, { python = resolvePython(), script = SIDECAR_S
 }
 
 /**
+ * Build an `exec` bound to a specific interpreter/script — e.g. the venv the
+ * app auto-provisioned at startup. Pass the result as the `exec` dependency to
+ * `sidecarAvailable`/`runAuthSidecar`/`checkEmailAuth`.
+ * @param {{python?:string, script?:string, timeout?:number}} [bind]
+ * @returns {Exec}
+ */
+export function makeExec(bind = {}) {
+  return (args, stdin) => defaultExec(args, stdin, bind);
+}
+
+/**
  * Ask the sidecar which libraries are installed.
  * @param {{exec?:Exec}} [opts]
  * @returns {Promise<{available:boolean, partial:boolean, missing:string[]}>}
