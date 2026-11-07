@@ -4,7 +4,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk } from '../core/parse-file.js';
@@ -14,7 +14,7 @@ import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
 import { checkEmailAuth } from '../core/authcheck.js';
-import { makeExec } from '../core/pyauth.js';
+import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -125,17 +125,47 @@ function pythonDir() {
 const sidecarScript = () => join(pythonDir(), 'authcheck.py');
 const sidecarVenvDir = () => join(app.getPath('userData'), 'py-auth-venv');
 
-let sidecarPython = null;
+let sidecarBinary = null; // a bundled frozen PyInstaller build, if shipped
+let sidecarPython = null; // else a provisioned venv interpreter
 let sidecarStatus = { state: 'pending' }; // pending | ready | unavailable
 
-/** Build the auth-check exec bound to the provisioned interpreter (or default). */
-function authExec() {
-  return makeExec({ python: sidecarPython || undefined, script: sidecarScript() });
+// A frozen onefile binary unpacks (and, when unsigned, gets security-scanned by
+// the OS) on its FIRST launch, which can take 20-30s. The startup probe below
+// warms it in the background; this generous timeout keeps both that probe and a
+// user's first check from aborting the cold start. Warm runs are sub-second.
+const SIDECAR_EXEC_TIMEOUT = 60000;
+
+/** Path to the bundled frozen sidecar for this platform, or null if not shipped. */
+function frozenSidecarPath() {
+  const bin = process.platform === 'win32' ? 'authcheck.exe' : 'authcheck';
+  const p = app.isPackaged
+    ? join(process.resourcesPath, 'sidecar', bin)
+    : join(__dirname, '..', '..', 'python', 'dist', bin);
+  return existsSync(p) ? p : null;
 }
 
-/** Provision the sidecar venv in the background; never fatal — JS fallback covers failure. */
+/** Build the auth-check exec: prefer the frozen binary, else the venv interpreter. */
+function authExec() {
+  if (sidecarBinary) return makeExec({ binary: sidecarBinary, timeout: SIDECAR_EXEC_TIMEOUT });
+  return makeExec({ python: sidecarPython || undefined, script: sidecarScript(), timeout: SIDECAR_EXEC_TIMEOUT });
+}
+
+/** Provision the sidecar in the background; never fatal — JS fallback covers failure. */
 async function bootstrapSidecar() {
   try {
+    // 1. A bundled frozen binary (shipped in the installer) needs nothing — no
+    //    Python, no venv, no network. Verify it runs, then use it.
+    const frozen = frozenSidecarPath();
+    if (frozen) {
+      const ok = await sidecarAvailable({ exec: makeExec({ binary: frozen, timeout: SIDECAR_EXEC_TIMEOUT }) });
+      if (ok.available || ok.partial) {
+        sidecarBinary = frozen;
+        sidecarStatus = { state: 'ready', engine: 'bundled' };
+        mainWindow?.webContents.send('auth:status', sidecarStatus);
+        return;
+      }
+    }
+    // 2. No frozen binary (e.g. dev) — provision a venv from a machine Python.
     const res = await ensureSidecarEnv({
       venvDir: sidecarVenvDir(),
       requirements: join(pythonDir(), 'requirements.txt'),

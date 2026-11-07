@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sidecarAvailable, runAuthSidecar } from '../src/core/pyauth.js';
+import { sidecarAvailable, runAuthSidecar, buildInvocation } from '../src/core/pyauth.js';
+
+test('buildInvocation runs a frozen binary directly', () => {
+  const { cmd, argv } = buildInvocation({ binary: '/res/sidecar/authcheck' }, ['--selfcheck']);
+  assert.equal(cmd, '/res/sidecar/authcheck');
+  assert.deepEqual(argv, ['--selfcheck']);
+});
+
+test('buildInvocation runs python with the script prepended when no binary', () => {
+  const { cmd, argv } = buildInvocation({ python: '/venv/bin/python3', script: '/app/authcheck.py' }, []);
+  assert.equal(cmd, '/venv/bin/python3');
+  assert.deepEqual(argv, ['/app/authcheck.py']);
+});
 
 test('sidecarAvailable parses a successful selfcheck', async () => {
   const exec = async (args) => {

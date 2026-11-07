@@ -38,6 +38,35 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Freeze the email-auth sidecar into a self-contained binary so end users
+      # need no Python/venv/pip. Output lands in python/dist/authcheck[.exe],
+      # which electron-builder ships as an extraResource. dnspython/dkimpy load
+      # submodules dynamically, so collect them explicitly; nacl (ed25519, needs
+      # libsodium) is excluded — RSA DKIM verification does not require it.
+      - name: Build auth sidecar (PyInstaller)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install -r python/requirements.txt
+          pyinstaller --onefile --name authcheck \
+            --collect-all dns --collect-all dkim --hidden-import spf \
+            --exclude-module nacl \
+            --distpath python/dist --workpath python/build --specpath python/build \
+            python/authcheck.py
+          ls -la python/dist
+
+      - name: Smoke-test the frozen sidecar
+        shell: bash
+        run: |
+          BIN=python/dist/authcheck
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          "$BIN" --selfcheck
+
       # Expose code-signing env to electron-builder ONLY on Windows AND only when
       # a cert is configured. Setting CSC_LINK empty on macOS breaks its signing
       # path, so the vars must be absent there — hence this gated step instead of

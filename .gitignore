@@ -9,3 +9,5 @@ owner-keys/
 python/.venv/
 python/__pycache__/
 *.pyc
+python/dist/
+python/build/

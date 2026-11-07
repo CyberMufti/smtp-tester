@@ -17,10 +17,21 @@ files:
   # virtualenv (platform-specific; users create it from requirements.txt).
   - python/authcheck.py
   - python/requirements.txt
-# The sidecar is a real file Python must execute, so keep it out of the asar
-# archive (Python can't run a script from inside app.asar).
+# The sidecar script is a real file Python must execute, so keep it out of the
+# asar archive (Python can't run a script from inside app.asar). It's the dev /
+# no-Python-bundle fallback; the primary path is the frozen binary below.
 asarUnpack:
   - python/**
+# The frozen (PyInstaller) sidecar built in CI — a self-contained binary that
+# needs no Python/venv/pip on the user's machine. Copied into
+# <resources>/sidecar/authcheck[.exe]. Absent in a plain local build, in which
+# case the app auto-provisions a venv instead.
+extraResources:
+  - from: python/dist
+    to: sidecar
+    filter:
+      - authcheck
+      - authcheck.exe
 mac:
   artifactName: SMTP-Tester-${version}-${arch}.${ext}
   category: public.app-category.utilities

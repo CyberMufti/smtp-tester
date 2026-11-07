@@ -36,16 +36,34 @@ export function resolvePython() {
 }
 
 /**
- * Default process runner: `python3 <script> [args]`, feeding `stdin`, with a
- * hard timeout. Never rejects — a spawn failure resolves as a non-zero exit so
- * callers uniformly treat "couldn't run it" as "sidecar unavailable".
+ * Decide the command + argv for invoking the sidecar. Pure, so it's testable.
+ *
+ * - `binary` (a frozen PyInstaller build) is run directly: `binary [args]`.
+ * - otherwise a Python interpreter runs the script: `python <script> [args]`.
+ *
+ * @param {{binary?:string, python?:string, script?:string}} bind
+ * @param {string[]} args
+ * @returns {{cmd:string, argv:string[]}}
+ */
+export function buildInvocation(bind = {}, args = []) {
+  if (bind.binary) return { cmd: bind.binary, argv: [...args] };
+  return { cmd: bind.python || resolvePython(), argv: [bind.script || SIDECAR_SCRIPT, ...args] };
+}
+
+/**
+ * Default process runner, feeding `stdin`, with a hard timeout. Runs either a
+ * frozen sidecar binary or `python <script>` (see buildInvocation). Never
+ * rejects — a spawn failure resolves as a non-zero exit so callers uniformly
+ * treat "couldn't run it" as "sidecar unavailable".
  * @type {Exec}
  */
-function defaultExec(args, stdin, { python = resolvePython(), script = SIDECAR_SCRIPT, timeout = 15000 } = {}) {
+function defaultExec(args, stdin, bind = {}) {
+  const { timeout = 15000 } = bind;
+  const { cmd, argv } = buildInvocation(bind, args);
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(python, [script, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(cmd, argv, { stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (err) {
       resolve({ code: -1, stdout: '', stderr: String(err.message || err) });
       return;
@@ -72,10 +90,11 @@ function defaultExec(args, stdin, { python = resolvePython(), script = SIDECAR_S
 }
 
 /**
- * Build an `exec` bound to a specific interpreter/script — e.g. the venv the
- * app auto-provisioned at startup. Pass the result as the `exec` dependency to
+ * Build an `exec` bound to a specific sidecar — a frozen `binary`, or an
+ * interpreter + `script` (e.g. the venv the app auto-provisioned at startup).
+ * Pass the result as the `exec` dependency to
  * `sidecarAvailable`/`runAuthSidecar`/`checkEmailAuth`.
- * @param {{python?:string, script?:string, timeout?:number}} [bind]
+ * @param {{binary?:string, python?:string, script?:string, timeout?:number}} [bind]
  * @returns {Exec}
  */
 export function makeExec(bind = {}) {
