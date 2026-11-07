@@ -368,7 +368,11 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
         concurrency: Number(opts?.concurrency) || 5,
         port: Number(opts?.port) || 22,
         timeout: Number(opts?.timeout) || 10000,
-        proxyUrl: proxyPool.size().valid > 0 ? proxyPool.getNext() : proxyUrlFrom(settings?.proxy),
+        proxyUrl: proxyUrlFrom(settings?.proxy),
+        ...(proxyPool.size().valid > 0 ? {
+          proxyProvider: () => proxyPool.getNext(),
+          onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
+        } : {}),
       },
       (result, index) => mainWindow?.webContents.send('ssh:progress', { result, index, total: list.length }),
     );
@@ -480,13 +484,20 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
     : createResultSink(runFilePath());
   const effSource = resume ? skipKnown(source, prior.keys) : source;
-  // Prefer the scraped proxy pool when non-empty; else fall back to settings.
-  const pooledProxy = proxyPool.size().valid > 0 ? proxyPool.getNext() : proxyUrlFrom(opts.proxyConfig);
+  // Pool rotation happens per credential via proxyProvider; manual proxy is the fallback.
+  const hasPool = proxyPool.size().valid > 0;
+  const proxyOptions = {
+    proxy: proxyUrlFrom(opts.proxyConfig),
+    ...(hasPool ? {
+      proxyProvider: () => proxyPool.getNext(),
+      onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
+    } : {}),
+  };
   try {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, proxy: pooledProxy, signal: currentAbort.signal, deps: { dns } },
+      { ...opts, ...proxyOptions, signal: currentAbort.signal, deps: { dns } },
       (result, index) => {
         sink.write(result); // JSONL append; running counts kept in the sink
         mainWindow?.webContents.send('batch:progress', { result, index });

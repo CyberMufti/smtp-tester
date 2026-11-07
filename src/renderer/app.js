@@ -395,6 +395,11 @@ function rowHtml(r) {
   if (r.userExists === false) parts.push('<span class="dbadge b-bad">account not found</span>');
   else if (r.userExists === true) parts.push('<span class="dbadge b-ok">account exists</span>');
 
+  if (r.proxyFallback) {
+    const dying = r.proxyThatDied ? ' (' + String(r.proxyThatDied).replace(/^socks[45]:\/\//, '').split('@').pop() + ')' : '';
+    parts.push('<span class="dbadge b-neutral">dead proxy — retried direct' + dying + '</span>');
+  }
+
   if (r.triedFallback && r.usedHost) {
     parts.push(`<span class="note">↳ connected via <b>${esc(r.usedHost)}:${esc(r.usedPort)}</b> (auto-detected)</span>`);
   }

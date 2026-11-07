@@ -201,6 +201,14 @@ export class ProxyPool {
     return { total: this.raw.length, valid: this.valid.length };
   }
 
+  /** Remove a proxy from the valid pool. Idempotent. Returns number removed. */
+  markDead(proxyUrl) {
+    const before = this.valid.length;
+    this.valid = this.valid.filter((e) => proxyEntryToUrl(e) !== proxyUrl);
+    this.index = this.valid.length > 0 ? this.index % this.valid.length : 0;
+    return before - this.valid.length;
+  }
+
   clear() {
     this.raw = [];
     this.valid = [];

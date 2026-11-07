@@ -151,7 +151,30 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
       if (opts.signal?.aborted) return;
       const i = next++;
       if (opts.gate) await opts.gate();
-      results[i] = await verifySSH(list[i], opts);
+      // Per-target proxy rotation via opts.proxyProvider (falls back to opts.proxyUrl).
+      let proxyUrlForTarget = opts.proxyUrl;
+      if (opts.proxyProvider) {
+        try { proxyUrlForTarget = opts.proxyProvider() ?? opts.proxyUrl; } catch { proxyUrlForTarget = opts.proxyUrl; }
+      }
+      const usedPoolProxy = !!proxyUrlForTarget && proxyUrlForTarget !== opts.proxyUrl;
+      const attemptOpts = usedPoolProxy ? { ...opts, proxyUrl: proxyUrlForTarget } : opts;
+      let result = await verifySSH(list[i], attemptOpts);
+      // Dead-proxy fallback: retry once DIRECT if the pool proxy failed.
+      if (usedPoolProxy && result.status === 'unreachable' && !opts.signal?.aborted) {
+        const reasonText = String(result.detail || '');
+        if (/timeout|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|socket|tunnel|proxy/i.test(reasonText)) {
+          if (typeof opts.onProxyFailure === 'function') {
+            try { opts.onProxyFailure(proxyUrlForTarget, reasonText); } catch {}
+          }
+          const directOpts = { ...opts, proxyUrl: null, proxyProvider: undefined };
+          const retried = await verifySSH(list[i], directOpts);
+          retried.proxyFallback = true;
+          retried.proxyFallbackReason = 'dead proxy — retried direct';
+          retried.proxyThatDied = proxyUrlForTarget;
+          result = retried;
+        }
+      }
+      results[i] = result;
       onResult?.(results[i], i);
     }
   }

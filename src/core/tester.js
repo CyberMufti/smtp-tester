@@ -379,13 +379,36 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       const { index, cred } = item;
       await gate();
       if (signal?.aborted) return;
-      let result = await testOne(cred, index, seeds, opts, smtp, imap, ctx);
+      // Per-credential proxy rotation via opts.proxyProvider (falls back to opts.proxy).
+      let proxyForCred = opts.proxy;
+      if (opts.proxyProvider) {
+        try { proxyForCred = opts.proxyProvider() ?? opts.proxy; } catch { proxyForCred = opts.proxy; }
+      }
+      const usedPoolProxy = !!proxyForCred && proxyForCred !== opts.proxy;
+      const attemptOpts = usedPoolProxy ? { ...opts, proxy: proxyForCred } : opts;
+      let result = await testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx);
+      // Dead-proxy fallback: retry once DIRECT if the pool proxy clearly failed.
+      if (usedPoolProxy && result.deadReason === 'connect' && !signal?.aborted) {
+        const reasonText = String(result.reason || '');
+        if (/timeout|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|socket|tunnel|proxy/i.test(reasonText)) {
+          if (typeof opts.onProxyFailure === 'function') {
+            try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
+          }
+          const directOpts = { ...opts, proxy: null, proxyProvider: undefined };
+          const retried = await testOne(cred, index, seeds, directOpts, smtp, imap, ctx);
+          retried.proxyFallback = true;
+          retried.proxyFallbackReason = 'dead proxy — retried direct';
+          retried.proxyThatDied = proxyForCred;
+          result = retried;
+        }
+      }
       // Retry transient connection failures (not auth/send rejections) with backoff.
       const maxRetries = opts.retries ?? 0;
       for (let attempt = 0; attempt < maxRetries && result.deadReason === 'connect' && !signal?.aborted; attempt++) {
         await new Promise((r) => setTimeout(r, opts.retryBackoffMs ?? 2000));
         if (signal?.aborted) break;
-        result = await testOne(cred, index, seeds, opts, smtp, imap, ctx);
+        const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : attemptOpts;
+        result = await testOne(cred, index, seeds, retryOpts, smtp, imap, ctx);
       }
       if (looksRateLimited(result)) applyCooldown();
       results[index] = result;
