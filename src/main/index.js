@@ -14,6 +14,7 @@ import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
 import { runWebmailChecks } from '../core/webmail.js';
+import { runWhmChecks } from '../core/whm.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
@@ -324,6 +325,26 @@ ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
     return { results, summary, total: results.length };
   } catch (err) {
     recordCrash('webmailCheck', err);
+    return { error: err.message };
+  }
+});
+
+// Batch WHM (Web Host Manager, port 2087) login check — same shape as cPanel.
+ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
+  try {
+    const list = Array.isArray(targets) ? targets : [];
+    const results = await runWhmChecks(
+      list,
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000 },
+      (result, index) => mainWindow?.webContents.send('whm:progress', { result, index, total: list.length }),
+    );
+    const summary = results.reduce(
+      (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
+      { valid: 0, invalid: 0, 'not-whm': 0, unreachable: 0 },
+    );
+    return { results, summary, total: results.length };
+  } catch (err) {
+    recordCrash('whmCheck', err);
     return { error: err.message };
   }
 });

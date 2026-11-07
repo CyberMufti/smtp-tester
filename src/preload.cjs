@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('webmail:progress', handler);
     return () => ipcRenderer.removeListener('webmail:progress', handler);
   },
+  checkWhm: (targets, opts) => ipcRenderer.invoke('whm:check', { targets, opts }),
+  onWhmProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('whm:progress', handler);
+    return () => ipcRenderer.removeListener('whm:progress', handler);
+  },
   auditHygiene: (filePath, breachFilePath) => ipcRenderer.invoke('hygiene:auditFile', { filePath, breachFilePath }),
   testBatch: (creds, seeds, opts) => ipcRenderer.invoke('batch:run', { creds, seeds, opts }),
   // Resolve a dropped/picked File to its absolute path (Electron 32+ removed
