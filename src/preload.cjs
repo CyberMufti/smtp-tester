@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   testSeed: (seed) => ipcRenderer.invoke('seed:test', seed),
   auditServer: (host, port) => ipcRenderer.invoke('audit:server', { host, port }),
+  checkCpanel: (targets, opts) => ipcRenderer.invoke('cpanel:check', { targets, opts }),
+  onCpanelProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('cpanel:progress', handler);
+    return () => ipcRenderer.removeListener('cpanel:progress', handler);
+  },
   auditHygiene: (filePath, breachFilePath) => ipcRenderer.invoke('hygiene:auditFile', { filePath, breachFilePath }),
   testBatch: (creds, seeds, opts) => ipcRenderer.invoke('batch:run', { creds, seeds, opts }),
   // Resolve a dropped/picked File to its absolute path (Electron 32+ removed

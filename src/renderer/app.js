@@ -678,6 +678,80 @@ $('#btn-hygiene-scan').addEventListener('click', async () => {
   out.innerHTML = `${badge}${breakdown}${rows ? `<ul>${rows}</ul>` : ''}${note}`;
 });
 
+// ---------- cPanel login check ----------
+// Parse "host:username:password" lines. Split on the first two colons only, so
+// a password containing ':' is preserved. The port is uniform for the batch.
+function parseCpanelLines(text, port) {
+  const targets = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const i1 = line.indexOf(':');
+    const i2 = i1 < 0 ? -1 : line.indexOf(':', i1 + 1);
+    if (i1 < 0 || i2 < 0) continue; // need host:user:pass
+    const host = line.slice(0, i1).trim();
+    const user = line.slice(i1 + 1, i2).trim();
+    const pass = line.slice(i2 + 1);
+    if (host && user) targets.push({ host, user, pass, port });
+  }
+  return targets;
+}
+
+const CPANEL_STATUS = {
+  valid: ['ok', 'Login works'],
+  invalid: ['bad', 'Login rejected'],
+  unknown: ['neutral', 'Up, unconfirmed'],
+  'not-cpanel': ['neutral', 'Not cPanel'],
+  unreachable: ['bad', 'Down / unreachable'],
+};
+
+function renderCpanelRows(results) {
+  return results
+    .map((r) => {
+      const [cls, label] = CPANEL_STATUS[r.status] || ['neutral', r.status];
+      return `<li><span class="dbadge b-${cls}">${esc(label)}</span> <span class="mono">${esc(r.host)}:${esc(String(r.port))}</span> — ${esc(r.user)}${r.detail ? ` <span class="muted">(${esc(String(r.detail))})</span>` : ''}</li>`;
+    })
+    .join('');
+}
+
+$('#btn-cpanel-check').addEventListener('click', async () => {
+  const out = $('#cpanel-result');
+  const prog = $('#cpanel-progress');
+  const port = Number($('#cpanel-port').value) || 2083;
+  const concurrency = Number($('#cpanel-concurrency').value) || 10;
+  const targets = parseCpanelLines($('#cpanel-input').value, port);
+  if (!targets.length) {
+    out.innerHTML = '<p class="err-text">Add at least one account as host:username:password.</p>';
+    return;
+  }
+  const btn = $('#btn-cpanel-check');
+  btn.disabled = true;
+  out.innerHTML = '';
+  prog.textContent = `0 / ${targets.length}`;
+  let done = 0;
+  const off = api.onCpanelProgress(() => {
+    done++;
+    prog.textContent = `${done} / ${targets.length}`;
+  });
+  try {
+    const rep = await api.checkCpanel(targets, { port, concurrency });
+    if (rep.error) {
+      out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
+      return;
+    }
+    const s = rep.summary;
+    const badge =
+      `<span class="score-badge score-low">${s.valid} up</span> ` +
+      `<span class="score-badge score-high">${s.invalid + s.unreachable} need attention</span>`;
+    const note = `<span class="note"> — valid: ${s.valid}, rejected: ${s.invalid}, down: ${s.unreachable}, other: ${s.unknown + s['not-cpanel']}</span>`;
+    out.innerHTML = `${badge}${note}<ul>${renderCpanelRows(rep.results)}</ul>`;
+  } finally {
+    off?.();
+    prog.textContent = '';
+    btn.disabled = false;
+  }
+});
+
 // ---------- License gate ----------
 const licenseOverlay = $('#license-overlay');
 

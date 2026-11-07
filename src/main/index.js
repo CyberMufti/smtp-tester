@@ -12,6 +12,7 @@ import { createResultSink, exportRun, readRunProgress } from '../core/result-sto
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
+import { runCpanelChecks } from '../core/cpanel.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { verifySeed } from '../core/imap.js';
@@ -194,6 +195,28 @@ ipcMain.handle('audit:server', async (_e, { host, port }) => {
   try {
     return await auditServer({ host: String(host || '').trim(), port: Number(port) || 587 });
   } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Batch cPanel login check for hosting accounts you operate: confirm which
+// logins still work / which panels are up, instead of signing into each by
+// hand. Streams per-account progress; returns all results plus a summary.
+ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
+  try {
+    const list = Array.isArray(targets) ? targets : [];
+    const results = await runCpanelChecks(
+      list,
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000 },
+      (result, index) => mainWindow?.webContents.send('cpanel:progress', { result, index, total: list.length }),
+    );
+    const summary = results.reduce(
+      (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
+      { valid: 0, invalid: 0, unknown: 0, 'not-cpanel': 0, unreachable: 0 },
+    );
+    return { results, summary, total: results.length };
+  } catch (err) {
+    recordCrash('cpanelCheck', err);
     return { error: err.message };
   }
 });
