@@ -55,6 +55,27 @@
 
     <!-- ============ TEST SCREEN ============ -->
     <main id="screen-test" class="screen active">
+      <section class="panel combo-panel" id="combo-panel">
+        <h2>Combo Cracker</h2>
+        <p class="muted">Paste <code>email:password</code> lines — one per line. Tests SMTP, cPanel, Webmail, WHM, and SSH in parallel from the same credential.</p>
+        <textarea id="combo-input" rows="6" placeholder="user@domain.com:password" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        <div class="run-controls">
+          <span id="combo-progress" class="muted"></span>
+          <div class="spacer"></div>
+          <button id="btn-combo-crack" class="btn primary">Crack All Protocols</button>
+        </div>
+        <span id="combo-status" class="muted"></span>
+        <table class="results-table" style="margin-top:10px">
+          <thead>
+            <tr>
+              <th>Email</th><th>SMTP</th><th>cPanel</th><th>Webmail</th><th>WHM</th><th>SSH</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="combo-results-body">
+            <tr><td colspan="7" class="empty-row">Paste combos above and click <b>Crack All Protocols</b>.</td></tr>
+          </tbody>
+        </table>
+      </section>
       <section class="panel">
         <div class="panel-head">
           <h2>Credentials</h2>

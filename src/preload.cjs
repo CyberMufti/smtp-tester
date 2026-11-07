@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('whm:progress', handler);
   },
   checkSsh: (targets, opts) => ipcRenderer.invoke('ssh:check', { targets, opts }),
+  checkSmtp: (creds, opts) => ipcRenderer.invoke('smtp:check', { creds, opts }),
   scrapeProxies: () => ipcRenderer.invoke('proxy:scrape'),
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
   clearProxies: () => ipcRenderer.invoke('proxy:clear'),

