@@ -13,6 +13,7 @@ import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
+import { checkEmailAuth } from '../core/authcheck.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { verifySeed } from '../core/imap.js';
@@ -346,6 +347,16 @@ ipcMain.handle('run:progress', async () => {
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
+
+// Email-authentication check (SPF eval / DKIM verify / DMARC alignment) via the
+// Python sidecar when available, falling back to the built-in JS record checks.
+ipcMain.handle('auth:check', async (_e, request) => {
+  try {
+    return await checkEmailAuth(request || {}, { resolveTxt });
+  } catch (err) {
+    return { error: err.message };
+  }
+});
 
 // --- Health monitor IPC ---
 ipcMain.handle('monitor:get', async () => getMonitor());

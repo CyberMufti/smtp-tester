@@ -315,6 +315,30 @@
       </section>
 
       <section class="panel">
+        <div class="panel-head"><h2>Email authentication check</h2></div>
+        <p class="muted">
+          Check a <b>domain you send from</b> for SPF, DKIM, and DMARC. With the optional Python
+          sidecar installed, SPF is fully evaluated against a sending IP (following
+          <code>include:</code>/<code>redirect=</code>), DKIM signatures are cryptographically
+          verified, and DMARC alignment is computed. Without it, the app falls back to reading the
+          published SPF/DMARC records.
+        </p>
+        <div class="form-grid">
+          <label>From domain <input id="auth-domain" type="text" placeholder="yourdomain.com" /></label>
+          <label>Sending IP (optional) <input id="auth-ip" type="text" placeholder="203.0.113.4" /></label>
+          <label>HELO (optional) <input id="auth-helo" type="text" placeholder="mail.yourdomain.com" /></label>
+          <label>MAIL FROM (optional) <input id="auth-mailfrom" type="text" placeholder="bounce@yourdomain.com" /></label>
+        </div>
+        <label class="full">Raw message for DKIM verification (optional — paste a received email incl. headers)
+          <textarea id="auth-message" rows="4" placeholder="DKIM-Signature: v=1; a=rsa-sha256; d=yourdomain.com; ..."></textarea>
+        </label>
+        <div class="panel-actions">
+          <button id="btn-auth-check" class="btn primary">Check authentication</button>
+        </div>
+        <div id="auth-result"></div>
+      </section>
+
+      <section class="panel">
         <div class="panel-head"><h2>Sending defaults</h2></div>
         <div class="form-grid">
           <label>Default From address

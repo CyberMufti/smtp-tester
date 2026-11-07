@@ -1,0 +1,7 @@
+# Email-authentication sidecar dependencies.
+# Install with:  python3 -m pip install -r python/requirements.txt
+# The app runs fine without these — it falls back to its built-in JS checks and
+# only uses this sidecar when the libraries are present.
+dnspython>=2.6     # DNS TXT lookups (SPF/DMARC records)
+pyspf>=2.0.14      # real SPF evaluation (include/redirect, 10-lookup limit)
+dkimpy>=1.1.5      # cryptographic DKIM signature verification

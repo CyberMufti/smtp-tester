@@ -13,6 +13,14 @@ files:
   - src/**/*
   - package.json
   - "!**/*.map"
+  # Ship the email-auth sidecar script + its requirements, but never the local
+  # virtualenv (platform-specific; users create it from requirements.txt).
+  - python/authcheck.py
+  - python/requirements.txt
+# The sidecar is a real file Python must execute, so keep it out of the asar
+# archive (Python can't run a script from inside app.asar).
+asarUnpack:
+  - python/**
 mac:
   artifactName: SMTP-Tester-${version}-${arch}.${ext}
   category: public.app-category.utilities

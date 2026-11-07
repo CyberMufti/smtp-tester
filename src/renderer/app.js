@@ -752,6 +752,70 @@ $('#btn-cpanel-check').addEventListener('click', async () => {
   }
 });
 
+// ---------- Email authentication check ----------
+function authBadge(label, verdict) {
+  // verdict: 'ok' | 'bad' | 'neutral'
+  return `<span class="dbadge b-${verdict}">${esc(label)}</span>`;
+}
+
+function renderAuthReport(rep) {
+  const engine =
+    rep.engine === 'python'
+      ? '<span class="score-badge score-low">Python sidecar — SPF evaluated, DKIM verified</span>'
+      : '<span class="score-badge score-medium">JS fallback — records read only (install the sidecar for SPF eval + DKIM verify)</span>';
+
+  // SPF
+  const spf = rep.spf || {};
+  const spfVerdict = spf.result === 'pass' ? 'ok' : spf.result && spf.result !== 'none' ? 'bad' : 'neutral';
+  const spfLine = spf.found
+    ? `${authBadge(`SPF ${spf.result || spf.all || 'found'}`, spfVerdict)} <span class="mono">${esc(spf.record || '')}</span>${spf.explanation ? ` <span class="muted">(${esc(spf.explanation)})</span>` : ''}`
+    : `${authBadge('SPF missing', 'bad')} <span class="muted">no v=spf1 record</span>`;
+
+  // DKIM
+  const dkim = rep.dkim || {};
+  const dkimVerdict = dkim.verified === true ? 'ok' : dkim.verified === false ? 'bad' : 'neutral';
+  const dkimLabel = dkim.verified === true ? 'DKIM verified' : dkim.verified === false ? 'DKIM failed' : 'DKIM not checked';
+  const dkimLine = `${authBadge(dkimLabel, dkimVerdict)}${dkim.domains?.length ? ` <span class="mono">d=${esc(dkim.domains.join(', '))}</span>` : ''}${dkim.detail ? ` <span class="muted">(${esc(dkim.detail)})</span>` : ''}`;
+
+  // DMARC
+  const dmarc = rep.dmarc || {};
+  const dmarcVerdict = !dmarc.found ? 'bad' : dmarc.policy === 'reject' || dmarc.policy === 'quarantine' ? 'ok' : 'neutral';
+  const dmarcLine = dmarc.found
+    ? `${authBadge(`DMARC p=${dmarc.policy || '?'}`, dmarcVerdict)}${dmarc.pct != null ? ` pct=${dmarc.pct}` : ''}${dmarc.aligned != null ? ` — ${dmarc.aligned ? 'aligned' : 'not aligned'}` : ''} <span class="mono">${esc(dmarc.record || '')}</span>`
+    : `${authBadge('DMARC missing', 'bad')} <span class="muted">no _dmarc record</span>`;
+
+  return `${engine}<ul><li>${spfLine}</li><li>${dkimLine}</li><li>${dmarcLine}</li></ul>`;
+}
+
+$('#btn-auth-check').addEventListener('click', async () => {
+  const out = $('#auth-result');
+  const domain = $('#auth-domain').value.trim();
+  if (!domain) {
+    out.innerHTML = '<p class="err-text">Enter a domain you send from.</p>';
+    return;
+  }
+  const request = {
+    domain,
+    ip: $('#auth-ip').value.trim() || undefined,
+    helo: $('#auth-helo').value.trim() || undefined,
+    mailfrom: $('#auth-mailfrom').value.trim() || undefined,
+    message: $('#auth-message').value.trim() || undefined,
+  };
+  const btn = $('#btn-auth-check');
+  btn.disabled = true;
+  out.innerHTML = '<p class="muted">Checking…</p>';
+  try {
+    const rep = await api.checkEmailAuth(request);
+    if (rep.error) {
+      out.innerHTML = `<p class="err-text">Check failed: ${esc(rep.error)}</p>`;
+      return;
+    }
+    out.innerHTML = renderAuthReport(rep);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---------- License gate ----------
 const licenseOverlay = $('#license-overlay');
 

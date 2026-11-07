@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
+  checkEmailAuth: (request) => ipcRenderer.invoke('auth:check', request),
   getMonitor: () => ipcRenderer.invoke('monitor:get'),
   saveMonitor: (patch) => ipcRenderer.invoke('monitor:save', patch),
   setMonitorCreds: (creds) => ipcRenderer.invoke('monitor:setCreds', creds),
