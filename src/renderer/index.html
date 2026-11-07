@@ -315,6 +315,34 @@
       </section>
 
       <section class="panel">
+        <div class="panel-head"><h2>Webmail login check</h2></div>
+        <p class="muted">
+          Check which of <b>your own</b> webmail logins (Roundcube / Horde / SquirrelMail) still
+          work — one account per line as <code>host:username:password</code> (the password may
+          contain colons). The port and path below are applied to every account.
+        </p>
+        <div class="form-grid">
+          <label>Port
+            <input id="webmail-port" type="number" min="1" max="65535" value="443" title="443 HTTPS" />
+          </label>
+          <label>Login path
+            <input id="webmail-path" type="text" value="/webmail" title="e.g. /webmail, /roundcube, /horde" />
+          </label>
+          <label>Concurrency
+            <input id="webmail-concurrency" type="number" min="1" max="50" value="10" />
+          </label>
+        </div>
+        <label class="full">Accounts
+          <textarea id="webmail-input" rows="5" placeholder="mail.yourdomain.com:user@yourdomain.com:secret&#10;webmail.yourdomain.com:another@yourdomain.com:secret"></textarea>
+        </label>
+        <div class="panel-actions">
+          <button id="btn-webmail-check" class="btn primary">Check logins</button>
+          <span id="webmail-progress" class="muted"></span>
+        </div>
+        <div id="webmail-result"></div>
+      </section>
+
+      <section class="panel">
         <div class="panel-head"><h2>Email authentication check</h2></div>
         <p class="muted">
           Check a <b>domain you send from</b> for SPF, DKIM, and DMARC. With the optional Python

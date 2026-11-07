@@ -13,6 +13,7 @@ import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
+import { runWebmailChecks } from '../core/webmail.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
@@ -297,6 +298,32 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
     return { results, summary, total: results.length };
   } catch (err) {
     recordCrash('cpanelCheck', err);
+    return { error: err.message };
+  }
+});
+
+// Batch webmail (Roundcube/Horde/SquirrelMail) login check for accounts you
+// operate — same shape as the cPanel check.
+ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
+  try {
+    const list = Array.isArray(targets) ? targets : [];
+    const results = await runWebmailChecks(
+      list,
+      {
+        concurrency: Number(opts?.concurrency) || 10,
+        port: Number(opts?.port) || 443,
+        path: opts?.path || '/webmail',
+        timeout: Number(opts?.timeout) || 10000,
+      },
+      (result, index) => mainWindow?.webContents.send('webmail:progress', { result, index, total: list.length }),
+    );
+    const summary = results.reduce(
+      (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
+      { valid: 0, invalid: 0, unknown: 0, 'not-webmail': 0, unreachable: 0 },
+    );
+    return { results, summary, total: results.length };
+  } catch (err) {
+    recordCrash('webmailCheck', err);
     return { error: err.message };
   }
 });
