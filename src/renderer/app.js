@@ -161,9 +161,6 @@ function buildRunOpts() {
     checks: $('#opt-checks').checked
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
-    // On an auth rejection, probe the domain's mail server (RCPT TO) to tell
-    // "wrong password" from "account doesn't exist".
-    verifyRecipients: $('#opt-verify-recipients')?.checked || false,
     proxyConfig: settings?.proxy,
     retries: 1,
     retryBackoffMs: 2000,

@@ -6,7 +6,6 @@ import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
-import { verifyRecipient as realVerifyRecipient } from './rcptcheck.js';
 
 // Candidate sources whose auth failure is definitive — the host is certainly
 // right (it's the provider/SRV/autoconfig/MX server), so there's no point
@@ -132,20 +131,6 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       step.connected = true;
       step.authenticated = false;
       step.authError = authError;
-      // The login was refused. When enabled, settle whether the account itself
-      // exists with an RCPT TO probe against the domain's mail server — the
-      // reliable signal, overriding the weak auth-message heuristic.
-      if (opts.verifyRecipients) {
-        const verifyRecipient = opts.deps?.verifyRecipient ?? realVerifyRecipient;
-        const probeHost = cred.host || (await resolveMxHosts(domainOf(cred.user), dns || {}))[0];
-        if (probeHost) {
-          const probe = await verifyRecipient(cred.user, {
-            host: probeHost,
-            timeout: opts.connectTimeout,
-          }).catch(() => null);
-          if (probe && probe.exists != null) step.userExists = probe.exists;
-        }
-      }
     } else {
       step.connected = false;
       step.connectError =
