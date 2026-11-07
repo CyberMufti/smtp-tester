@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SMTPServer } from 'smtp-server';
-import { classifyRcptResponse, verifyRecipient } from '../src/core/rcptcheck.js';
+import { classifyRcptResponse, classifyWithBaseline, verifyRecipient } from '../src/core/rcptcheck.js';
 
 test('classifyRcptResponse: 250/251 accepted -> exists', () => {
   assert.equal(classifyRcptResponse(250).exists, true);
@@ -77,4 +77,38 @@ test('verifyRecipient: no host -> inconclusive', async () => {
   const r = await verifyRecipient('x@test', {});
   assert.equal(r.exists, null);
   assert.match(r.reason, /no host/i);
+});
+
+test('classifyWithBaseline: catch-all (baseline accepted) -> inconclusive', () => {
+  const r = classifyWithBaseline({ code: 250 }, { code: 250 });
+  assert.equal(r.exists, null);
+  assert.match(r.reason, /catch-all/i);
+});
+
+test('classifyWithBaseline: baseline rejected -> target reply is trusted', () => {
+  assert.equal(classifyWithBaseline({ code: 550 }, { code: 250 }).exists, true);
+  assert.equal(classifyWithBaseline({ code: 550 }, { code: 550, text: 'user unknown' }).exists, false);
+});
+
+function startCatchAllServer() {
+  return new Promise((resolve) => {
+    const server = new SMTPServer({
+      authOptional: true,
+      disabledCommands: ['STARTTLS', 'AUTH'],
+      onRcptTo(_addr, _session, cb) { cb(); }, // accept everything
+      onMailFrom(_addr, _session, cb) { cb(); },
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.server.address().port }));
+  });
+}
+
+test('verifyRecipient: a catch-all server yields exists:null (not a false positive)', async () => {
+  const { server, port } = await startCatchAllServer();
+  try {
+    const r = await verifyRecipient('anyone@test', { host: '127.0.0.1', port, timeout: 4000 });
+    assert.equal(r.exists, null);
+    assert.match(r.reason, /catch-all/i);
+  } finally {
+    server.close();
+  }
 });

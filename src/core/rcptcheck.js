@@ -46,6 +46,27 @@ export function classifyRcptResponse(code, text = '') {
   return { exists: null, reason: `inconclusive (${code})` };
 }
 
+/**
+ * Combine a baseline probe (a definitely-nonexistent address) with the target's
+ * reply. If the server accepts the bogus baseline it is a catch-all and tells
+ * us nothing about the target (exists:null). Only once the baseline is rejected
+ * can the target's reply be trusted. Pure.
+ * @param {{code:number,text?:string}} baseline
+ * @param {{code:number,text?:string}} target
+ * @returns {{exists:(boolean|null), reason:string}}
+ */
+export function classifyWithBaseline(baseline, target) {
+  if (baseline.code === 250 || baseline.code === 251) {
+    return { exists: null, reason: 'catch-all server (accepts unknown recipients)' };
+  }
+  // Baseline wasn't a clean rejection (temp error, policy, etc.) — can't trust
+  // the comparison, so fall back to reading the target reply on its own.
+  if (!(baseline.code >= 500 && baseline.code < 600)) {
+    return classifyRcptResponse(target.code, target.text);
+  }
+  return classifyRcptResponse(target.code, target.text);
+}
+
 /** Read one complete SMTP reply (handles multiline "NNN-" continuations). */
 function readReply(socket, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -107,13 +128,21 @@ export async function verifyRecipient(address, opts = {}) {
     await readReply(socket, timeout);
     sendLine(socket, `MAIL FROM:<${prober}>`);
     await readReply(socket, timeout);
+
+    // Baseline: a definitely-nonexistent recipient on the same domain. If the
+    // server accepts it, it's a catch-all and the target reply is meaningless.
+    const domain = String(address).split('@')[1] || ehloName;
+    const bogus = `no-such-user-smtptester-probe@${domain}`;
+    sendLine(socket, `RCPT TO:<${bogus}>`);
+    const baseline = await readReply(socket, timeout);
+
     sendLine(socket, `RCPT TO:<${address}>`);
-    const rcpt = await readReply(socket, timeout);
+    const target = await readReply(socket, timeout);
     sendLine(socket, 'QUIT');
     await readReply(socket, timeout).catch(() => {}); // consume 221; ignore if absent
 
-    const verdict = classifyRcptResponse(rcpt.code, rcpt.text);
-    return { ...verdict, code: rcpt.code, host };
+    const verdict = classifyWithBaseline(baseline, target);
+    return { ...verdict, code: target.code, baselineCode: baseline.code, host };
   } catch (err) {
     return { exists: null, code: null, reason: err.message, host };
   } finally {
