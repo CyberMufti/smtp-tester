@@ -14,7 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   // File.path in favor of webUtils.getPathForFile).
   getFilePath: (file) => webUtils.getPathForFile(file),
   countFile: (filePath) => ipcRenderer.invoke('creds:countFile', filePath),
-  testBatchFile: (filePath, seeds, opts, resume) => ipcRenderer.invoke('batch:runFile', { filePath, seeds, opts, resume }),
+  testBatchFile: (filePath, seeds, opts, resume, preDeduped) =>
+    ipcRenderer.invoke('batch:runFile', { filePath, seeds, opts, resume, preDeduped }),
   runProgress: () => ipcRenderer.invoke('run:progress'),
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),

@@ -16,6 +16,12 @@ let running = false;
 // Filtering/paging operates over this retained window; exports read the full
 // run file from disk, so every result is still accounted for.
 const MAX_RECENT = 5000;
+// The paste box and the FileReader fallback both hold their whole content in
+// renderer memory and parse it on the UI thread, so a huge payload freezes the
+// window. Above this size we refuse that path and point at the file picker,
+// which streams from disk. Delimited files go through the picker and never hit
+// this; only pasted text and non-delimited fallback files do.
+const MAX_INLINE_BYTES = 8_000_000; // ~8 MB
 let counts = {};
 let testedCount = 0;
 let recent = [];
@@ -77,7 +83,7 @@ $('#file-input').addEventListener('change', async (e) => {
     readFileIntoTextarea(file);
     return;
   }
-  loadedFile = { path, name: file.name, count: res.count, errors: res.errors };
+  loadedFile = { path, name: file.name, count: res.count, errors: res.errors, parsedPath: res.parsedPath };
   credsInput.value = ''; // setting .value programmatically does not fire 'input'
   const sample = (res.sample || [])
     .map((c) => c.user)
@@ -94,6 +100,12 @@ $('#file-input').addEventListener('change', async (e) => {
 
 function readFileIntoTextarea(file) {
   loadedFile = null;
+  if (file.size > MAX_INLINE_BYTES) {
+    $('#parse-count').textContent = `${file.name} is too large to open here (${Math.round(file.size / 1e6)} MB).`;
+    $('#parse-errors').textContent =
+      'This file isn’t in host:port:user:pass form, so it would load into the editor and freeze the window. Convert it to delimited lines to stream it from disk.';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
     credsInput.value = String(reader.result);
@@ -103,6 +115,14 @@ function readFileIntoTextarea(file) {
 }
 
 function refreshParse() {
+  // Guard the UI thread: parsing a very large pasted blob would freeze it.
+  if (credsInput.value.length > MAX_INLINE_BYTES) {
+    parsed = { records: [], errors: [] };
+    $('#parse-count').textContent = 'Pasted text is too large for this box.';
+    $('#parse-errors').textContent =
+      'Save it as a .txt file and use “Choose file” — large lists stream from disk instead of freezing the window.';
+    return;
+  }
   parsed = parse(credsInput.value);
   $('#parse-count').textContent =
     `${parsed.records.length} credential${parsed.records.length === 1 ? '' : 's'}`;
@@ -200,7 +220,11 @@ async function runFileBatch(resume = false) {
   $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
 
   try {
-    await api.testBatchFile(loadedFile.path, settings?.seeds || [], buildRunOpts(), resume);
+    // Prefer the deduped copy written during the count pass — it streams without
+    // rebuilding the key Set. Fall back to the raw file if it isn't available.
+    const runPath = loadedFile.parsedPath || loadedFile.path;
+    const preDeduped = !!loadedFile.parsedPath;
+    await api.testBatchFile(runPath, settings?.seeds || [], buildRunOpts(), resume, preDeduped);
   } catch (err) {
     $('#parse-errors').textContent = `Run failed: ${err.message}`;
   } finally {

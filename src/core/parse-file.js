@@ -10,7 +10,7 @@
  * The labeled key-value block format stays on the paste/textarea path in the
  * renderer — it is for small hand-entered lists, not million-line uploads.
  */
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { parseDelimitedLine, credKey } from './parser.js';
 
@@ -74,6 +74,62 @@ export async function countCredentialsInFile(filePath, opts = {}) {
   for await (const rec of source) {
     count++;
     if (sample.length < 5) sample.push(rec);
+  }
+  return { count, errors, sample };
+}
+
+/**
+ * Dedupe a credential file to disk in a single pass: parse `srcPath`
+ * line-by-line, drop exact duplicates (by {@link credKey}, first-seen wins),
+ * and write each surviving line — verbatim, so passwords containing the
+ * delimiter round-trip exactly — to `destPath`, one per line. The run can then
+ * stream `destPath` with `dedupe: false` and never build a second in-memory
+ * `Set` of keys, which at millions of rows is the dominant memory cost.
+ *
+ * Blank/`#`-comment lines are omitted from the output; an unparseable line is
+ * reported via `onError` (if given) and skipped. Returns the deduped count, the
+ * number of skipped-as-unparseable lines, and a small sample of records.
+ *
+ * @param {string} srcPath
+ * @param {string} destPath
+ * @param {{onError?:(e:{line:number,raw:string,reason:string})=>void}} [opts]
+ * @returns {Promise<{count:number, errors:number, sample:import('./parser.js').Credential[]}>}
+ */
+export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
+  const { onError } = opts;
+  const rl = createInterface({
+    input: createReadStream(srcPath, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+  const out = createWriteStream(destPath, { flags: 'w' });
+  const seen = new Set();
+  const sample = [];
+  let count = 0;
+  let errors = 0;
+  let lineNo = 0;
+  try {
+    for await (const raw of rl) {
+      lineNo++;
+      const res = parseDelimitedLine(raw);
+      if (!res) continue; // blank or comment
+      if (res.error) {
+        errors++;
+        onError?.({ line: lineNo, raw, reason: res.error });
+        continue;
+      }
+      const key = credKey(res.record);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      count++;
+      if (sample.length < 5) sample.push(res.record);
+      // Write the trimmed source line verbatim so re-parsing is identical.
+      if (!out.write(raw.trim() + '\n')) {
+        await new Promise((resolve) => out.once('drain', resolve));
+      }
+    }
+  } finally {
+    rl.close();
+    await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
   }
   return { count, errors, sample };
 }

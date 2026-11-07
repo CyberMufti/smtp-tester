@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
-import { streamCredentialsFromFile, countCredentialsInFile } from '../core/parse-file.js';
+import { streamCredentialsFromFile, dedupeFileToDisk } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
@@ -235,6 +235,11 @@ function runFilePath() {
   return join(app.getPath('userData'), 'last-run.jsonl');
 }
 
+/** Where an uploaded file's deduped, normalized credentials are cached on disk. */
+function parsedCredsPath() {
+  return join(app.getPath('userData'), 'parsed-creds.txt');
+}
+
 /** Yield only credentials not already present in `keys` (for resuming a run). */
 async function* skipKnown(source, keys) {
   for await (const rec of source) {
@@ -288,7 +293,12 @@ ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => runBatchToDisk
 // lead file is picked, with no main-window freeze.
 ipcMain.handle('creds:countFile', async (_e, filePath) => {
   try {
-    return await countCredentialsInFile(String(filePath));
+    // Dedupe once, here, writing a normalized copy to disk. The run streams
+    // that copy with dedupe off, so the multi-GB key Set is built a single
+    // time instead of once now and again at run time.
+    const parsedPath = parsedCredsPath();
+    const { count, errors, sample } = await dedupeFileToDisk(String(filePath), parsedPath);
+    return { count, errors, sample, parsedPath };
   } catch (err) {
     recordCrash('countFile', err);
     return { count: 0, errors: 0, sample: [], error: err.message };
@@ -298,8 +308,10 @@ ipcMain.handle('creds:countFile', async (_e, filePath) => {
 // Test a batch straight from a file on disk. Credentials stream line-by-line
 // into the worker pool, so a multi-million-lead file is never held whole in
 // memory and never crosses IPC as one giant array.
-ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume }) => {
-  const source = streamCredentialsFromFile(String(filePath), { onError: () => {} });
+ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume, preDeduped }) => {
+  // A pre-deduped file (the normalized copy written during the count pass)
+  // streams with dedupe off — no second key Set. A raw path still dedupes.
+  const source = streamCredentialsFromFile(String(filePath), { dedupe: !preDeduped, onError: () => {} });
   return runBatchToDisk(source, seeds, opts, { resume: !!resume });
 });
 
