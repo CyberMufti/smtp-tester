@@ -17,6 +17,7 @@ import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
 import { runSSHChecks } from '../core/ssh.js';
 import { ProxyPool } from '../core/proxy_pool.js';
+import { rateLimiter } from '../core/jitter.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
@@ -293,7 +294,7 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runCpanelChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000 },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }) },
       (result, index) => mainWindow?.webContents.send('cpanel:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -315,6 +316,7 @@ ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
     const results = await runWebmailChecks(
       list,
       {
+        gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
         concurrency: Number(opts?.concurrency) || 10,
         port: Number(opts?.port) || 443,
         path: opts?.path || '/webmail',
@@ -339,7 +341,7 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runWhmChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000 },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }) },
       (result, index) => mainWindow?.webContents.send('whm:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -471,11 +473,13 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
     : createResultSink(runFilePath());
   const effSource = resume ? skipKnown(source, prior.keys) : source;
+  // Prefer the scraped proxy pool when non-empty; else fall back to settings.
+  const pooledProxy = proxyPool.size().valid > 0 ? proxyPool.getNext() : proxyUrlFrom(opts.proxyConfig);
   try {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, proxy: proxyUrlFrom(opts.proxyConfig), signal: currentAbort.signal, deps: { dns } },
+      { ...opts, proxy: pooledProxy, signal: currentAbort.signal, deps: { dns } },
       (result, index) => {
         sink.write(result); // JSONL append; running counts kept in the sink
         mainWindow?.webContents.send('batch:progress', { result, index });
