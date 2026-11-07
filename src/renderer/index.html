@@ -68,7 +68,7 @@
         <textarea
           id="creds-input"
           spellcheck="false"
-          placeholder="Paste or upload SMTP credentials in almost any format:&#10;host:port:user:pass   (also , ; | tab or spaces)&#10;user pass host port   (order is auto-detected)&#10;Or labeled blocks:&#10;  Host: smtp.sendgrid.net&#10;  Port: 587&#10;  Username: apikey&#10;  Password: SG.xxxx&#10;Lines starting with # are ignored."
+          placeholder="Paste or upload SMTP credentials in almost any format:&#10;host:port:user:pass   (also , ; | tab or spaces)&#10;user pass host port   (order is auto-detected)&#10;Or labeled blocks:&#10;  Host: smtp.sendgrid.net&#10;  Port: 587&#10;  Username: apikey&#10;  Password: SG.xxxx&#10;OAuth2 (Gmail / M365 with basic auth disabled):&#10;  oauth2 user@gmail.com smtp.gmail.com 587 REFRESH_TOKEN CLIENT_ID CLIENT_SECRET https://oauth2.googleapis.com/token&#10;  oauth2 user@host 587 token=ACCESS_TOKEN&#10;Lines starting with # are ignored."
         ></textarea>
         <div class="parse-summary">
           <span id="parse-count" class="muted">0 credentials</span>

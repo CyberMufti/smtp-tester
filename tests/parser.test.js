@@ -283,3 +283,41 @@ test('mixed delimited lines still parse alongside the new formats', () => {
   assert.equal(records.length, 3);
   assert.deepEqual(records.map((r) => r.port), [587, 2525, 465]);
 });
+
+test('parseDelimitedLine: oauth2 refresh-token line -> record with .oauth and no pass', () => {
+  const res = parseDelimitedLine('oauth2 user@gmail.com smtp.gmail.com 587 1//rt-abc GOCSPX-cid GOCSPX-sec https://oauth2.googleapis.com/token');
+  assert.ok(res.record, 'expected a record');
+  assert.equal(res.record.host, 'smtp.gmail.com');
+  assert.equal(res.record.port, 587);
+  assert.equal(res.record.user, 'user@gmail.com');
+  assert.equal(res.record.pass, undefined);
+  assert.deepEqual(res.record.oauth, {
+    refreshToken: '1//rt-abc',
+    clientId: 'GOCSPX-cid',
+    clientSecret: 'GOCSPX-sec',
+    accessUrl: 'https://oauth2.googleapis.com/token',
+  });
+});
+
+test('parseDelimitedLine: oauth2 token= line -> access-token mode', () => {
+  const res = parseDelimitedLine('oauth2 user@m365.com smtp.office365.com 587 token=ya29.A0xyz');
+  assert.deepEqual(res.record.oauth, { accessToken: 'ya29.A0xyz' });
+  assert.equal(res.record.user, 'user@m365.com');
+});
+
+test('parseDelimitedLine: incomplete oauth2 line -> error', () => {
+  const res = parseDelimitedLine('oauth2 user@x.com smtp.x.com 587 onlyrefresh');
+  assert.ok(res.error, 'expected an error');
+  assert.match(res.error, /refresh mode needs/i);
+});
+
+test('parse: oauth2 lines mix with ordinary delimited lines in one batch', () => {
+  const input = [
+    'smtp.a.com:587:u1@a.com:p1',
+    'oauth2 u2@gmail.com smtp.gmail.com 587 token=ya29.tok',
+  ].join('\n');
+  const { records } = parse(input);
+  assert.equal(records.length, 2);
+  assert.equal(records[0].pass, 'p1');
+  assert.equal(records[1].oauth.accessToken, 'ya29.tok');
+});

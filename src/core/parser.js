@@ -194,6 +194,11 @@ export function parseDelimitedLine(raw) {
   const trimmed = String(raw ?? '').trim();
   if (trimmed === '' || trimmed.startsWith('#')) return null;
 
+  // OAuth2 accounts can't ride the positional format (tokens contain the field
+  // delimiters :, |, ,). They use an explicit, whitespace-separated tag line
+  // parsed on its own so they still flow through the normal batch.
+  if (/^oauth2\b/i.test(trimmed)) return parseOauthLine(trimmed);
+
   let split;
   try {
     split = splitLine(trimmed);
@@ -203,6 +208,43 @@ export function parseDelimitedLine(raw) {
 
   const rec = buildRecord(split.fields, split.delim);
   return rec.error ? { error: rec.error } : { record: rec.record };
+}
+
+/**
+ * Parse an OAuth2 credential line. Whitespace-separated (tokens never contain
+ * spaces), tagged `oauth2` so it's unambiguous against the positional format:
+ *
+ *   oauth2 <user> <host> <port> <refreshToken> <clientId> <clientSecret> [accessUrl]
+ *   oauth2 <user> <host> <port> token=<accessToken>
+ *
+ * Refresh mode lets the app mint access tokens as needed; token mode uses a
+ * ready access token. Returns `{record}` (carrying `.oauth`) or `{error}`.
+ * @param {string} trimmed
+ * @returns {{record: Credential}|{error: string}}
+ */
+function parseOauthLine(trimmed) {
+  const [, user, host, portStr, ...rest] = trimmed.split(/\s+/);
+  if (!user || !host || !portStr) {
+    return { error: 'oauth2 line needs: oauth2 <user> <host> <port> <refreshToken clientId clientSecret [accessUrl] | token=ACCESS_TOKEN>' };
+  }
+  if (!isPort(portStr)) return { error: `invalid port "${portStr}"` };
+  const port = Number(portStr);
+  if (!rest.length) return { error: 'oauth2 line missing token / refresh-token fields' };
+
+  let oauth;
+  if (/^token=/i.test(rest[0])) {
+    const accessToken = rest[0].slice(rest[0].indexOf('=') + 1);
+    if (!accessToken) return { error: 'oauth2 token= is empty' };
+    oauth = { accessToken };
+  } else {
+    const [refreshToken, clientId, clientSecret, accessUrl] = rest;
+    if (!refreshToken || !clientId || !clientSecret) {
+      return { error: 'oauth2 refresh mode needs <refreshToken> <clientId> <clientSecret> [accessUrl]' };
+    }
+    oauth = { refreshToken, clientId, clientSecret };
+    if (accessUrl) oauth.accessUrl = accessUrl;
+  }
+  return { record: { host, port, user, oauth } };
 }
 
 function parseDelimited(lines) {
