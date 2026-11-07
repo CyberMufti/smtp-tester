@@ -40,6 +40,38 @@ function okDeps() {
   };
 }
 
+test('accepts an async-iterable source (streaming) and tests every credential once', async () => {
+  const deps = okDeps();
+  async function* source() {
+    for (const c of makeCreds(7)) yield c;
+  }
+  let progress = 0;
+  const results = await runBatch(source(), [], { concurrency: 3, deps }, () => progress++);
+  assert.equal(results.length, 7);
+  assert.equal(progress, 7);
+  assert.ok(deps.maxInFlight() <= 3, `maxInFlight was ${deps.maxInFlight()}`);
+  // Each credential handed to exactly one worker — users are all distinct.
+  assert.equal(new Set(results.map((r) => r.cred.user)).size, 7);
+});
+
+test('streaming source stops promptly when aborted', async () => {
+  const deps = okDeps();
+  let produced = 0;
+  async function* source() {
+    for (let i = 0; i < 1000; i++) {
+      produced++;
+      yield { host: `h${i}.com`, port: 587, user: `u${i}`, pass: 'p' };
+    }
+  }
+  const ac = new AbortController();
+  const run = runBatch(source(), [], { concurrency: 2, deps, signal: ac.signal });
+  setTimeout(() => ac.abort(), 15);
+  const results = await run;
+  // It must not drain all 1000 after an early abort.
+  assert.ok(produced < 1000, `produced ${produced} — abort did not stop the stream`);
+  assert.ok(results.length <= produced);
+});
+
 test('respects concurrency limit and returns a result per credential', async () => {
   const deps = okDeps();
   const creds = makeCreds(10);

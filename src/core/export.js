@@ -7,12 +7,13 @@
  * @typedef {import('./tester.js').Result} Result
  */
 
-const GROUPS = [
+export const WORKING_GROUPS = [
   ['inbox', 'INBOX'],
   ['spam', 'SPAM'],
   ['valid', 'VALID / SENT'],
   ['unknown', 'UNKNOWN PLACEMENT'],
 ];
+const GROUPS = WORKING_GROUPS;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -30,6 +31,21 @@ function credLine(host, port, user, pass) {
   return `${host}:${port}:${user}:${pass}`;
 }
 
+/** The `# ...` header lines for a working-credentials TXT export. */
+export function workingTxtHeaderLines(generatedAt = '') {
+  const lines = ['# SMTP Tester — working credentials'];
+  if (generatedAt) lines.push(`# generated ${generatedAt}`);
+  lines.push('# format: host:port:username:password', '');
+  return lines;
+}
+
+/** The re-importable `host:port:user:pass` line for one working result. */
+export function workingCredLine(r) {
+  const host = r.usedHost || r.cred.host || '';
+  const port = r.usedPort || r.cred.port || '';
+  return credLine(host, port, r.cred.user, r.cred.pass);
+}
+
 /**
  * @param {Result[]} results
  * @param {{generatedAt?:string}} [opts]
@@ -38,21 +54,48 @@ function credLine(host, port, user, pass) {
 export function toWorkingTxt(results, { generatedAt = '' } = {}) {
   const working = (results || []).filter((r) => r.status !== 'dead');
 
-  const lines = ['# SMTP Tester — working credentials'];
-  if (generatedAt) lines.push(`# generated ${generatedAt}`);
-  lines.push('# format: host:port:username:password', '');
+  const lines = workingTxtHeaderLines(generatedAt);
 
   for (const [key, label] of GROUPS) {
     const rows = working.filter((r) => r.status === key);
     if (!rows.length) continue;
     lines.push(`# === ${label} (${rows.length}) ===`);
-    for (const r of rows) {
-      const host = r.usedHost || r.cred.host || '';
-      const port = r.usedPort || r.cred.port || '';
-      lines.push(credLine(host, port, r.cred.user, r.cred.pass));
-    }
+    for (const r of rows) lines.push(workingCredLine(r));
     lines.push('');
   }
 
   return lines.join('\n');
+}
+
+const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
+
+/** Header row for the CSV export. */
+export function csvHeaderLine() {
+  return CSV_COLUMNS.join(',');
+}
+
+/** One CSV row for a result. */
+export function csvRowLine(r) {
+  const placement = (r.perSeed || [])
+    .map((s) => `${s.label}=${s.error ? 'error' : s.folder || 'not found'}`)
+    .join('; ');
+  return [
+    r.cred.host || '(auto)',
+    r.cred.port || '',
+    r.cred.user,
+    r.status,
+    r.usedHost || '',
+    r.usedPort || '',
+    r.reason,
+    r.latencyMs,
+    placement,
+    r.token || '',
+  ]
+    .map(csvCell)
+    .join(',');
+}
+
+function csvCell(value) {
+  const s = String(value ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

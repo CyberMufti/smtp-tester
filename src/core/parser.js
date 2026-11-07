@@ -38,12 +38,21 @@ export function dedupeCredentials(records) {
   const seen = new Set();
   const out = [];
   for (const r of records || []) {
-    const key = `${r.host || ''}|${r.port || ''}|${r.user}|${r.pass}`.toLowerCase();
+    const key = credKey(r);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(r);
   }
   return { records: out, removed: (records || []).length - out.length };
+}
+
+/**
+ * The identity used to dedupe a credential: host, port, user, pass, lowercased.
+ * Shared so whole-text and streaming dedupe agree on what counts as a dupe.
+ * @param {Credential} r
+ */
+export function credKey(r) {
+  return `${r.host || ''}|${r.port || ''}|${r.user}|${r.pass}`.toLowerCase();
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -173,29 +182,38 @@ function finalizeKv(fields, line, errors) {
   return cred(fields.host, port, fields.user, fields.pass, fields.from);
 }
 
+/**
+ * Parse a single delimited line into a credential. Returns `null` for a blank
+ * or comment line, `{record}` on success, or `{error}` with a reason. This is
+ * the per-line core shared by {@link parseDelimited} (whole-text parsing) and
+ * the streaming file parser, so both treat a given line identically.
+ * @param {string} raw
+ * @returns {{record: Credential}|{error: string}|null}
+ */
+export function parseDelimitedLine(raw) {
+  const trimmed = String(raw ?? '').trim();
+  if (trimmed === '' || trimmed.startsWith('#')) return null;
+
+  let split;
+  try {
+    split = splitLine(trimmed);
+  } catch (e) {
+    return { error: e.message };
+  }
+
+  const rec = buildRecord(split.fields, split.delim);
+  return rec.error ? { error: rec.error } : { record: rec.record };
+}
+
 function parseDelimited(lines) {
   const records = [];
   const errors = [];
 
   lines.forEach((raw, i) => {
-    const lineNo = i + 1;
-    const trimmed = raw.trim();
-    if (trimmed === '' || trimmed.startsWith('#')) return;
-
-    let split;
-    try {
-      split = splitLine(trimmed);
-    } catch (e) {
-      errors.push({ line: lineNo, raw, reason: e.message });
-      return;
-    }
-
-    const rec = buildRecord(split.fields, split.delim);
-    if (rec.error) {
-      errors.push({ line: lineNo, raw, reason: rec.error });
-    } else {
-      records.push(rec.record);
-    }
+    const res = parseDelimitedLine(raw);
+    if (!res) return;
+    if (res.error) errors.push({ line: i + 1, raw, reason: res.error });
+    else records.push(res.record);
   });
 
   return { records, errors };

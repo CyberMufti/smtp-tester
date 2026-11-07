@@ -89,6 +89,7 @@
 
         <div class="run-controls">
           <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
+          <label>Max tests/sec <input id="opt-maxrate" type="number" min="0" max="1000" value="0" title="0 = unlimited. A cooperative cap so you don't overload your own server." /></label>
           <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
           <label>Show rows
             <select id="opt-rowcap">
@@ -101,6 +102,7 @@
           <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
           <span id="seed-note" class="muted"></span>
           <div class="spacer"></div>
+          <button id="btn-resume" class="btn ghost" hidden>Resume last run</button>
           <button id="btn-run" class="btn primary">Test All</button>
           <button id="btn-cancel" class="btn danger" disabled>Cancel</button>
         </div>
@@ -232,6 +234,57 @@
           report Inbox vs Spam. With no seeds, it still reports Dead / Valid (send only).
         </p>
         <div id="seeds-list" class="seeds-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Server security audit</h2></div>
+        <p class="muted">
+          Check a mail server <b>you operate</b> for transport-security problems: is password
+          authentication offered over a cleartext channel (before STARTTLS), and is STARTTLS
+          available at all. This reads the server's advertised capabilities only — it never
+          sends credentials.
+        </p>
+        <div class="form-grid">
+          <label>Server host <input id="audit-host" type="text" placeholder="mail.yourdomain.com" /></label>
+          <label>Port
+            <select id="audit-port">
+              <option value="587">587 (submission / STARTTLS)</option>
+              <option value="465">465 (implicit TLS)</option>
+              <option value="25">25 (relay)</option>
+              <option value="2525">2525</option>
+            </select>
+          </label>
+        </div>
+        <div class="run-controls">
+          <div class="spacer"></div>
+          <button id="btn-audit-scan" class="btn primary">Scan server</button>
+        </div>
+        <div id="audit-result"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Credential hygiene audit</h2></div>
+        <p class="muted">
+          Analyze an export of <b>your own</b> accounts (<code>email:password</code>, one per line)
+          for weak, reused, or breached passwords so you can force resets. This runs entirely on
+          your machine — no server is contacted and no credential is tested. Optionally supply a
+          breach corpus (one SHA-1 hash per line, e.g. a HIBP subset) to flag known-exposed passwords.
+        </p>
+        <div class="panel-actions">
+          <label class="btn ghost">
+            Load accounts
+            <input id="hygiene-file" type="file" accept=".txt,.csv" hidden />
+          </label>
+          <label class="btn ghost">
+            Load breach list (optional)
+            <input id="hygiene-breach" type="file" accept=".txt" hidden />
+          </label>
+          <button id="btn-hygiene-scan" class="btn primary">Analyze</button>
+        </div>
+        <div class="parse-summary">
+          <span id="hygiene-files" class="muted">No file loaded</span>
+        </div>
+        <div id="hygiene-result"></div>
       </section>
 
       <section class="panel">

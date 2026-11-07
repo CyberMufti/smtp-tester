@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, dedupeCredentials } from '../src/core/parser.js';
+import { parse, dedupeCredentials, parseDelimitedLine } from '../src/core/parser.js';
+
+test('parseDelimitedLine: record, blank/comment -> null, bad line -> error', () => {
+  assert.deepEqual(parseDelimitedLine('smtp.x.com:587:u@x.com:p'), {
+    record: { host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'p' },
+  });
+  assert.equal(parseDelimitedLine(''), null);
+  assert.equal(parseDelimitedLine('   '), null);
+  assert.equal(parseDelimitedLine('# comment'), null);
+  const bad = parseDelimitedLine('garbage-no-delimiters');
+  assert.ok(bad && bad.error, 'unparseable line should return an error');
+});
 
 test('parses colon-delimited host:port:user:pass', () => {
   const { records, errors } = parse('smtp.example.com:587:user@example.com:secret');

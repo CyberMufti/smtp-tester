@@ -296,14 +296,67 @@ function dedupe(list) {
  * @param {(result:Result, index:number)=>void} [onProgress]
  * @returns {Promise<Result[]>}
  */
+// A server telling us to slow down: a 421 greeting-refusal, or 4xx responses
+// mentioning rate/throttle/too-many/try-again. Scanned across the result's
+// reason and every endpoint it attempted.
+const RATE_LIMIT_RE = /\b4\d\d\b.*(too many|rate|throttl|try again|slow down|concurrent|temporarily)|421|too many|rate limit|throttl|slow down|greylist/i;
+
+/** @param {Result} result */
+export function looksRateLimited(result) {
+  if (!result) return false;
+  const texts = [result.reason, ...(result.attempts || []).map((a) => a.outcome)];
+  return texts.some((t) => t && RATE_LIMIT_RE.test(String(t)));
+}
+
 export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   const smtp = opts.deps?.smtp ?? realSmtp;
   const imap = opts.deps?.imap ?? realImap;
   const concurrency = Math.max(1, opts.concurrency ?? 5);
   const signal = opts.signal;
 
-  const results = new Array(creds.length);
+  // `creds` may be an array (indexed directly) or an async iterable — a file
+  // stream of millions of leads that must never be fully materialized. In the
+  // streaming case workers pull from a shared iterator, serialized so each
+  // credential is handed to exactly one worker.
+  const streaming = creds != null && !Array.isArray(creds) && typeof creds[Symbol.asyncIterator] === 'function';
+  const results = [];
   let next = 0;
+
+  const iterator = streaming ? creds[Symbol.asyncIterator]() : null;
+  // A promise chain that serializes iterator.next() across concurrent workers.
+  let pullGate = Promise.resolve();
+  function pull() {
+    if (!streaming) {
+      const index = next++;
+      return Promise.resolve(index >= creds.length ? null : { index, cred: creds[index] });
+    }
+    const prev = pullGate;
+    let release;
+    pullGate = new Promise((r) => (release = r));
+    return prev
+      .then(() => iterator.next())
+      .then(({ value, done }) => (done ? null : { index: next++, cred: value }))
+      .finally(release);
+  }
+
+  // Cooperative pacing. `maxPerSec` spaces the START of each test by a shared
+  // minimum interval so you don't flood your own server; a rate-limit response
+  // (4xx "too many" / 421) pushes a shared cooldown so every worker backs off.
+  // Both are opt-in (0 = disabled) and only make sense against infrastructure
+  // you control.
+  const minIntervalMs = opts.maxPerSec > 0 ? 1000 / opts.maxPerSec : 0;
+  const cooldownMs = Math.max(0, opts.rateLimitCooldownMs ?? 0);
+  let nextStart = 0; // earliest timestamp a new test may start
+  function gate() {
+    if (!minIntervalMs && !cooldownMs) return Promise.resolve();
+    const now = Date.now();
+    const wait = Math.max(0, nextStart - now);
+    nextStart = Math.max(now, nextStart) + minIntervalMs;
+    return wait ? new Promise((r) => setTimeout(r, wait)) : Promise.resolve();
+  }
+  function applyCooldown() {
+    if (cooldownMs) nextStart = Math.max(nextStart, Date.now() + cooldownMs);
+  }
 
   // Shared per-batch context: the content spam score (same for every message)
   // is computed once; DNS lookups are cached by domain and host.
@@ -319,23 +372,36 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   async function worker() {
     while (true) {
       if (signal?.aborted) return;
-      const index = next++;
-      if (index >= creds.length) return;
-      let result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
+      const item = await pull();
+      if (!item) return;
+      const { index, cred } = item;
+      await gate();
+      if (signal?.aborted) return;
+      let result = await testOne(cred, index, seeds, opts, smtp, imap, ctx);
       // Retry transient connection failures (not auth/send rejections) with backoff.
       const maxRetries = opts.retries ?? 0;
       for (let attempt = 0; attempt < maxRetries && result.deadReason === 'connect' && !signal?.aborted; attempt++) {
         await new Promise((r) => setTimeout(r, opts.retryBackoffMs ?? 2000));
         if (signal?.aborted) break;
-        result = await testOne(creds[index], index, seeds, opts, smtp, imap, ctx);
+        result = await testOne(cred, index, seeds, opts, smtp, imap, ctx);
       }
+      if (looksRateLimited(result)) applyCooldown();
       results[index] = result;
       if (onProgress) onProgress(result, index);
     }
   }
 
-  const workers = Array.from({ length: Math.min(concurrency, creds.length) }, () => worker());
-  await Promise.all(workers);
+  // For an array we never need more workers than credentials; a stream's length
+  // is unknown, so start the full pool and let short streams drain quickly.
+  const workerCount = streaming ? concurrency : Math.min(concurrency, creds.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  try {
+    await Promise.all(workers);
+  } finally {
+    // Close the underlying file stream promptly on completion or abort instead
+    // of waiting for GC (its generator's finally runs the actual cleanup).
+    if (streaming) await iterator.return?.();
+  }
 
   return results.filter(Boolean);
 }

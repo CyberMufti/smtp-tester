@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getLicense: () => ipcRenderer.invoke('license:get'),
@@ -7,9 +7,17 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   testSeed: (seed) => ipcRenderer.invoke('seed:test', seed),
+  auditServer: (host, port) => ipcRenderer.invoke('audit:server', { host, port }),
+  auditHygiene: (filePath, breachFilePath) => ipcRenderer.invoke('hygiene:auditFile', { filePath, breachFilePath }),
   testBatch: (creds, seeds, opts) => ipcRenderer.invoke('batch:run', { creds, seeds, opts }),
+  // Resolve a dropped/picked File to its absolute path (Electron 32+ removed
+  // File.path in favor of webUtils.getPathForFile).
+  getFilePath: (file) => webUtils.getPathForFile(file),
+  countFile: (filePath) => ipcRenderer.invoke('creds:countFile', filePath),
+  testBatchFile: (filePath, seeds, opts, resume) => ipcRenderer.invoke('batch:runFile', { filePath, seeds, opts, resume }),
+  runProgress: () => ipcRenderer.invoke('run:progress'),
   cancel: () => ipcRenderer.invoke('batch:cancel'),
-  exportResults: (results, format) => ipcRenderer.invoke('results:export', { results, format }),
+  exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
   getMonitor: () => ipcRenderer.invoke('monitor:get'),
   saveMonitor: (patch) => ipcRenderer.invoke('monitor:save', patch),

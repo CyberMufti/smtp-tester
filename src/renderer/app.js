@@ -7,9 +7,26 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 let settings = null;
 let parsed = { records: [], errors: [] };
 let runTotal = 0;
-let results = [];
 let activeFilter = 'all';
 let running = false;
+
+// Results are streamed to disk in the main process (bounded memory), so the
+// renderer keeps only what it needs to paint the UI: O(1) running counts, the
+// first content spam score, and the newest few thousand results for the table.
+// Filtering/paging operates over this retained window; exports read the full
+// run file from disk, so every result is still accounted for.
+const MAX_RECENT = 5000;
+let counts = {};
+let testedCount = 0;
+let recent = [];
+let firstSpamScore = null;
+
+function resetRunState() {
+  counts = {};
+  testedCount = 0;
+  recent = [];
+  firstSpamScore = null;
+}
 
 // ---------- Tabs ----------
 $$('.tab').forEach((tab) => {
@@ -22,18 +39,68 @@ $$('.tab').forEach((tab) => {
 
 // ---------- Credential input / parsing ----------
 const credsInput = $('#creds-input');
-credsInput.addEventListener('input', refreshParse);
 
-$('#file-input').addEventListener('change', (e) => {
+// When a big lead file is picked we stream it from disk by path instead of
+// loading its (hundreds of MB of) text into this textarea and parsing it on the
+// UI thread. `loadedFile` holds that selection; typing in the box cancels it so
+// the pasted text takes over again.
+let loadedFile = null; // { path, name, count, errors } or null
+
+credsInput.addEventListener('input', () => {
+  loadedFile = null;
+  refreshParse();
+  refreshResumeButton();
+});
+
+$('#file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  const path = api.getFilePath?.(file);
+  if (!path) {
+    // No filesystem path available — fall back to reading it into the textarea.
+    readFileIntoTextarea(file);
+    return;
+  }
+  loadedFile = null;
+  $('#parse-count').textContent = `Reading ${file.name}…`;
+  $('#parse-errors').textContent = '';
+  let res;
+  try {
+    res = await api.countFile(path);
+  } catch (err) {
+    $('#parse-errors').textContent = `Could not read file: ${err.message}`;
+    return;
+  }
+  // Nothing parsed as delimited credentials — likely a labeled-block or small
+  // file. Fall back to the paste path, which handles those formats.
+  if (!res.count) {
+    readFileIntoTextarea(file);
+    return;
+  }
+  loadedFile = { path, name: file.name, count: res.count, errors: res.errors };
+  credsInput.value = ''; // setting .value programmatically does not fire 'input'
+  const sample = (res.sample || [])
+    .map((c) => c.user)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(', ');
+  $('#parse-count').textContent =
+    `${res.count.toLocaleString()} credentials from ${file.name}${sample ? ` (e.g. ${sample})` : ''}`;
+  $('#parse-errors').textContent = res.errors
+    ? `${res.errors.toLocaleString()} line${res.errors === 1 ? '' : 's'} skipped`
+    : '';
+  refreshResumeButton();
+});
+
+function readFileIntoTextarea(file) {
+  loadedFile = null;
   const reader = new FileReader();
   reader.onload = () => {
     credsInput.value = String(reader.result);
     refreshParse();
   };
   reader.readAsText(file);
-});
+}
 
 function refreshParse() {
   parsed = parse(credsInput.value);
@@ -51,33 +118,18 @@ function refreshParse() {
 $('#btn-run').addEventListener('click', runBatch);
 $('#btn-cancel').addEventListener('click', () => api.cancel());
 
-async function runBatch() {
-  if (running) return;
-  refreshParse();
-  if (!parsed.records.length) {
-    $('#parse-errors').textContent = 'Nothing to test — add at least one valid credential.';
-    return;
-  }
-  running = true;
-  results = [];
-  renderResults();
-  setRunning(true);
-  $('#progress-bar').hidden = false;
-  $('#progress-fill').style.width = '0%';
-
-  const { records: creds, removed } = dedupeCredentials(parsed.records);
-  runTotal = creds.length;
-  if (removed) {
-    $('#parse-errors').textContent = `${removed} duplicate${removed === 1 ? '' : 's'} removed — testing ${creds.length}.`;
-  }
-
+function buildRunOpts() {
   const manualRecipients = $('#manual-recipients').value
     .split(/[\n,;]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  const opts = {
+  return {
     concurrency: Number($('#opt-concurrency').value) || 5,
+    maxPerSec: Math.max(0, Number($('#opt-maxrate').value) || 0),
+    // Honest backpressure: when the server returns a rate-limit response, every
+    // worker waits this long before starting another test.
+    rateLimitCooldownMs: 5000,
     connectTimeout: (settings?.connectTimeout) || 10000,
     sendTimeout: (settings?.sendTimeout) || 15000,
     placementTimeoutMs: (Number($('#opt-timeout').value) || 90) * 1000,
@@ -93,11 +145,39 @@ async function runBatch() {
     retries: 1,
     retryBackoffMs: 2000,
   };
+}
+
+function startRunUI() {
+  running = true;
+  resetRunState();
+  renderResults();
+  setRunning(true);
+  $('#progress-bar').hidden = false;
+  $('#progress-fill').style.width = '0%';
+}
+
+async function runBatch() {
+  if (running) return;
+  // A file selection streams from disk; a pasted list tests the parsed records.
+  if (loadedFile) return runFileBatch();
+
+  refreshParse();
+  if (!parsed.records.length) {
+    $('#parse-errors').textContent = 'Nothing to test — add at least one valid credential.';
+    return;
+  }
+  startRunUI();
+
+  const { records: creds, removed } = dedupeCredentials(parsed.records);
+  runTotal = creds.length;
+  if (removed) {
+    $('#parse-errors').textContent = `${removed} duplicate${removed === 1 ? '' : 's'} removed — testing ${creds.length}.`;
+  }
 
   $('#progress-label').textContent = `0 / ${runTotal}`;
 
   try {
-    await api.testBatch(creds, settings?.seeds || [], opts);
+    await api.testBatch(creds, settings?.seeds || [], buildRunOpts());
   } catch (err) {
     $('#parse-errors').textContent = `Run failed: ${err.message}`;
   } finally {
@@ -106,29 +186,86 @@ async function runBatch() {
   }
 }
 
+async function runFileBatch(resume = false) {
+  startRunUI();
+  runTotal = loadedFile.count; // already deduped during the count pass
+  if (resume) {
+    // Seed the display with what the prior run already finished; new results
+    // accumulate on top, and the main process skips already-tested credentials.
+    const prior = await api.runProgress();
+    counts = { ...prior.counts };
+    testedCount = prior.total;
+    renderSummary();
+  }
+  $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
+
+  try {
+    await api.testBatchFile(loadedFile.path, settings?.seeds || [], buildRunOpts(), resume);
+  } catch (err) {
+    $('#parse-errors').textContent = `Run failed: ${err.message}`;
+  } finally {
+    setRunning(false);
+    running = false;
+    refreshResumeButton();
+  }
+}
+
+// Show "Resume last run" only when a file is loaded and a prior run exists on disk.
+async function refreshResumeButton() {
+  const btn = $('#btn-resume');
+  if (!btn) return;
+  if (running || !loadedFile) {
+    btn.hidden = true;
+    return;
+  }
+  const prior = await api.runProgress();
+  btn.hidden = !(prior && prior.total > 0);
+  if (!btn.hidden) btn.textContent = `Resume last run (${prior.total.toLocaleString()} done)`;
+}
+
+$('#btn-resume').addEventListener('click', () => {
+  if (running || !loadedFile) return;
+  runFileBatch(true);
+});
+
 function setRunning(on) {
   $('#btn-run').disabled = on;
   $('#btn-cancel').disabled = !on;
-  const noResults = results.length === 0;
+  const noResults = testedCount === 0;
   $('#btn-export-csv').disabled = on || noResults;
   $('#btn-export-json').disabled = on || noResults;
-  $('#btn-export-txt').disabled = on || results.every((r) => r.status === 'dead');
+  // TXT export holds only working (non-dead) credentials.
+  const working = testedCount - (counts.dead || 0);
+  $('#btn-export-txt').disabled = on || working <= 0;
 }
 
-// Cap how many rows live in the DOM so very large runs stay snappy. Every
-// result is still kept in `results` for counts and exports. Configurable.
+// Cap how many rows live in the DOM so very large runs stay snappy. Counts come
+// from the running totals and exports read the full run file from disk, so the
+// table is just a live window. Even "all" is clamped to the retained buffer —
+// we never keep millions of rows (or results) in the renderer.
 function currentRowCap() {
   const v = $('#opt-rowcap')?.value;
   return v === 'all' ? Infinity : Number(v) || 500;
 }
 
+function displayCap() {
+  return Math.min(currentRowCap(), MAX_RECENT);
+}
+
 $('#opt-rowcap').addEventListener('change', renderResults);
 
 api.onProgress(({ result }) => {
-  results.push(result);
-  $('#progress-label').textContent = `${results.length} / ${runTotal}`;
+  testedCount++;
+  counts[result.status] = (counts[result.status] || 0) + 1;
+  if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
+  // Retain only the newest window for the table; trim in bulk so this stays
+  // amortized O(1) even across millions of results.
+  recent.push(result);
+  if (recent.length > MAX_RECENT * 1.2) recent = recent.slice(-MAX_RECENT);
+
+  $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
   const fill = $('#progress-fill');
-  if (fill) fill.style.width = `${runTotal ? Math.round((results.length / runTotal) * 100) : 0}%`;
+  if (fill) fill.style.width = `${runTotal ? Math.round((testedCount / runTotal) * 100) : 0}%`;
   renderSummary();
   renderContentScoreBanner();
   renderRowsNote();
@@ -144,21 +281,21 @@ function appendResultRow(r) {
   if (empty) empty.remove();
   body.insertAdjacentHTML('beforeend', rowHtml(r));
   // Keep only the newest N rows in the DOM.
-  const cap = currentRowCap();
+  const cap = displayCap();
   while (body.children.length > cap) body.removeChild(body.firstElementChild);
 }
 
 function renderRowsNote() {
   const el = $('#rows-note');
   if (!el) return;
-  const cap = currentRowCap();
+  const shown = Math.min(recent.length, displayCap());
   el.textContent =
-    results.length > cap
-      ? `Showing the newest ${cap} rows of ${results.length} — all ${results.length} are included in exports and the counts above.`
+    testedCount > shown
+      ? `Showing the newest ${shown} rows of ${testedCount} — all ${testedCount} are included in exports and the counts above.`
       : '';
 }
 api.onDone(() => {
-  $('#progress-label').textContent = `${results.length} tested`;
+  $('#progress-label').textContent = `${testedCount} tested`;
   $('#progress-fill').style.width = '100%';
 });
 
@@ -176,16 +313,16 @@ function renderResults() {
   renderContentScoreBanner();
   renderRowsNote();
   const body = $('#results-body');
-  const rows = results.filter((r) => activeFilter === 'all' || r.status === activeFilter);
+  // Filtering/paging works over the retained window of recent results.
+  const rows = recent.filter((r) => activeFilter === 'all' || r.status === activeFilter);
   if (!rows.length) {
     body.innerHTML = `<tr class="empty-row"><td colspan="5">${
-      results.length ? 'No results match this filter.' : 'No results yet. Paste credentials and click <b>Test All</b>.'
+      testedCount ? 'No results match this filter in the recent window.' : 'No results yet. Paste credentials and click <b>Test All</b>.'
     }</td></tr>`;
     return;
   }
   // Render only the newest N matching rows to keep the DOM light.
-  const cap = currentRowCap();
-  body.innerHTML = (cap === Infinity ? rows : rows.slice(-cap)).map(rowHtml).join('');
+  body.innerHTML = rows.slice(-displayCap()).map(rowHtml).join('');
 }
 
 const SUMMARY_ORDER = [
@@ -198,22 +335,20 @@ const SUMMARY_ORDER = [
 
 function renderSummary() {
   const el = $('#summary');
-  if (!results.length) {
+  if (!testedCount) {
     el.innerHTML = '';
     return;
   }
-  const counts = {};
-  for (const r of results) counts[r.status] = (counts[r.status] || 0) + 1;
   const chips = SUMMARY_ORDER.map(
     ([key, label]) =>
       `<span class="summary-chip status-${key}">${label}: ${counts[key] || 0}</span>`,
   ).join('');
-  el.innerHTML = `${chips}<span class="summary-chip summary-total">Total: ${results.length}</span>`;
+  el.innerHTML = `${chips}<span class="summary-chip summary-total">Total: ${testedCount}</span>`;
 }
 
 function renderContentScoreBanner() {
   const el = $('#content-score-banner');
-  const s = results.find((r) => r.spamScore)?.spamScore;
+  const s = firstSpamScore;
   if (!s) {
     el.innerHTML = '';
     return;
@@ -314,7 +449,7 @@ $('#btn-export-txt').addEventListener('click', () => doExport('txt'));
 $('#btn-export-csv').addEventListener('click', () => doExport('csv'));
 $('#btn-export-json').addEventListener('click', () => doExport('json'));
 async function doExport(format) {
-  const res = await api.exportResults(results, format);
+  const res = await api.exportRun(format);
   if (res.saved) $('#progress-label').textContent = `Saved to ${res.path}`;
 }
 
@@ -439,6 +574,84 @@ $('#btn-score').addEventListener('click', async () => {
     ? `<ul>${s.reasons.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`
     : '<p class="muted">No obvious spam signals found.</p>';
   el.innerHTML = `<span class="score-badge score-${s.level}">Score: ${s.score}/${s.max} (${s.level})</span>${reasons}`;
+});
+
+// ---------- Server security audit ----------
+$('#btn-audit-scan').addEventListener('click', async () => {
+  const host = $('#audit-host').value.trim();
+  const out = $('#audit-result');
+  if (!host) {
+    out.innerHTML = '<p class="err-text">Enter the host of a server you operate.</p>';
+    return;
+  }
+  const port = Number($('#audit-port').value) || 587;
+  out.innerHTML = '<p class="muted">Scanning…</p>';
+  const rep = await api.auditServer(host, port);
+  if (rep.error) {
+    out.innerHTML = `<p class="err-text">Scan failed: ${esc(rep.error)}</p>`;
+    return;
+  }
+  const highs = rep.findings.filter((f) => f.severity === 'high').length;
+  const badge = highs
+    ? `<span class="score-badge score-high">${highs} issue${highs === 1 ? '' : 's'} found</span>`
+    : '<span class="score-badge score-low">No transport-security issues</span>';
+  const items = rep.findings
+    .map((f) => `<li><span class="dbadge b-${f.severity === 'high' ? 'bad' : f.severity === 'info' ? 'neutral' : 'ok'}">${esc(f.severity)}</span> ${esc(f.message)}</li>`)
+    .join('');
+  const oks = rep.okReasons.map((r) => `<li class="muted">${esc(r)}</li>`).join('');
+  out.innerHTML =
+    `${badge} <span class="note">${esc(rep.host)}:${esc(rep.port)} — AUTH: ${esc(rep.mechs.join(', ') || 'none')}</span>` +
+    (items ? `<ul>${items}</ul>` : '') +
+    (oks ? `<ul>${oks}</ul>` : '');
+});
+
+// ---------- Credential hygiene audit ----------
+let hygieneAccountsPath = null;
+let hygieneBreachPath = null;
+
+function updateHygieneFiles() {
+  const parts = [];
+  if (hygieneAccountsPath) parts.push(`accounts: ${hygieneAccountsPath.split(/[/\\]/).pop()}`);
+  if (hygieneBreachPath) parts.push(`breach list: ${hygieneBreachPath.split(/[/\\]/).pop()}`);
+  $('#hygiene-files').textContent = parts.length ? parts.join(' · ') : 'No file loaded';
+}
+
+$('#hygiene-file').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  hygieneAccountsPath = file ? api.getFilePath?.(file) : null;
+  updateHygieneFiles();
+});
+$('#hygiene-breach').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  hygieneBreachPath = file ? api.getFilePath?.(file) : null;
+  updateHygieneFiles();
+});
+
+$('#btn-hygiene-scan').addEventListener('click', async () => {
+  const out = $('#hygiene-result');
+  if (!hygieneAccountsPath) {
+    out.innerHTML = '<p class="err-text">Load an account export first (email:password per line).</p>';
+    return;
+  }
+  out.innerHTML = '<p class="muted">Analyzing…</p>';
+  const rep = await api.auditHygiene(hygieneAccountsPath, hygieneBreachPath);
+  if (rep.error) {
+    out.innerHTML = `<p class="err-text">Analysis failed: ${esc(rep.error)}</p>`;
+    return;
+  }
+  const s = rep.summary;
+  const badge = s.flagged
+    ? `<span class="score-badge score-high">${s.flagged.toLocaleString()} of ${s.total.toLocaleString()} need a reset</span>`
+    : `<span class="score-badge score-low">All ${s.total.toLocaleString()} accounts look OK</span>`;
+  const breakdown = `<span class="note"> — weak: ${s.weak.toLocaleString()}, reused: ${s.reused.toLocaleString()}, breached: ${s.breached.toLocaleString()}</span>`;
+  const rows = rep.sample
+    .map((a) => `<li><span class="mono">${esc(a.user)}</span> — ${esc(a.reasons.join('; '))}</li>`)
+    .join('');
+  const note =
+    s.flagged > rep.sample.length
+      ? `<p class="muted">Showing the first ${rep.sample.length} flagged of ${s.flagged.toLocaleString()}.</p>`
+      : '';
+  out.innerHTML = `${badge}${breakdown}${rows ? `<ul>${rows}</ul>` : ''}${note}`;
 });
 
 // ---------- License gate ----------

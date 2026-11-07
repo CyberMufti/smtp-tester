@@ -4,14 +4,19 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { writeFile } from 'node:fs/promises';
 import { appendFileSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
+import { streamCredentialsFromFile, countCredentialsInFile } from '../core/parse-file.js';
+import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
+import { credKey } from '../core/parser.js';
+import { auditServer } from '../core/authaudit.js';
+import { createHygieneAccumulator } from '../core/hygiene.js';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { verifySeed } from '../core/imap.js';
 import { buildProxyUrl } from '../core/smtp.js';
 import { scoreContent } from '../core/spamscore.js';
-import { toWorkingTxt } from '../core/export.js';
 import { getHwid } from '../core/hwid.js';
 import { monitorDiff } from '../core/monitor.js';
 import { verifyLicense } from '../core/license.js';
@@ -184,33 +189,125 @@ ipcMain.handle('settings:save', async (_e, settings) => saveSettings(settings));
 
 ipcMain.handle('seed:test', async (_e, seed) => verifySeed(seed));
 
-ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
-  currentAbort = new AbortController();
-  // Crash-safe autosave: stream results to disk so a close/crash mid-run keeps
-  // everything tested so far (recoverable from userData/last-run.json).
-  const autosavePath = join(app.getPath('userData'), 'last-run.json');
-  const collected = [];
+// Transport-security audit of a server the operator runs (no credentials sent).
+ipcMain.handle('audit:server', async (_e, { host, port }) => {
   try {
-    const results = await runBatch(
-      creds,
+    return await auditServer({ host: String(host || '').trim(), port: Number(port) || 587 });
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+/** Load a breach corpus (one SHA-1 hex per line, optionally "HASH:count") into a Set. */
+async function loadBreachSet(path) {
+  if (!path) return null;
+  const set = new Set();
+  const rl = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      const h = line.trim().split(/[:\s,]/)[0].toUpperCase();
+      if (h) set.add(h);
+    }
+  } finally {
+    rl.close();
+  }
+  return set;
+}
+
+// Offline credential-hygiene audit: stream an account export (email:password)
+// and flag weak / reused / breached passwords. No SMTP, no network.
+ipcMain.handle('hygiene:auditFile', async (_e, { filePath, breachFilePath }) => {
+  try {
+    const breachedHashes = await loadBreachSet(breachFilePath ? String(breachFilePath) : '');
+    const acc = createHygieneAccumulator({ breachedHashes });
+    // dedupe:false so every account line is counted — reuse detection needs them.
+    for await (const rec of streamCredentialsFromFile(String(filePath), { dedupe: false, onError: () => {} })) {
+      acc.add(rec);
+    }
+    return acc.result();
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+/** Where the current/last run is streamed as JSONL (also the crash-safe autosave). */
+function runFilePath() {
+  return join(app.getPath('userData'), 'last-run.jsonl');
+}
+
+/** Yield only credentials not already present in `keys` (for resuming a run). */
+async function* skipKnown(source, keys) {
+  for await (const rec of source) {
+    if (keys.has(credKey(rec))) continue;
+    yield rec;
+  }
+}
+
+/**
+ * Run a batch (from an array or a streaming source), writing each result to a
+ * JSONL file on disk instead of accumulating them in memory, and forwarding
+ * live progress to the renderer. Returns the totals the UI needs — never the
+ * full result set, which at scale is far too large to hand back. With
+ * `resume`, prior results in the run file are kept and already-tested
+ * credentials are skipped.
+ */
+async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
+  currentAbort = new AbortController();
+  // Resume: keep prior results, append new ones, and skip anything already done.
+  const prior = resume ? await readRunProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
+  const sink = resume
+    ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
+    : createResultSink(runFilePath());
+  const effSource = resume ? skipKnown(source, prior.keys) : source;
+  try {
+    await runBatch(
+      effSource,
       seeds,
       { ...opts, proxy: proxyUrlFrom(opts.proxyConfig), signal: currentAbort.signal, deps: { dns } },
       (result, index) => {
-        collected.push(result);
+        sink.write(result); // JSONL append; running counts kept in the sink
         mainWindow?.webContents.send('batch:progress', { result, index });
-        if (collected.length % 25 === 0) {
-          writeFile(autosavePath, JSON.stringify(collected)).catch(() => {});
-        }
       },
     );
-    await writeFile(autosavePath, JSON.stringify(results)).catch(() => {});
-    return results;
+    return await sink.close();
+  } catch (err) {
+    await sink.close().catch(() => {});
+    throw err;
   } finally {
     // Always clear the abort handle and signal completion, even if the batch
     // throws, so the renderer never gets stuck in the "running" state.
     currentAbort = null;
     mainWindow?.webContents.send('batch:done', { done: true });
   }
+}
+
+ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => runBatchToDisk(creds, seeds, opts));
+
+// Count the credentials in an uploaded file without loading its text into the
+// renderer — lets the UI show the parsed count + a sample the moment a huge
+// lead file is picked, with no main-window freeze.
+ipcMain.handle('creds:countFile', async (_e, filePath) => {
+  try {
+    return await countCredentialsInFile(String(filePath));
+  } catch (err) {
+    recordCrash('countFile', err);
+    return { count: 0, errors: 0, sample: [], error: err.message };
+  }
+});
+
+// Test a batch straight from a file on disk. Credentials stream line-by-line
+// into the worker pool, so a multi-million-lead file is never held whole in
+// memory and never crosses IPC as one giant array.
+ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume }) => {
+  const source = streamCredentialsFromFile(String(filePath), { onError: () => {} });
+  return runBatchToDisk(source, seeds, opts, { resume: !!resume });
+});
+
+// How much of a prior run is on disk, so the UI can offer "resume" and seed its
+// progress display. Returns only summary numbers, never the credential keys.
+ipcMain.handle('run:progress', async () => {
+  const { total, counts } = await readRunProgress(runFilePath());
+  return { total, counts };
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
@@ -235,49 +332,15 @@ ipcMain.handle('batch:cancel', async () => {
   return true;
 });
 
-ipcMain.handle('results:export', async (_e, { results, format }) => {
+// Export the last run by streaming its JSONL file to the chosen format — the
+// results never come back through IPC, so a multi-million-row export stays
+// bounded in memory.
+ipcMain.handle('results:exportRun', async (_e, { format }) => {
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `smtp-results.${format}`,
     filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
   if (canceled || !filePath) return { saved: false };
-  const content =
-    format === 'json' ? toJson(results)
-    : format === 'txt' ? toWorkingTxt(results, { generatedAt: new Date().toISOString() })
-    : toCsv(results);
-  await writeFile(filePath, content, 'utf8');
+  await exportRun(runFilePath(), filePath, format, { generatedAt: new Date().toISOString() });
   return { saved: true, path: filePath };
 });
-
-function toJson(results) {
-  return JSON.stringify(results, null, 2);
-}
-
-function toCsv(results) {
-  const header = ['host', 'port', 'user', 'status', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
-  const rows = results.map((r) => {
-    const placement = (r.perSeed || [])
-      .map((s) => `${s.label}=${s.error ? 'error' : s.folder || 'not found'}`)
-      .join('; ');
-    return [
-      r.cred.host || '(auto)',
-      r.cred.port || '',
-      r.cred.user,
-      r.status,
-      r.usedHost || '',
-      r.usedPort || '',
-      r.reason,
-      r.latencyMs,
-      placement,
-      r.token || '',
-    ]
-      .map(csvCell)
-      .join(',');
-  });
-  return [header.join(','), ...rows].join('\n');
-}
-
-function csvCell(value) {
-  const s = String(value ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
