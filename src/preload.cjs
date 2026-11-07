@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   checkSsh: (targets, opts) => ipcRenderer.invoke('ssh:check', { targets, opts }),
   checkSmtp: (creds, opts) => ipcRenderer.invoke('smtp:check', { creds, opts }),
+  mxResolve: (domains) => ipcRenderer.invoke('smtp:mxResolve', { domains }),
   scrapeProxies: () => ipcRenderer.invoke('proxy:scrape'),
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
   clearProxies: () => ipcRenderer.invoke('proxy:clear'),

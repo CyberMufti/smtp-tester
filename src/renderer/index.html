@@ -60,9 +60,19 @@
         <p class="muted">Paste <code>email:password</code> lines — one per line. Tests SMTP, cPanel, Webmail, WHM, and SSH in parallel from the same credential.</p>
         <textarea id="combo-input" rows="6" placeholder="user@domain.com:password" style="width:100%;font-family:monospace;font-size:12px"></textarea>
         <div class="run-controls">
+          <label>Mode
+            <select id="combo-mode">
+              <option value="smtp" selected>SMTP only (fastest)</option>
+              <option value="panels">Panels only (cPanel/Webmail/WHM/SSH)</option>
+              <option value="all">All protocols</option>
+            </select>
+          </label>
+          <label>Concurrency <input id="combo-concurrency" type="number" min="1" max="100" value="50" /></label>
+          <label>Timeout (s) <input id="combo-timeout" type="number" min="2" max="30" value="5" /></label>
+          <label class="checkbox"><input id="combo-mx-filter" type="checkbox" checked /> Skip no-MX domains</label>
           <span id="combo-progress" class="muted"></span>
           <div class="spacer"></div>
-          <button id="btn-combo-crack" class="btn primary">Crack All Protocols</button>
+          <button id="btn-combo-crack" class="btn primary">Start</button>
         </div>
         <span id="combo-status" class="muted"></span>
         <table class="results-table" style="margin-top:10px">

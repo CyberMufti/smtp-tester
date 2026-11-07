@@ -386,6 +386,29 @@ ipcMain.handle('smtp:check', async (_e, { creds, opts }) => {
   }
 });
 
+ipcMain.handle('smtp:mxResolve', async (_e, { domains }) => {
+  try {
+    const list = Array.isArray(domains) ? domains.slice(0, 50000) : [];
+    const out = {};
+    const concurrency = 30;
+    let next = 0;
+    async function worker() {
+      while (next < list.length) {
+        const d = list[next++];
+        try {
+          const mx = await dns.resolveMx(d);
+          out[d] = Array.isArray(mx) && mx.length > 0;
+        } catch { out[d] = false; }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
+    return { mx: out };
+  } catch (err) {
+    recordCrash('mxResolve', err);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
   try {
     const list = Array.isArray(targets) ? targets : [];
