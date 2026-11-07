@@ -364,10 +364,11 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
     const results = await runSSHChecks(
       list,
       {
+        gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
         concurrency: Number(opts?.concurrency) || 5,
         port: Number(opts?.port) || 22,
         timeout: Number(opts?.timeout) || 10000,
-        proxyUrl: proxyUrlFrom(settings?.proxy),
+        proxyUrl: proxyPool.size().valid > 0 ? proxyPool.getNext() : proxyUrlFrom(settings?.proxy),
       },
       (result, index) => mainWindow?.webContents.send('ssh:progress', { result, index, total: list.length }),
     );
