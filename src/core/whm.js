@@ -97,6 +97,7 @@ export async function runWhmChecks(targets, opts = {}, onResult) {
     while (next < list.length) {
       if (opts.signal?.aborted) return;
       const i = next++;
+      if (opts.gate) await opts.gate();
       results[i] = await verifyWhm(list[i], opts);
       onResult?.(results[i], i);
     }

@@ -168,6 +168,7 @@ export async function runCpanelChecks(targets, opts = {}, onResult) {
     while (next < list.length) {
       if (opts.signal?.aborted) return;
       const i = next++;
+      if (opts.gate) await opts.gate();
       const r = await verifyCpanel(list[i], opts);
       results[i] = r;
       onResult?.(r, i);

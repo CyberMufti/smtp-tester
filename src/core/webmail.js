@@ -99,6 +99,7 @@ export async function runWebmailChecks(targets, opts = {}, onResult) {
     while (next < list.length) {
       if (opts.signal?.aborted) return;
       const i = next++;
+      if (opts.gate) await opts.gate();
       results[i] = await verifyWebmail(list[i], opts);
       onResult?.(results[i], i);
     }

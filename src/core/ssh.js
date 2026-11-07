@@ -150,6 +150,7 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
     while (next < list.length) {
       if (opts.signal?.aborted) return;
       const i = next++;
+      if (opts.gate) await opts.gate();
       results[i] = await verifySSH(list[i], opts);
       onResult?.(results[i], i);
     }
