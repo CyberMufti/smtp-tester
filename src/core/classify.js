@@ -10,8 +10,41 @@
  *   sendError?:string,
  *   seeds:SeedPlacement[],
  * }} StepResults
- * @typedef {{status:('dead'|'valid'|'inbox'|'spam'|'unknown'), reason:string, perSeed:SeedPlacement[]}} Classification
+ * @typedef {{status:('dead'|'valid'|'inbox'|'spam'|'unverified'|'unknown'), reason:string, perSeed:SeedPlacement[]}} Classification
  */
+
+/**
+ * Downgrade an authenticated-and-sent "valid" result to "unverified" when the
+ * sending domain's published auth records can't carry mail to external inboxes:
+ * a missing SPF record or a missing DMARC record. Such a domain's mail is
+ * routinely dropped or quarantined by major providers, so a bare "valid" (which
+ * only proves the SMTP accepted the message) would overstate deliverability.
+ *
+ * Only gates "valid". "inbox"/"spam" already have proof the mail landed, and the
+ * other states aren't a positive signal to soften. Returns an override
+ * `{status, reason}` when the gate applies, otherwise null (leave the result
+ * unchanged). A published DMARC policy of any strength (none/quarantine/reject)
+ * counts as present — enforcement is not a problem; absence is.
+ *
+ * @param {string} status  the status from {@link classify}
+ * @param {{spf?:{found:boolean}, dmarc?:{found:boolean}}|undefined} deliverability
+ * @returns {{status:'unverified', reason:string}|null}
+ */
+export function applyAuthGate(status, deliverability) {
+  if (status !== 'valid' || !deliverability) return null;
+  const { spf, dmarc } = deliverability;
+  // Only gate when the SPF/DMARC lookup actually ran (records were resolved);
+  // with deliverability checks off there is nothing to judge.
+  if (spf === undefined || dmarc === undefined) return null;
+  const missing = [];
+  if (!spf.found) missing.push('SPF');
+  if (!dmarc.found) missing.push('DMARC');
+  if (missing.length === 0) return null;
+  return {
+    status: 'unverified',
+    reason: `sent, but the sending domain is missing ${missing.join(' and ')} — external inbox delivery will likely be blocked`,
+  };
+}
 
 /** @param {StepResults} s @returns {Classification} */
 export function classify(s) {

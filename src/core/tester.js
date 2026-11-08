@@ -3,7 +3,7 @@ import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
-import { classify } from './classify.js';
+import { classify, applyAuthGate } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
@@ -253,6 +253,16 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const deliverability = await runChecks(cred, usedHost, opts, ctx);
   if (deliverability) result.deliverability = deliverability;
   if (ctx?.spamScore) result.spamScore = ctx.spamScore;
+
+  // Gate "valid" on sending-domain auth: a domain missing SPF or DMARC will
+  // have its mail dropped by major providers, so it is reported "unverified"
+  // rather than "valid". Runs only when deliverability checks supplied records.
+  const gate = applyAuthGate(result.status, result.deliverability);
+  if (gate) {
+    result.status = gate.status;
+    result.reason = gate.reason;
+    result.authGated = true;
+  }
 
   return result;
 }

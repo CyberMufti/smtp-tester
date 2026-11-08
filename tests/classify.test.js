@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify } from '../src/core/classify.js';
+import { classify, applyAuthGate } from '../src/core/classify.js';
 
 test('not connected -> dead with connection reason', () => {
   const r = classify({ connected: false, authenticated: false, sent: false, seeds: [] });
@@ -147,4 +147,37 @@ test('userExists is not attached to non-auth outcomes', () => {
   assert.equal('userExists' in connectFail, false);
   const ok = classify({ connected: true, authenticated: true, sent: true, seeds: [] });
   assert.equal('userExists' in ok, false);
+});
+
+test('applyAuthGate: valid + missing SPF -> unverified', () => {
+  const g = applyAuthGate('valid', { spf: { found: false }, dmarc: { found: true } });
+  assert.equal(g.status, 'unverified');
+  assert.match(g.reason, /SPF/);
+});
+
+test('applyAuthGate: valid + missing DMARC -> unverified', () => {
+  const g = applyAuthGate('valid', { spf: { found: true }, dmarc: { found: false } });
+  assert.equal(g.status, 'unverified');
+  assert.match(g.reason, /DMARC/);
+});
+
+test('applyAuthGate: valid + missing both -> unverified names both', () => {
+  const g = applyAuthGate('valid', { spf: { found: false }, dmarc: { found: false } });
+  assert.equal(g.status, 'unverified');
+  assert.match(g.reason, /SPF and DMARC/);
+});
+
+test('applyAuthGate: valid + SPF and DMARC present (any policy) stays valid', () => {
+  assert.equal(applyAuthGate('valid', { spf: { found: true }, dmarc: { found: true } }), null);
+});
+
+test('applyAuthGate: inbox/spam are never downgraded (delivery already proven)', () => {
+  const deliv = { spf: { found: false }, dmarc: { found: false } };
+  assert.equal(applyAuthGate('inbox', deliv), null);
+  assert.equal(applyAuthGate('spam', deliv), null);
+});
+
+test('applyAuthGate: no-op when deliverability checks did not run', () => {
+  assert.equal(applyAuthGate('valid', undefined), null);
+  assert.equal(applyAuthGate('valid', {}), null); // spf/dmarc undefined -> lookup never ran
 });

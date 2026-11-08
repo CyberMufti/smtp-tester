@@ -390,6 +390,7 @@ const SUMMARY_ORDER = [
   ['inbox', 'Inbox'],
   ['spam', 'Spam'],
   ['valid', 'Valid'],
+  ['unverified', 'Unverified'],
   ['unknown', 'Unknown'],
   ['dead', 'Dead'],
 ];
@@ -418,6 +419,7 @@ function updateDashboardTiles() {
   set('#dash-inbox', counts.inbox || 0);
   set('#dash-spam', counts.spam || 0);
   set('#dash-valid', counts.valid || 0);
+  set('#dash-unverified', counts.unverified || 0);
   set('#dash-dead', counts.dead || 0);
   set('#dash-unknown', counts.unknown || 0);
 }

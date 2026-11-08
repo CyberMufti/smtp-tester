@@ -34,6 +34,7 @@
   --st-valid: #60a5fa;
   --st-inbox: #34d399;
   --st-spam: #fbbf24;
+  --st-unverified: #fb7a3c;
   --st-unknown: #94a3b8;
 }
 
@@ -123,6 +124,7 @@ html, body {
 .tile-num { font-size: 26px; font-weight: 800; font-family: var(--mono); color: var(--text-strong); line-height: 1; }
 .tile-num.ok { color: var(--st-inbox); }
 .tile-num.warn { color: var(--st-spam); }
+.tile-num.unv { color: var(--st-unverified); }
 .tile-num.bad { color: var(--st-dead); }
 .tile-lbl { margin-top: 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
 
@@ -210,6 +212,7 @@ label.btn { display: inline-flex; align-items: center; }
 .summary-chip.status-inbox { color: var(--st-inbox); }
 .summary-chip.status-spam { color: var(--st-spam); }
 .summary-chip.status-valid { color: var(--st-valid); }
+.summary-chip.status-unverified { color: var(--st-unverified); }
 .summary-chip.status-dead { color: var(--st-dead); }
 .summary-chip.status-unknown { color: var(--st-unknown); }
 
@@ -298,6 +301,7 @@ tbody tr:hover { background: var(--panel-2); }
 .status-valid { background: rgba(96,165,250,0.16); color: var(--st-valid); border-color: rgba(96,165,250,0.33); }
 .status-inbox { background: rgba(52,211,153,0.16); color: var(--st-inbox); border-color: rgba(52,211,153,0.33); }
 .status-spam { background: rgba(251,191,36,0.16); color: var(--st-spam); border-color: rgba(251,191,36,0.33); }
+.status-unverified { background: rgba(251,122,60,0.16); color: var(--st-unverified); border-color: rgba(251,122,60,0.35); }
 .status-unknown { background: rgba(148,163,184,0.14); color: var(--st-unknown); border-color: rgba(148,163,184,0.3); }
 .detail { color: var(--muted); font-size: 12px; max-width: 420px; }
 .detail .seed-tag { display: inline-block; margin-right: 8px; }

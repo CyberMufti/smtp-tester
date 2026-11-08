@@ -11,6 +11,7 @@ export const WORKING_GROUPS = [
   ['inbox', 'INBOX'],
   ['spam', 'SPAM'],
   ['valid', 'VALID / SENT'],
+  ['unverified', 'UNVERIFIED (sending domain missing SPF/DMARC)'],
   ['unknown', 'UNKNOWN PLACEMENT'],
 ];
 const GROUPS = WORKING_GROUPS;
