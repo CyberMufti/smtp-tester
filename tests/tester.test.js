@@ -489,3 +489,34 @@ test('token passed to send and findToken matches and is unique per credential', 
   // Tokens are unique across credentials.
   assert.equal(new Set(findTokens).size, 3);
 });
+
+test('a valid SMTP whose placement check outlasts the network budget is still classified inbox (watchdog must not abort placement polling)', async () => {
+  // Regression: the per-credential watchdog wrapped ALL of testOne, including
+  // the IMAP placement poll. With the flat 25s default < the 90s placement
+  // timeout, any seed whose test mail took longer than the watchdog to appear
+  // was force-killed as "dead: watchdog timeout" and never classified inbox/spam.
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { return { accepted: [opts.to] }; },
+    },
+    imap: {
+      // Placement resolves AFTER the (tiny) network budget below, but well
+      // within placementTimeoutMs — exactly the real-world "mail takes a while
+      // to land" case.
+      async findToken() {
+        await new Promise((r) => setTimeout(r, 150));
+        return { found: true, folder: 'inbox' };
+      },
+    },
+  };
+  const seeds = [{ label: 'Gmail', address: 'seed@x.com' }];
+  const [r] = await runBatch(makeCreds(1), seeds, {
+    concurrency: 1,
+    deps,
+    credentialTimeoutMs: 50, // network-phase budget, smaller than placement delay
+    placementTimeoutMs: 5000,
+    pollIntervalMs: 20,
+  });
+  assert.equal(r.status, 'inbox', `expected inbox, got ${r.status} (${r.reason})`);
+});

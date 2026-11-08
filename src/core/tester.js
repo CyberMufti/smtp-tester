@@ -452,7 +452,15 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       // Watchdog: cap total wall-clock time per credential. If testOne hangs
       // (TCP accept but no banner, TLS handshake loop, etc.), abandon it and
       // move to the next credential. Prevents silent worker starvation.
-      const watchdogMs = Number(opts.credentialTimeoutMs) || 25000;
+      //
+      // The budget MUST cover the placement-polling phase too: testOne, when a
+      // seed is configured, legitimately waits up to placementTimeoutMs (default
+      // 90s) for the tagged mail to appear over IMAP. A flat 25s watchdog shorter
+      // than that aborts every slow-but-valid placement as a "watchdog timeout",
+      // so valid SMTPs never get classified inbox/spam. Budget = network phase +
+      // placement phase.
+      const networkBudgetMs = Number(opts.credentialTimeoutMs) || 25000;
+      const watchdogMs = networkBudgetMs + (Number(opts.placementTimeoutMs) || 0);
       let result;
       try {
         result = await Promise.race([
