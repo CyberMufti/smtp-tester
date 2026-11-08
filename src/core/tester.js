@@ -416,6 +416,14 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       const item = await pull();
       if (!item) return;
       const { index, cred } = item;
+
+      // Adaptive delay: check if this specific host is currently slow/blocked
+      const hostKey = cred.host || 'auto';
+      const dynamicDelay = hostDelays.get(hostKey) || 0;
+      if (dynamicDelay > 0) {
+        await new Promise((r) => setTimeout(r, dynamicDelay));
+      }
+      
       await gate();
       if (signal?.aborted) return;
       // Per-credential proxy rotation via opts.proxyProvider (falls back to opts.proxy).
@@ -486,7 +494,19 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         }
       }
 
-      if (looksRateLimited(result)) applyCooldown();
+      // Adaptive pacing: adjust delay for this host based on server feedback
+      const currentDelay = hostDelays.get(hostKey) || 0;
+      if (looksRateLimited(result)) {
+        // Server blocked us: exponentially back off for this host (max 30s)
+        const newDelay = Math.min(Math.max(currentDelay * 2, 2000), 30000);
+        hostDelays.set(hostKey, newDelay);
+      } else if (result.deadReason !== 'connect' && currentDelay > 0) {
+        // Server is responding normally: cool down the delay (min 0)
+        const newDelay = Math.max(currentDelay - 500, 0);
+        hostDelays.set(hostKey, newDelay);
+      }
+
+      if (looksRateLimited(result)) applyCooldown(); // Keep global cooldown as a fallback
       results[index] = result;
       if (onProgress) await onProgress(result, index);
     }
@@ -494,7 +514,10 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
 
   // For an array we never need more workers than credentials; a stream's length
   // is unknown, so start the full pool and let short streams drain quickly.
-  const workerCount = streaming ? concurrency : Math.min(concurrency, creds.length);
+  // Adaptive pacing: track per-host delays
+  const hostDelays = new Map();
+  
+    const workerCount = streaming ? concurrency : Math.min(concurrency, creds.length);
   const workers = Array.from({ length: workerCount }, () => worker());
   try {
     await Promise.all(workers);
