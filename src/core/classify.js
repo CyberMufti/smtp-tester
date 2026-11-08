@@ -40,6 +40,18 @@ export function classify(s) {
 
   // Authenticated and the message was accepted for delivery.
   if (seeds.length === 0) {
+    // No seed mailboxes AND no manual recipients: the message could only be
+    // sent back to the account itself. A server accepting mail to its own local
+    // user does NOT prove it can relay to external inboxes, so don't let a bare
+    // "valid" imply deliverability it never tested.
+    if (s.selfSendOnly) {
+      return {
+        status: 'valid',
+        reason: 'sent to self only — external delivery not verified (add a seed mailbox or manual recipient)',
+        selfSendOnly: true,
+        perSeed,
+      };
+    }
     return { status: 'valid', reason: 'sent; placement not evaluated (no seed mailboxes)', perSeed };
   }
 

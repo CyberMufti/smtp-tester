@@ -37,6 +37,24 @@ test('sent with no seeds -> valid (placement not evaluated)', () => {
   assert.equal(r.status, 'valid');
 });
 
+test('sent to self only -> valid but flagged and reason warns external delivery unverified', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [],
+    selfSendOnly: true,
+  });
+  assert.equal(r.status, 'valid');
+  assert.equal(r.selfSendOnly, true);
+  assert.match(r.reason, /self|external delivery not verified/i);
+});
+
+test('selfSendOnly is not attached when a real recipient received the message', () => {
+  const r = classify({ connected: true, authenticated: true, sent: true, seeds: [] });
+  assert.equal('selfSendOnly' in r, false);
+});
+
 test('sent, all seeds inbox -> inbox', () => {
   const r = classify({
     connected: true,

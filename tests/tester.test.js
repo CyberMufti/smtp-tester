@@ -279,6 +279,26 @@ test('manual recipient emails are included in the send and surfaced on the resul
   // The result carries the token so the user can search their inbox.
   assert.ok(result.token && result.token.startsWith('SMTPTEST-'));
   assert.deepEqual(result.manualRecipients, ['check1@gmail.com', 'check2@outlook.com']);
+  // A real recipient received the message, so it is not a self-send.
+  assert.ok(!result.selfSendOnly);
+});
+
+test('no seeds and no manual recipients -> self-send flagged on the result', async () => {
+  let sentTo = null;
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: true }; },
+      async send(cred, opts) { sentTo = opts.to; return { accepted: opts.to.split(', ') }; },
+    },
+    imap: { async findToken() { return { found: true, folder: 'inbox' }; } },
+  };
+  const creds = [{ host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'p' }];
+  const [result] = await runBatch(creds, [], { concurrency: 1, deps });
+  // The only recipient was the account itself.
+  assert.equal(sentTo, 'u@x.com');
+  assert.equal(result.status, 'valid');
+  assert.equal(result.selfSendOnly, true);
+  assert.match(result.reason, /self|external delivery not verified/i);
 });
 
 test('records each host/port attempted and its outcome', async () => {

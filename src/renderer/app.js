@@ -439,6 +439,12 @@ function rowHtml(r) {
       `<span class="note">✉ Check ${esc(r.manualRecipients.join(', '))} for subject containing <b class="mono">${esc(r.token)}</b></span>`,
     );
   }
+  if (r.selfSendOnly) {
+    parts.push(
+      '<span class="dbadge b-neutral">self-send only</span>' +
+      '<span class="note">⚠ Sent to the account itself — external delivery not verified. Add a seed mailbox or manual recipient to confirm inbox/spam placement.</span>',
+    );
+  }
 
   if ((r.status === 'dead' || r.status === 'unknown') && r.attempts && r.attempts.length) {
     const list = r.attempts

@@ -191,6 +191,11 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       // user to check themselves. Both receive the tagged message.
       const activeSeeds = seeds.filter((s) => s.address && String(s.address).trim());
       const recipients = dedupe([...activeSeeds.map((s) => s.address), ...manualRecipients]);
+      // With no seed mailboxes and no manual recipients, the only address we can
+      // send to is the account itself. Flag that so a successful send isn't
+      // reported as a bare "valid" — it only proves a self-send, not external
+      // deliverability. classify() turns this into a warning on the result.
+      step.selfSendOnly = recipients.length === 0;
       const to = recipients.length > 0 ? recipients : [opts.from || cred.from || cred.user];
 
       const sendRes = await smtp.send(effective, {
@@ -226,7 +231,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     else step.sendError = err.message;
   }
 
-  const { status, reason, perSeed, userExists } = classify(step);
+  const { status, reason, perSeed, userExists, selfSendOnly } = classify(step);
 
   // Categorize a dead result so the orchestrator can retry transient (connect)
   // failures but never retry a permanent auth/send rejection.
@@ -243,6 +248,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     reason,
     deadReason,
     userExists,
+    selfSendOnly,
     perSeed,
     latencyMs: Date.now() - start,
     token,
