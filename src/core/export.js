@@ -48,6 +48,48 @@ export function workingCredLine(r) {
 }
 
 /**
+ * Split results into the per-protocol "valid" download files written by the
+ * "Save Valid by Protocol" action. Returns a map of filename -> lines so the
+ * caller only has to write non-empty buckets.
+ *
+ * Deliverable SMTPs (valid/inbox/spam) and auth-gated SMTPs ('unverified')
+ * go to SEPARATE files — `smtp_valid.txt` must never contain an unverified
+ * credential, since those are reported working but their sending domain lacks
+ * SPF/DMARC and will likely be blocked. Panel hits are grouped by their own
+ * protocol. Pure and unit-testable.
+ *
+ * @param {Result[]} results
+ * @returns {Record<string, string[]>}
+ */
+export function protocolExportFiles(results) {
+  const files = {
+    'smtp_valid.txt': [],
+    'smtp_unverified.txt': [],
+    'cpanel_valid.txt': [],
+    'webmail_valid.txt': [],
+    'whm_valid.txt': [],
+    'ssh_valid.txt': [],
+  };
+  for (const r of results || []) {
+    const user = r.cred?.user || '?';
+    const pass = r.cred?.pass || '?';
+    const host = r.usedHost || r.cred?.host || (user.split('@')[1] || '');
+    if (r.status === 'valid' || r.status === 'inbox' || r.status === 'spam') {
+      files['smtp_valid.txt'].push(`${user}:${pass}`);
+    } else if (r.status === 'unverified') {
+      files['smtp_unverified.txt'].push(`${user}:${pass}`);
+    }
+    if (r.panels) {
+      if (r.panels.cpanel?.valid) files['cpanel_valid.txt'].push(`${host}:${user}:${pass}`);
+      if (r.panels.webmail?.valid) files['webmail_valid.txt'].push(`${host}:${user}:${pass}`);
+      if (r.panels.whm?.valid) files['whm_valid.txt'].push(`${host}:${user}:${pass}`);
+      if (r.panels.ssh?.valid) files['ssh_valid.txt'].push(`${host}:${user}:${pass}`);
+    }
+  }
+  return files;
+}
+
+/**
  * @param {Result[]} results
  * @param {{generatedAt?:string}} [opts]
  * @returns {string}

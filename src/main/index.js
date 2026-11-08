@@ -9,6 +9,7 @@ import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
+import { protocolExportFiles } from '../core/export.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -701,34 +702,21 @@ ipcMain.handle('results:exportByProtocol', async () => {
     if (!existsSync(filePath)) return { error: 'No results found' };
 
     const lines = readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
-    const hits = { smtp: [], cpanel: [], webmail: [], whm: [], ssh: [] };
-
+    const results = [];
     for (const line of lines) {
-      try {
-        const r = JSON.parse(line);
-        const user = r.cred?.user || '?';
-        const pass = r.cred?.pass || '?';
-        const host = r.usedHost || r.cred?.host || (user.split('@')[1] || '');
-
-        if (r.status === 'valid' || r.status === 'inbox' || r.status === 'spam') {
-          hits.smtp.push(user + ':' + pass);
-        }
-        if (r.panels) {
-          if (r.panels.cpanel?.valid) hits.cpanel.push(host + ':' + user + ':' + pass);
-          if (r.panels.webmail?.valid) hits.webmail.push(host + ':' + user + ':' + pass);
-          if (r.panels.whm?.valid) hits.whm.push(host + ':' + user + ':' + pass);
-          if (r.panels.ssh?.valid) hits.ssh.push(host + ':' + user + ':' + pass);
-        }
-      } catch (e) { /* skip bad lines */ }
+      try { results.push(JSON.parse(line)); } catch (e) { /* skip bad lines */ }
     }
+    // 'unverified' SMTPs are written to their own file, kept apart from the
+    // deliverable smtp_valid.txt.
+    const files = protocolExportFiles(results);
 
     const dlPath = app.getPath('downloads');
     const outDir = join(dlPath, 'result');
     try { mkdirSync(outDir, { recursive: true }); } catch (e) { /* ignore if exists */ }
     let count = 0;
-    for (const [proto, arr] of Object.entries(hits)) {
+    for (const [name, arr] of Object.entries(files)) {
       if (arr.length > 0) {
-        writeFileSync(join(outDir, proto + '_valid.txt'), arr.join('\n'));
+        writeFileSync(join(outDir, name), arr.join('\n'));
         count++;
       }
     }

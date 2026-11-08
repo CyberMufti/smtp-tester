@@ -63,3 +63,21 @@ test('empty when there are no working results', () => {
   const { records } = parse(txt);
   assert.equal(records.length, 0);
 });
+
+test('protocolExportFiles keeps unverified SMTPs in their own file, out of smtp_valid.txt', async () => {
+  const { protocolExportFiles } = await import('../src/core/export.js');
+  const rows = [
+    result('valid', { host: 'a.com', port: 587, user: 'v@a.com', pass: 'pv' }, 'a.com', 587),
+    result('inbox', { host: 'b.com', port: 587, user: 'i@b.com', pass: 'pi' }, 'b.com', 587),
+    result('unverified', { host: 'c.com', port: 587, user: 'u@c.com', pass: 'pu' }, 'c.com', 587),
+    result('dead', { host: 'd.com', port: 587, user: 'x@d.com', pass: 'px' }, null, null),
+  ];
+  const files = protocolExportFiles(rows);
+  assert.deepEqual(files['smtp_valid.txt'], ['v@a.com:pv', 'i@b.com:pi']);
+  assert.deepEqual(files['smtp_unverified.txt'], ['u@c.com:pu']);
+  // valid file must never contain the unverified credential
+  assert.ok(!files['smtp_valid.txt'].some((l) => l.includes('u@c.com')));
+  // dead is excluded from both
+  assert.ok(!files['smtp_valid.txt'].some((l) => l.includes('x@d.com')));
+  assert.ok(!files['smtp_unverified.txt'].some((l) => l.includes('x@d.com')));
+});
