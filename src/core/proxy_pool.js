@@ -27,7 +27,9 @@ export const DEFAULT_SOURCES = [
   'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt',
 ];
 
-export const DEFAULT_VALIDATE_TARGET = { host: '1.1.1.1', port: 53 };
+// Validate against an SMTP server instead of DNS, so we only keep proxies
+// that can actually reach mail servers without being blocked.
+export const DEFAULT_VALIDATE_TARGET = { host: 'smtp.gmail.com', port: 587 };
 export const DEFAULT_VALIDATE_TIMEOUT = 2000;
 export const DEFAULT_VALIDATE_CONCURRENCY = 100;
 
