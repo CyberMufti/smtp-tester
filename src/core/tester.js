@@ -433,7 +433,23 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       }
       const usedPoolProxy = !!proxyForCred && proxyForCred !== opts.proxy;
       const attemptOpts = usedPoolProxy ? { ...opts, proxy: proxyForCred } : opts;
-      let result = await testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx);
+      // Watchdog: cap total wall-clock time per credential. If testOne hangs
+      // (TCP accept but no banner, TLS handshake loop, etc.), abandon it and
+      // move to the next credential. Prevents silent worker starvation.
+      const watchdogMs = Number(opts.credentialTimeoutMs) || 25000;
+      let result;
+      try {
+        result = await Promise.race([
+          testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs))
+        ]);
+      } catch (err) {
+        if (err.message === 'watchdog_timeout') {
+          result = { cred, status: 'dead', reason: 'watchdog timeout (' + watchdogMs + 'ms)', deadReason: 'connect', latencyMs: watchdogMs };
+        } else {
+          result = { cred, status: 'dead', reason: err.message, deadReason: 'connect' };
+        }
+      }
       // Dead-proxy fallback: retry once DIRECT if the pool proxy clearly failed.
       if (usedPoolProxy && result.deadReason === 'connect' && !signal?.aborted) {
         const reasonText = String(result.reason || '');
