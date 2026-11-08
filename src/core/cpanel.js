@@ -158,6 +158,18 @@ export async function verifyCpanel(target, opts = {}) {
  * @param {(r:CpanelResult & {host:string,user:string,port:number}, index:number)=>void} [onResult]
  * @returns {Promise<Array<CpanelResult & {host:string,user:string,port:number}>>}
  */
+async function _verifyCpanelMultiPort(target, opts, ports) {
+  if (ports.length === 1) return verifyCpanel(target, { ...opts, port: ports[0] });
+  let last = null;
+  for (const port of ports) {
+    const { port: _ignored, ...targetNoPort } = target;
+    const r = await verifyCpanel(targetNoPort, { ...opts, port });
+    last = r;
+    if (r.reachable) return r;
+  }
+  return last;
+}
+
 export async function runCpanelChecks(targets, opts = {}, onResult) {
   const list = Array.from(targets || []);
   const results = new Array(list.length);
@@ -170,13 +182,17 @@ export async function runCpanelChecks(targets, opts = {}, onResult) {
       const i = next++;
       if (opts.gate) await opts.gate();
       const _tgt = list[i];
+      const _ports = Array.isArray(opts.ports) && opts.ports.length > 0
+        ? opts.ports
+        : [Number(list[i].port) || Number(opts.port) || 0];
+
       if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_tgt.user, 'cpanel')) {
         const skipped = { ..._tgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
         results[i] = skipped;
         onResult?.(skipped, i);
         continue;
       }
-      const r = await verifyCpanel(_tgt, opts);
+      const r = await _verifyCpanelMultiPort(_tgt, opts, _ports);
       results[i] = r;
       if (opts.lockoutRegistry) {
         if (r.valid) opts.lockoutRegistry.recordSuccess(_tgt.user, 'cpanel');

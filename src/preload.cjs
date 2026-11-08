@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  saveHostMap: (text) => ipcRenderer.invoke('hostmap:save', text),
+  getHostMap: () => ipcRenderer.invoke('hostmap:get'),
   testSeed: (seed) => ipcRenderer.invoke('seed:test', seed),
   auditServer: (host, port) => ipcRenderer.invoke('audit:server', { host, port }),
   checkCpanel: (targets, opts) => ipcRenderer.invoke('cpanel:check', { targets, opts }),

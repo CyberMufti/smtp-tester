@@ -140,6 +140,18 @@ export async function verifySSH(target, opts = {}) {
   return { ...base, ...classifySSHResult(err) };
 }
 
+async function _verifySSHMultiPort(target, opts, ports) {
+  if (ports.length === 1) return verifySSH(target, { ...opts, port: ports[0] });
+  let last = null;
+  for (const port of ports) {
+    const { port: _ignored, ...targetNoPort } = target;
+    const r = await verifySSH(targetNoPort, { ...opts, port });
+    last = r;
+    if (r.reachable) return r;
+  }
+  return last;
+}
+
 export async function runSSHChecks(targets, opts = {}, onResult) {
   const list = Array.from(targets || []);
   const results = new Array(list.length);
@@ -152,6 +164,10 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
       const i = next++;
       if (opts.gate) await opts.gate();
       const _sshTgt = list[i];
+      const _ports = Array.isArray(opts.ports) && opts.ports.length > 0
+        ? opts.ports
+        : [Number(list[i].port) || Number(opts.port) || 0];
+
       if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_sshTgt.user, 'ssh')) {
         const skipped = { ..._sshTgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
         results[i] = skipped;
@@ -165,7 +181,7 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
       }
       const usedPoolProxy = !!proxyUrlForTarget && proxyUrlForTarget !== opts.proxyUrl;
       const attemptOpts = usedPoolProxy ? { ...opts, proxyUrl: proxyUrlForTarget } : opts;
-      let result = await verifySSH(list[i], attemptOpts);
+      let result = await _verifySSHMultiPort(list[i], attemptOpts, _ports);
       // Dead-proxy fallback: retry once DIRECT if the pool proxy failed.
       if (usedPoolProxy && result.status === 'unreachable' && !opts.signal?.aborted) {
         const reasonText = String(result.detail || '');
@@ -174,7 +190,7 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
             try { opts.onProxyFailure(proxyUrlForTarget, reasonText); } catch {}
           }
           const directOpts = { ...opts, proxyUrl: null, proxyProvider: undefined };
-          const retried = await verifySSH(list[i], directOpts);
+          const retried = await _verifySSHMultiPort(list[i], directOpts, _ports);
           retried.proxyFallback = true;
           retried.proxyFallbackReason = 'dead proxy — retried direct';
           retried.proxyThatDied = proxyUrlForTarget;

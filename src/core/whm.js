@@ -88,6 +88,18 @@ export async function verifyWhm(target, opts = {}) {
   return { ...base, ...classifyWhmLogin(res) };
 }
 
+async function _verifyWhmMultiPort(target, opts, ports) {
+  if (ports.length === 1) return verifyWhm(target, { ...opts, port: ports[0] });
+  let last = null;
+  for (const port of ports) {
+    const { port: _ignored, ...targetNoPort } = target;
+    const r = await verifyWhm(targetNoPort, { ...opts, port });
+    last = r;
+    if (r.reachable) return r;
+  }
+  return last;
+}
+
 export async function runWhmChecks(targets, opts = {}, onResult) {
   const list = Array.from(targets || []);
   const results = new Array(list.length);
@@ -99,12 +111,16 @@ export async function runWhmChecks(targets, opts = {}, onResult) {
       const i = next++;
       if (opts.gate) await opts.gate();
       const _tgt = list[i];
+      const _ports = Array.isArray(opts.ports) && opts.ports.length > 0
+        ? opts.ports
+        : [Number(list[i].port) || Number(opts.port) || 0];
+
       if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_tgt.user, 'whm')) {
         results[i] = { ..._tgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
         onResult?.(results[i], i);
         continue;
       }
-      results[i] = await verifyWhm(_tgt, opts);
+      results[i] = await _verifyWhmMultiPort(_tgt, opts, _ports);
       if (opts.lockoutRegistry) {
         if (results[i].valid) opts.lockoutRegistry.recordSuccess(_tgt.user, 'whm');
         else if (results[i].reachable && !results[i].valid) {
