@@ -50,6 +50,23 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const token = makeToken(index);
   const subject = (opts.subjectTemplate || 'SMTP Tester {token}').replace('{token}', token);
   const text = (opts.bodyTemplate || 'SMTP deliverability test. Token: {token}').replace('{token}', token);
+  
+  // Generate the HTML body. Use the user's template if provided, else a realistic default.
+  const defaultHtml = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+  <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-bottom: 2px solid #0056b3;">
+    <h2 style="margin: 0; color: #0056b3;">Account Notification</h2>
+  </div>
+  <div style="padding: 20px;">
+    <p>Hello,</p>
+    <p>This is an automated system message regarding your recent account activity.</p>
+    <p>Reference ID: <strong>{token}</strong></p>
+    <p>If you did not request this, please contact support immediately.</p>
+  </div>
+  <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #777;">
+    &copy; 2026 System Administrator. All rights reserved.
+  </div>
+</div>`;
+  const html = (opts.htmlTemplate || defaultHtml).replace('{token}', token);
 
   const step = { connected: false, authenticated: false, sent: false, seeds: [] };
   const manualRecipients = (opts.manualRecipients || []).map((r) => String(r).trim()).filter(Boolean);
@@ -170,6 +187,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         from: opts.from || cred.from || cred.user,
         subject,
         text,
+        html,
         sendTimeout: opts.sendTimeout,
         proxy: opts.proxy,
       });

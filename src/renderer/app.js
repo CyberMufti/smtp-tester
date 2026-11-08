@@ -168,6 +168,7 @@ function buildRunOpts() {
     from: settings?.from || '',
     subjectTemplate: settings?.subjectTemplate,
     bodyTemplate: settings?.bodyTemplate,
+    htmlTemplate: settings?.htmlTemplate,
     manualRecipients,
     checks: $('#opt-checks').checked
       ? { authRecords: true, dnsbl: true, spamScore: true }
@@ -619,6 +620,7 @@ function collectSettings() {
     from: $('#set-from').value.trim(),
     subjectTemplate: $('#set-subject').value,
     bodyTemplate: $('#set-body').value,
+    htmlTemplate: $('#set-html').value,
     connectTimeout: (Number($('#set-connect-timeout').value) || 10) * 1000,
     sendTimeout: (Number($('#set-send-timeout').value) || 15) * 1000,
     pollIntervalMs: (Number($('#set-poll').value) || 5) * 1000,
@@ -654,6 +656,7 @@ function applySettingsToForm() {
   $('#set-from').value = settings.from || '';
   $('#set-subject').value = settings.subjectTemplate || '';
   $('#set-body').value = settings.bodyTemplate || '';
+  $('#set-html').value = settings.htmlTemplate || '';
   $('#set-connect-timeout').value = Math.round((settings.connectTimeout || 10000) / 1000);
   $('#set-send-timeout').value = Math.round((settings.sendTimeout || 15000) / 1000);
   $('#set-poll').value = Math.round((settings.pollIntervalMs || 5000) / 1000);

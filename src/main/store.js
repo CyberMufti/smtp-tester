@@ -27,6 +27,7 @@ export function defaultSettings() {
     subjectTemplate: 'SMTP deliverability test {token}',
     bodyTemplate:
       'This is an automated SMTP deliverability test.\n\nToken: {token}\n\nYou can safely ignore this message.',
+    htmlTemplate: '',
     seeds: [],
   };
 }
