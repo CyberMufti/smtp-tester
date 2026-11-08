@@ -38,6 +38,15 @@ import { verifyLicense } from '../core/license.js';
 import { PUBLIC_KEY_PEM } from '../core/license-public-key.js';
 import { loadSettings, saveSettings, getLicenseKey, setLicenseKey, getMonitor, saveMonitor } from './store.js';
 
+async function safeReadProgress(filePath) {
+  try {
+    return await readRunProgress(filePath);
+  } catch (err) {
+    recordCrash('readRunProgress', err);
+    return { keys: new Set(), total: 0, counts: {} };
+  }
+}
+
 const dns = { resolveTxt, resolve4, resolveMx, resolveSrv };
 const TELEGRAM = '@splean_tool';
 
@@ -534,7 +543,7 @@ async function* skipKnown(source, keys) {
 async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   currentAbort = new AbortController();
   // Resume: keep prior results, append new ones, and skip anything already done.
-  const prior = resume ? await readRunProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
+  const prior = resume ? await safeReadProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
   const sink = resume
     ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
     : createResultSink(runFilePath());
@@ -638,7 +647,7 @@ ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume, preD
 // How much of a prior run is on disk, so the UI can offer "resume" and seed its
 // progress display. Returns only summary numbers, never the credential keys.
 ipcMain.handle('run:progress', async () => {
-  const { total, counts } = await readRunProgress(runFilePath());
+  const { total, counts } = await safeReadProgress(runFilePath());
   return { total, counts };
 });
 
