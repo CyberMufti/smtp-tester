@@ -1,5 +1,6 @@
 import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
+import { LockoutRegistry, detectLockout } from './lockout.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
@@ -56,6 +57,10 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let triedFallback = false;
   const attempts = [];
 
+  if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(cred.user, 'smtp')) {
+    return { cred, status: 'dead', reason: 'skipped: locked', lockSkipped: true, latencyMs: Date.now() - start, attempts: [], manualRecipients };
+  }
+
   try {
     // For a host-less credential on an unknown (custom) domain, actively
     // discover the submission server: SRV + autoconfig (authoritative) and MX
@@ -81,7 +86,13 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
 
     // Build the ordered list of (host, port) endpoints to try: the user's
     // input first, then the detected provider / discovered hosts as fallback.
-    const candidates = candidatesFor(cred, { mxHosts, discovered });
+    const rawCandidates = candidatesFor(cred, { mxHosts, discovered });
+    // Cap candidates per combo (opt-in, default = no cap). In combo mode the
+    // caller passes maxCandidates: 2 so we try only the top two MX servers
+    // instead of every record × every port — cuts worst-case per-combo time
+    // from ~50s to ~10s without changing single-credential behavior.
+    const maxCand = Number(opts.maxCandidates) || 0;
+    const candidates = maxCand > 0 ? rawCandidates.slice(0, maxCand) : rawCandidates;
     let working = null;
     let anyConnected = false;
     let lastConnectError;
@@ -120,6 +131,14 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       record.outcome = v.error || 'could not connect';
       attempts.push(record);
       lastConnectError = v.error;
+    }
+
+    if (opts.lockoutRegistry) {
+      if (working) opts.lockoutRegistry.recordSuccess(cred.user, 'smtp');
+      else if (anyConnected && authError) {
+        if (detectLockout(authError)) opts.lockoutRegistry.markLocked(cred.user, 'smtp', authError);
+        else opts.lockoutRegistry.recordFailure(cred.user, 'smtp');
+      }
     }
 
     if (working) {
@@ -412,7 +431,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       }
       if (looksRateLimited(result)) applyCooldown();
       results[index] = result;
-      if (onProgress) onProgress(result, index);
+      if (onProgress) await onProgress(result, index);
     }
   }
 

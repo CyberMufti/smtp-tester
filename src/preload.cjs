@@ -27,13 +27,6 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('whm:progress', handler);
   },
   checkSsh: (targets, opts) => ipcRenderer.invoke('ssh:check', { targets, opts }),
-  checkSmtp: (creds, opts) => ipcRenderer.invoke('smtp:check', { creds, opts }),
-  onComboProgress: (cb) => {
-    const handler = (_e, payload) => cb(payload);
-    ipcRenderer.on('combo:progress', handler);
-    return () => ipcRenderer.removeListener('combo:progress', handler);
-  },
-  mxResolve: (domains) => ipcRenderer.invoke('smtp:mxResolve', { domains }),
   scrapeProxies: () => ipcRenderer.invoke('proxy:scrape'),
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
   clearProxies: () => ipcRenderer.invoke('proxy:clear'),
@@ -58,6 +51,7 @@ contextBridge.exposeInMainWorld('api', {
   runProgress: () => ipcRenderer.invoke('run:progress'),
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),
+  exportByProtocol: () => ipcRenderer.invoke('results:exportByProtocol'),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
   checkEmailAuth: (request) => ipcRenderer.invoke('auth:check', request),
   getAuthStatus: () => ipcRenderer.invoke('auth:status'),

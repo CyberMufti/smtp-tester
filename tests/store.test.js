@@ -4,7 +4,7 @@ import { defaultSettings, mergeSettings } from '../src/main/store.js';
 
 test('defaultSettings returns documented defaults', () => {
   const d = defaultSettings();
-  assert.equal(d.concurrency, 5);
+  assert.equal(d.concurrency, 50);
   assert.equal(d.placementTimeoutMs, 90000);
   assert.equal(d.pollIntervalMs, 5000);
   assert.deepEqual(d.seeds, []);
@@ -25,5 +25,5 @@ test('mergeSettings overlays a patch without dropping unspecified keys', () => {
 test('mergeSettings does not mutate the base object', () => {
   const base = defaultSettings();
   mergeSettings(base, { concurrency: 99 });
-  assert.equal(base.concurrency, 5);
+  assert.equal(base.concurrency, 50);
 });
