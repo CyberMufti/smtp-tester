@@ -126,10 +126,14 @@ test('dedupeFileToDisk preserves passwords containing the delimiter (raw round-t
 
 test('parsedCredsPathFor gives distinct files distinct paths (no collision), same file a stable path', async () => {
   const { parsedCredsPathFor } = await import('../src/core/parse-file.js');
-  const a = parsedCredsPathFor('/data', '/uploads/fileA.txt');
-  const b = parsedCredsPathFor('/data', '/uploads/fileB.txt');
-  const aAgain = parsedCredsPathFor('/data', '/uploads/fileA.txt');
+  const { join, basename, dirname } = await import('node:path');
+  const dir = join('data', 'cache');
+  const a = parsedCredsPathFor(dir, join('uploads', 'fileA.txt'));
+  const b = parsedCredsPathFor(dir, join('uploads', 'fileB.txt'));
+  const aAgain = parsedCredsPathFor(dir, join('uploads', 'fileA.txt'));
   assert.notEqual(a, b, 'different source files must map to different parsed paths');
   assert.equal(a, aAgain, 'same source file must map to the same parsed path (idempotent)');
-  assert.ok(a.startsWith('/data/') && a.endsWith('.txt'));
+  // Placed in the given dir, named parsed-creds-<hash>.txt — platform-agnostic.
+  assert.equal(dirname(a), dir);
+  assert.match(basename(a), /^parsed-creds-[0-9a-f]+\.txt$/);
 });
