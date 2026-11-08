@@ -455,7 +455,7 @@ function rowHtml(r) {
       if (v.reachable === false) return '<span class="dbadge b-neutral">' + k + '-</span>';
       return '<span class="dbadge b-bad">' + k + '✗</span>';
     };
-    parts.push('<span class="badges">' + b('CP', p.cpanel) + ' ' + b('WM', p.webmail) + ' ' + b('WHM', p.whm) + ' ' + b('SSH', p.ssh) + '</span>');
+    parts.push('<span class="badges">' + b('CP', p.cpanel) + ' ' + b('WM', p.webmail) + ' ' + b('WHM', p.whm) + ' ' + b('SSH', p.ssh) + ' ' + b('IMAP', p.imap) + ' ' + b('POP3', p.pop3) + '</span>');
   }
   const deliv = deliverabilityBadges(r);
   if (deliv) parts.push(deliv);

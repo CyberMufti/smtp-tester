@@ -311,6 +311,15 @@ ipcMain.handle('app:openExternal', async (_e, url) => {
 ipcMain.handle('settings:get', async () => loadSettings());
 
 ipcMain.handle('settings:save', async (_e, settings) => saveSettings(settings));
+ipcMain.handle('hostmap:save', async (_e, text) => {
+  hostMap.parse(text);
+  await saveSettings({ ...(await loadSettings()), hostMap: text });
+  return { size: hostMap.size() };
+});
+ipcMain.handle('hostmap:get', async () => {
+  const s = await loadSettings();
+  return s.hostMap || '';
+});
 
 ipcMain.handle('seed:test', async (_e, seed) => verifySeed(seed));
 
@@ -331,7 +340,7 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runCpanelChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, ports: opts?.ports || [2083, 2082, 8443], timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
       (result, index) => mainWindow?.webContents.send('cpanel:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -356,6 +365,7 @@ ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
         gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
         concurrency: Number(opts?.concurrency) || 10,
         port: Number(opts?.port) || 443,
+        ports: opts?.ports || [443, 2096, 2095],
         path: opts?.path || '/webmail',
         timeout: Number(opts?.timeout) || 10000,
         lockoutRegistry,
@@ -379,7 +389,7 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runWhmChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, ports: opts?.ports || [2087, 2086, 8443], timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
       (result, index) => mainWindow?.webContents.send('whm:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -405,6 +415,7 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
         gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
         concurrency: Number(opts?.concurrency) || 5,
         port: Number(opts?.port) || 22,
+        ports: opts?.ports || [22, 2222, 2022],
         timeout: Number(opts?.timeout) || 10000,
         lockoutRegistry,
         proxyUrl: proxyUrlFrom(settings?.proxy),
@@ -542,23 +553,29 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       { ...opts, ...proxyOptions, lockoutRegistry, signal: currentAbort.signal, deps: { dns } },
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
-        if (opts.protocols === 'all' || opts.protocols === 'panels') {
-          const host = (result.cred.user || '').split('@')[1];
-          if (host) {
-            const [cp, wm, whm, ssh] = await Promise.allSettled([
-              verifyCpanel({ host, user: result.cred.user, pass: result.cred.pass }),
-              verifyWebmail({ host, user: result.cred.user, pass: result.cred.pass }),
-              verifyWhm({ host, user: result.cred.user, pass: result.cred.pass }),
-              verifySSH({ host, user: result.cred.user, pass: result.cred.pass })
-            ]);
-            if (currentAbort?.signal.aborted) return;
-            result.panels = {
-              cpanel: cp.status === 'fulfilled' ? cp.value : null,
-              webmail: wm.status === 'fulfilled' ? wm.value : null,
-              whm: whm.status === 'fulfilled' ? whm.value : null,
-              ssh: ssh.status === 'fulfilled' ? ssh.value : null
-            };
+        try {
+          if (opts.protocols === 'all' || opts.protocols === 'panels') {
+            const _uParts = (result.cred.user || '').split('@');
+            const host = _uParts[1];
+            const bareUser = _uParts[0];
+            if (host) {
+              const safe = async (fn, label) => {
+                try { return await fn(); } catch (e) { return { error: label + ': ' + (e.message || String(e)) }; }
+              };
+              const [cp, wm, whm, ssh, imapR, pop3R] = await Promise.all([
+                safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443] }).then(r => r[0]), 'cpanel'),
+                safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095] }).then(r => r[0]), 'webmail'),
+                safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443] }).then(r => r[0]), 'whm'),
+                safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022] }).then(r => r[0]), 'ssh'),
+                safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap'),
+                safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3')
+              ]);
+              if (currentAbort?.signal.aborted) return;
+              result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R };
+            }
           }
+        } catch (panelErr) {
+          result.panelError = panelErr.message || String(panelErr);
         }
         sink.write(result);
         mainWindow?.webContents.send('batch:progress', { result, index });
@@ -576,7 +593,16 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   }
 }
 
-ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => runBatchToDisk(creds, seeds, opts));
+// batch:run safety wrapper — ECONNRESET during panel/socket work must not
+// leak as 'reply was never sent'. Any throw becomes a readable { error }.
+ipcMain.handle('batch:run', async (_e, { creds, seeds, opts }) => {
+  try {
+    return await runBatchToDisk(creds, seeds, opts);
+  } catch (err) {
+    recordCrash('batchRun', err);
+    return { error: err.message || String(err) };
+  }
+});
 
 // Count the credentials in an uploaded file without loading its text into the
 // renderer — lets the UI show the parsed count + a sample the moment a huge
