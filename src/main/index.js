@@ -9,7 +9,7 @@ import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
-import { protocolExportFiles } from '../core/export.js';
+import { hostGroupedExportFiles } from '../core/export.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -712,9 +712,9 @@ ipcMain.handle('results:exportByProtocol', async () => {
     for (const line of lines) {
       try { results.push(JSON.parse(line)); } catch (e) { /* skip bad lines */ }
     }
-    // 'unverified' SMTPs are written to their own file, kept apart from the
-    // deliverable smtp_valid.txt.
-    const files = protocolExportFiles(results);
+    // Working SMTPs grouped by host (valid/<domain>.txt), with auth-gated ones
+    // kept wholly separate under unverified/<domain>.txt.
+    const files = hostGroupedExportFiles(results);
 
     const dlPath = app.getPath('downloads');
     const outDir = join(dlPath, 'result');
@@ -722,7 +722,9 @@ ipcMain.handle('results:exportByProtocol', async () => {
     let count = 0;
     for (const [name, arr] of Object.entries(files)) {
       if (arr.length > 0) {
-        writeFileSync(join(outDir, name), arr.join('\n'));
+        const full = join(outDir, name);
+        mkdirSync(dirname(full), { recursive: true });
+        writeFileSync(full, arr.join('\n'));
         count++;
       }
     }

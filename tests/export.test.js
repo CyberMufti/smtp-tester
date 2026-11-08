@@ -64,20 +64,34 @@ test('empty when there are no working results', () => {
   assert.equal(records.length, 0);
 });
 
-test('protocolExportFiles keeps unverified SMTPs in their own file, out of smtp_valid.txt', async () => {
-  const { protocolExportFiles } = await import('../src/core/export.js');
+test('hostGroupKey maps hosts to their registrable domain', async () => {
+  const { hostGroupKey } = await import('../src/core/export.js');
+  assert.equal(hostGroupKey('smtp.gmail.com'), 'gmail.com');
+  assert.equal(hostGroupKey('smtp.mail.yahoo.com'), 'yahoo.com');
+  assert.equal(hostGroupKey('smtp.office365.com'), 'office365.com');
+  assert.equal(hostGroupKey('mail.acme.co.uk'), 'acme.co.uk');
+  assert.equal(hostGroupKey('203.0.113.4'), '203.0.113.4'); // IP groups under itself
+  assert.equal(hostGroupKey(''), 'unknown');
+  assert.equal(hostGroupKey(null), 'unknown');
+});
+
+test('hostGroupedExportFiles groups working SMTPs by host and separates unverified', async () => {
+  const { hostGroupedExportFiles } = await import('../src/core/export.js');
   const rows = [
-    result('valid', { host: 'a.com', port: 587, user: 'v@a.com', pass: 'pv' }, 'a.com', 587),
-    result('inbox', { host: 'b.com', port: 587, user: 'i@b.com', pass: 'pi' }, 'b.com', 587),
-    result('unverified', { host: 'c.com', port: 587, user: 'u@c.com', pass: 'pu' }, 'c.com', 587),
-    result('dead', { host: 'd.com', port: 587, user: 'x@d.com', pass: 'px' }, null, null),
+    result('valid', { host: null, port: null, user: 'a@gmail.com', pass: 'p1' }, 'smtp.gmail.com', 587),
+    result('inbox', { host: null, port: null, user: 'b@gmail.com', pass: 'p2' }, 'smtp.gmail.com', 587),
+    result('valid', { host: 'smtp.mail.yahoo.com', port: 465, user: 'c@yahoo.com', pass: 'p3' }, 'smtp.mail.yahoo.com', 465),
+    result('unverified', { host: 'smtp.gmail.com', port: 587, user: 'd@gmail.com', pass: 'p4' }, 'smtp.gmail.com', 587),
+    result('valid', { host: null, port: null, user: 'e', pass: 'p5' }, null, null), // no host -> unknown
+    result('dead', { host: 'x.com', port: 587, user: 'f@x.com', pass: 'p6' }, null, null),
   ];
-  const files = protocolExportFiles(rows);
-  assert.deepEqual(files['smtp_valid.txt'], ['v@a.com:pv', 'i@b.com:pi']);
-  assert.deepEqual(files['smtp_unverified.txt'], ['u@c.com:pu']);
-  // valid file must never contain the unverified credential
-  assert.ok(!files['smtp_valid.txt'].some((l) => l.includes('u@c.com')));
-  // dead is excluded from both
-  assert.ok(!files['smtp_valid.txt'].some((l) => l.includes('x@d.com')));
-  assert.ok(!files['smtp_unverified.txt'].some((l) => l.includes('x@d.com')));
+  const files = hostGroupedExportFiles(rows);
+  assert.deepEqual(files['valid/gmail.com.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:b@gmail.com:p2']);
+  assert.deepEqual(files['valid/yahoo.com.txt'], ['smtp.mail.yahoo.com:465:c@yahoo.com:p3']);
+  assert.deepEqual(files['unverified/gmail.com.txt'], ['smtp.gmail.com:587:d@gmail.com:p4']);
+  assert.ok(files['valid/unknown.txt']); // host-less working cred
+  // unverified never lands in a valid-by-host file
+  assert.ok(!files['valid/gmail.com.txt'].some((l) => l.includes('d@gmail.com')));
+  // dead excluded entirely
+  assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('f@x.com'))));
 });
