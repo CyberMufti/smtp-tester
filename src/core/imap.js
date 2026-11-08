@@ -11,25 +11,53 @@ import { ImapFlow } from 'imapflow';
  */
 
 const INBOX_CANDIDATES = ['inbox'];
-const JUNK_PATTERNS = [/spam/i, /junk/i, /bulk/i];
+// Junk/spam folder names across the common providers and locales. Name matching
+// is the fallback; the reliable signal is the IMAP \Junk special-use attribute
+// (RFC 6154), which is checked first.
+const JUNK_PATTERNS = [
+  /spam/i, /junk/i, /bulk/i, /quarantine/i,
+  /pourriel/i, /ind[eé]sirable/i,            // French
+  /no\s*deseado/i, /correo\s*no\s*deseado/i, // Spanish
+  /indesiderat/i,                            // Italian
+  /unerw[uü]nscht/i, /spamverdacht/i,        // German
+  /ongewenst/i,                              // Dutch
+  /lixo\s*eletr[oô]nico/i,                   // Portuguese
+  /skr[aä]ppost/i,                           // Swedish/Norwegian/Danish
+  /roskaposti/i,                             // Finnish
+  /спам/i, /нежелательн/i,                   // Russian
+  /垃圾/,                                     // Chinese (垃圾邮件)
+  /迷惑/,                                     // Japanese (迷惑メール)
+  /스팸/,                                     // Korean
+];
+
+/** Normalize a mailbox entry (string path or {path, specialUse}) to an object. */
+function asBox(m) {
+  return typeof m === 'string' ? { path: m, specialUse: null } : { path: m?.path, specialUse: m?.specialUse || null };
+}
 
 /**
- * Pick the inbox and junk folder names out of a mailbox list.
- * Pure function — unit-tested without a live connection.
+ * Pick the inbox and junk folders out of a mailbox list. Accepts plain name
+ * strings or richer `{path, specialUse}` entries; when special-use attributes
+ * are present, the \Inbox / \Junk folders are used directly (locale-proof),
+ * falling back to name matching otherwise. Pure — unit-tested without a live
+ * connection.
  *
- * @param {string[]} mailboxNames
+ * @param {(string|{path:string, specialUse?:string})[]} mailboxes
  * @param {{inbox?:string, junk?:string}} overrides
  * @returns {{inbox:string, junk:string|null}}
  */
-export function resolveFolders(mailboxNames, overrides = {}) {
-  const names = mailboxNames ?? [];
+export function resolveFolders(mailboxes, overrides = {}) {
+  const list = (mailboxes ?? []).map(asBox).filter((m) => m.path);
+  const names = list.map((m) => m.path);
 
   const inbox =
     overrides.inbox ||
-    names.find((n) => INBOX_CANDIDATES.includes(n.toLowerCase())) ||
+    list.find((m) => m.specialUse === '\\Inbox')?.path ||
+    names.find((n) => INBOX_CANDIDATES.includes(String(n).toLowerCase())) ||
     'INBOX';
 
   let junk = overrides.junk || null;
+  if (!junk) junk = list.find((m) => m.specialUse === '\\Junk')?.path || null;
   if (!junk) {
     for (const pattern of JUNK_PATTERNS) {
       const match = names.find((n) => pattern.test(n));
@@ -103,7 +131,7 @@ export async function findToken(seed, token, opts = {}) {
     await client.connect();
     const boxes = await client.list();
     const { inbox, junk } = resolveFolders(
-      boxes.map((b) => b.path),
+      boxes.map((b) => ({ path: b.path, specialUse: b.specialUse || null })),
       { inbox: opts.folders?.inbox, junk: opts.folders?.junk ?? seed.junkFolders?.[0] },
     );
 

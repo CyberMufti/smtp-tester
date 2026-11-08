@@ -34,3 +34,36 @@ test('inbox detection is case-insensitive', () => {
   assert.equal(r.inbox, 'inbox');
   assert.equal(r.junk, 'spam');
 });
+
+test('prefers the IMAP \\Junk special-use folder regardless of its name', () => {
+  const r = resolveFolders([
+    { path: 'INBOX', specialUse: '\\Inbox' },
+    { path: 'Pourriels', specialUse: '\\Junk' },
+    { path: 'Sent', specialUse: '\\Sent' },
+  ], {});
+  assert.equal(r.inbox, 'INBOX');
+  assert.equal(r.junk, 'Pourriels');
+});
+
+test('\\Junk special-use wins even when a name-matched folder also exists', () => {
+  const r = resolveFolders([
+    { path: 'INBOX', specialUse: '\\Inbox' },
+    { path: 'Spam', specialUse: null },
+    { path: 'Bloqueados', specialUse: '\\Junk' },
+  ], {});
+  assert.equal(r.junk, 'Bloqueados');
+});
+
+test('detects localized junk folder names by pattern (no special-use)', () => {
+  assert.equal(resolveFolders(['INBOX', 'Correo no deseado'], {}).junk, 'Correo no deseado');
+  assert.equal(resolveFolders(['INBOX', 'Posta indesiderata'], {}).junk, 'Posta indesiderata');
+  assert.equal(resolveFolders(['INBOX', 'Unerwünscht'], {}).junk, 'Unerwünscht');
+  assert.equal(resolveFolders(['INBOX', '迷惑メール'], {}).junk, '迷惑メール');
+  assert.equal(resolveFolders(['INBOX', '垃圾邮件'], {}).junk, '垃圾邮件');
+});
+
+test('still works with plain string arrays (backward compatible)', () => {
+  const r = resolveFolders(['INBOX', 'Junk', 'Sent'], {});
+  assert.equal(r.inbox, 'INBOX');
+  assert.equal(r.junk, 'Junk');
+});
