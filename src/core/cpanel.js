@@ -16,6 +16,7 @@
  * @typedef {{reachable:boolean, valid:boolean, status:'valid'|'invalid'|'unknown'|'not-cpanel'|'unreachable', detail?:string}} CpanelResult
  */
 import https from 'node:https';
+import { getRandomUA } from './user-agents.js';
 
 export const DEFAULT_CPANEL_PORT = 2083;
 
@@ -137,6 +138,7 @@ export async function verifyCpanel(target, opts = {}) {
   const body = `user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
   const headers = {
     'Content-Type': 'application/x-www-form-urlencoded',
+    'User-Agent': getRandomUA(),
     'Content-Length': Buffer.byteLength(body),
   };
 
@@ -146,7 +148,26 @@ export async function verifyCpanel(target, opts = {}) {
   } catch (err) {
     res = { error: err.message };
   }
-  return { ...base, ...classifyCpanelLogin(res) };
+  const result = classifyCpanelLogin(res);
+
+  // If login succeeded, fetch domains to prove account is active
+  if (result.valid && result._cpsess) {
+    try {
+      const sessMatch = result._cpsess.match(/(cpsess[0-9]+)/);
+      const sess = sessMatch ? sessMatch[0] : '';
+      const domainUrl = `https://${host}:${port}/${sess}/execute/DomainInfo/list_domains`;
+      const dRes = await request(domainUrl, { headers: { 'User-Agent': getRandomUA() }, body: '', timeout });
+      if (dRes && dRes.body) {
+        const dJson = JSON.parse(dRes.body);
+        if (dJson.data && Array.isArray(dJson.data)) {
+          result.domains = dJson.data.map(d => d.domain).filter(Boolean);
+        }
+      }
+    } catch { /* ignore domain fetch errors */ }
+    delete result._cpsess;
+  }
+
+  return { ...base, ...result };
 }
 
 /**
