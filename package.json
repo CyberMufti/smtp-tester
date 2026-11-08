@@ -1,6 +1,6 @@
 {
   "name": "smtp-tester",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Batch-test bulk SMTP credentials: live/dead, valid, and inbox/spam placement via your own seed mailboxes.",
   "author": "SMTP Tester",
   "type": "module",
