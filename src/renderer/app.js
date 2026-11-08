@@ -548,6 +548,11 @@ $('#btn-proxy-scrape').addEventListener('click', async () => {
   btn.disabled = true;
   status.textContent = 'Scraping proxy lists…';
   const off = api.onProxyProgress?.((p) => {
+    const poolEl = $('#proxy-pool-status');
+    if (p.phase === 'daemon-start' && poolEl) { poolEl.textContent = '⚠️ Proxies running low. Auto-scraping 5,000...'; return; }
+    if (p.phase === 'daemon-done' && poolEl) { poolEl.textContent = '✅ Daemon refilled pool: ' + p.valid + ' live proxies.'; return; }
+    
+    if (p.phase === 'scraped') status.textContent = 'Scraped ' + p.parsed + ' proxies. Validating first 5000…';
     if (p.phase === 'scraped') status.textContent = 'Scraped ' + p.parsed + ' proxies. Validating first 200…';
     else if (p.phase === 'validating') status.textContent = 'Validating… ' + p.done + '/' + p.total;
   });

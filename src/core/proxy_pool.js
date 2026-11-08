@@ -28,8 +28,8 @@ export const DEFAULT_SOURCES = [
 ];
 
 export const DEFAULT_VALIDATE_TARGET = { host: '1.1.1.1', port: 53 };
-export const DEFAULT_VALIDATE_TIMEOUT = 3000;
-export const DEFAULT_VALIDATE_CONCURRENCY = 50;
+export const DEFAULT_VALIDATE_TIMEOUT = 2000;
+export const DEFAULT_VALIDATE_CONCURRENCY = 100;
 
 /**
  * Parse a raw line from a proxy list into a ProxyEntry, or null.

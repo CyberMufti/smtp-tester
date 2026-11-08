@@ -233,10 +233,35 @@ function proxyPoolPath() {
   return join(app.getPath('userData'), 'proxy-pool.json');
 }
 
+let proxyDaemonTimer = null;
+function startProxyDaemon() {
+  if (proxyDaemonTimer) clearInterval(proxyDaemonTimer);
+  proxyDaemonTimer = setInterval(async () => {
+    // Only scrape if we have less than 100 live proxies left
+    if (proxyPool.size().valid < 100) {
+      try {
+        console.log('[Daemon] Live proxies low (' + proxyPool.size().valid + '). Scraping 5000 fresh ones...');
+        if (mainWindow) mainWindow.webContents.send('proxy:progress', { phase: 'daemon-start' });
+        
+        const scraped = await proxyPool.scrape();
+        const validated = await proxyPool.validate({ maxProxies: 5000 });
+        
+        await proxyPool.save(proxyPoolPath());
+        console.log('[Daemon] Done. Pool is back up to ' + validated.valid + ' live proxies.');
+        
+        if (mainWindow) mainWindow.webContents.send('proxy:progress', { phase: 'daemon-done', valid: validated.valid });
+      } catch (err) {
+        recordCrash('proxyDaemon', err);
+      }
+    }
+  }, 60000); // Check every 60 seconds
+}
+
 app.whenReady().then(async () => {
   // Restore the scraped pool BEFORE the window opens so the renderer sees it.
   try { await proxyPool.load(proxyPoolPath()); } catch { /* noop */ }
   createWindow();
+  startProxyDaemon();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -423,7 +448,7 @@ ipcMain.handle('proxy:scrape', async (event) => {
     const scraped = await proxyPool.scrape();
     try { event.sender.send('proxy:progress', { phase: 'scraped', parsed: scraped.parsed, fetched: scraped.fetched }); } catch {}
     const validated = await proxyPool.validate({
-      maxProxies: 200,
+      maxProxies: 5000,
       onProgress: (done, total) => {
         try { event.sender.send('proxy:progress', { phase: 'validating', done, total }); } catch {}
       },
