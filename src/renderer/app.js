@@ -70,8 +70,8 @@ $('#file-input').addEventListener('change', async (e) => {
   $('#parse-errors').textContent = '';
   
   for (const file of files) {
-    if (file.size > 200 * 1024 * 1024) {
-      errors.push(file.name + ' exceeds 200MB limit');
+    if (file.size > 10 * 1024 * 1024 * 1024) {
+      errors.push(file.name + ' exceeds 10GB limit');
       continue;
     }
     const path = api.getFilePath?.(file);
