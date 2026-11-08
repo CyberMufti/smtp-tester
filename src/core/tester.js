@@ -525,7 +525,16 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
               const mutatedCred = { ...cred, pass: mutPass };
               // Use direct connection for mutations to avoid burning proxy pool
               const mutOpts = { ...opts, proxy: null, proxyProvider: undefined, lockoutRegistry: opts.lockoutRegistry };
-              const mutResult = await testOne(mutatedCred, index, seeds, mutOpts, smtp, imap, ctx);
+              const mutResult = await Promise.race([
+              testOne(mutatedCred, index, seeds, mutOpts, smtp, imap, ctx),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs))
+            ]).catch(err => ({
+              cred: mutatedCred,
+              status: 'dead',
+              reason: err.message === 'watchdog_timeout' ? 'watchdog timeout (mutation)' : err.message,
+              deadReason: 'connect',
+              latencyMs: watchdogMs
+            }));
               
               if (mutResult.status !== 'dead') {
                 mutResult.mutationUsed = mutPass;
