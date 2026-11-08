@@ -237,6 +237,7 @@ label.btn { display: inline-flex; align-items: center; }
 .badges { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .dbadge { display: inline-block; padding: 2.5px 9px; border-radius: 6px; font-size: 11px; font-weight: 700; border: 1px solid var(--border); }
 .dbadge.b-ok { background: rgba(52, 211, 153, 0.15); color: var(--st-inbox); border-color: transparent; }
+.dbadge.b-warn { background: rgba(251, 191, 36, 0.15); color: var(--st-spam); border-color: transparent; }
 .dbadge.b-bad { background: rgba(248, 113, 113, 0.15); color: var(--st-dead); border-color: transparent; }
 .dbadge.b-neutral { background: var(--inset); color: var(--muted); }
 

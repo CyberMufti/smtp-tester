@@ -533,17 +533,37 @@ function reachedEndpoint(r) {
   return { host: 'auto-detect', port: '', auto: false };
 }
 
-function badge(label, ok, detail) {
-  const cls = ok === true ? 'b-ok' : ok === false ? 'b-bad' : 'b-neutral';
+// `state`: true -> green (good), 'warn' -> amber (present but weak),
+// false -> red (failing/missing), null/undefined -> neutral.
+function badge(label, state, detail) {
+  const cls = state === true ? 'b-ok' : state === 'warn' ? 'b-warn' : state === false ? 'b-bad' : 'b-neutral';
   return `<span class="dbadge ${cls}">${esc(label)}${detail ? ': ' + esc(detail) : ''}</span>`;
 }
 
+// Red = genuinely failing (missing / SPF fail / DMARC misaligned under an
+// enforcing policy — the cases that make a result 'unverified'). Amber =
+// present but weak (SPF via redirect/softfail, DMARC p=none). Green = strong.
+function spfBadge(spf) {
+  if (!spf.found) return badge('SPF', false, 'missing');
+  if (spf.result === 'pass') return badge('SPF', true, 'pass');
+  if (spf.result === 'fail') return badge('SPF', false, 'fail');
+  if (spf.result) return badge('SPF', 'warn', spf.result); // softfail/neutral/none/…
+  if (spf.all === '-all') return badge('SPF', true, '-all');
+  return badge('SPF', 'warn', spf.all || 'set'); // present, weak/unknown qualifier
+}
+function dmarcBadge(dmarc) {
+  if (!dmarc.found) return badge('DMARC', false, 'missing');
+  const enforcing = dmarc.policy === 'reject' || dmarc.policy === 'quarantine';
+  if (dmarc.aligned === false && enforcing) return badge('DMARC', false, `${dmarc.policy} (no align)`);
+  if (enforcing) return badge('DMARC', true, dmarc.policy);
+  return badge('DMARC', 'warn', dmarc.policy || 'set'); // p=none etc. — present, monitor-only
+}
 function deliverabilityBadges(r) {
   const d = r.deliverability;
   if (!d) return '';
   const out = [];
-  if (d.spf) out.push(badge('SPF', d.spf.found ? (d.spf.all === '-all' || d.spf.all === '~all') : false, d.spf.found ? d.spf.all || 'set' : 'missing'));
-  if (d.dmarc) out.push(badge('DMARC', d.dmarc.found ? d.dmarc.policy !== 'none' : false, d.dmarc.found ? d.dmarc.policy : 'missing'));
+  if (d.spf) out.push(spfBadge(d.spf));
+  if (d.dmarc) out.push(dmarcBadge(d.dmarc));
   if (d.dnsbl) out.push(badge('Blacklist', !d.dnsbl.listed, d.dnsbl.error ? 'n/a' : d.dnsbl.listed ? d.dnsbl.lists.join(', ') : 'clean'));
   return out.length ? `<span class="badges">${out.join(' ')}</span>` : '';
 }
