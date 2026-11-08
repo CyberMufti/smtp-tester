@@ -55,44 +55,14 @@
 
     <!-- ============ TEST SCREEN ============ -->
     <main id="screen-test" class="screen active">
-      <section class="panel combo-panel" id="combo-panel">
-        <h2>Combo Cracker</h2>
-        <p class="muted">Paste <code>email:password</code> lines — one per line. Tests SMTP, cPanel, Webmail, WHM, and SSH in parallel from the same credential.</p>
-        <textarea id="combo-input" rows="6" placeholder="user@domain.com:password" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-        <div class="run-controls">
-          <label>Mode
-            <select id="combo-mode">
-              <option value="smtp" selected>SMTP only (fastest)</option>
-              <option value="panels">Panels only (cPanel/Webmail/WHM/SSH)</option>
-              <option value="all">All protocols</option>
-            </select>
-          </label>
-          <label>Concurrency <input id="combo-concurrency" type="number" min="1" max="100" value="50" /></label>
-          <label>Timeout (s) <input id="combo-timeout" type="number" min="2" max="30" value="5" /></label>
-          <label class="checkbox"><input id="combo-mx-filter" type="checkbox" checked /> Skip no-MX domains</label>
-          <span id="combo-progress" class="muted"></span>
-          <div class="spacer"></div>
-          <button id="btn-combo-crack" class="btn primary">Start</button>
-        </div>
-        <span id="combo-status" class="muted"></span>
-        <table class="results-table" style="margin-top:10px">
-          <thead>
-            <tr>
-              <th>Email</th><th>SMTP</th><th>cPanel</th><th>Webmail</th><th>WHM</th><th>SSH</th><th>Notes</th>
-            </tr>
-          </thead>
-          <tbody id="combo-results-body">
-            <tr><td colspan="7" class="empty-row">Paste combos above and click <b>Crack All Protocols</b>.</td></tr>
-          </tbody>
-        </table>
-      </section>
+      
       <section class="panel">
         <div class="panel-head">
           <h2>Credentials</h2>
           <div class="panel-actions">
             <label class="btn ghost">
               Load file
-              <input id="file-input" type="file" accept=".txt,.csv" hidden />
+              <input id="file-input" type="file" accept=".txt,.csv" multiple hidden />
             </label>
           </div>
         </div>
@@ -119,9 +89,16 @@
         ></textarea>
 
         <div class="run-controls">
-          <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="50" value="5" /></label>
+          <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="100" value="50" /></label>
           <label>Max tests/sec <input id="opt-maxrate" type="number" min="0" max="1000" value="0" title="0 = unlimited. A cooperative cap so you don't overload your own server." /></label>
           <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
+          <label>Protocols
+            <select id="opt-protocols">
+              <option value="smtp" selected>SMTP only</option>
+              <option value="panels">Panels only</option>
+              <option value="all">All protocols</option>
+            </select>
+          </label>
           <label>Show rows
             <select id="opt-rowcap">
               <option value="500">500</option>
@@ -194,6 +171,7 @@
             <button id="btn-export-txt" class="btn primary" disabled>Save working SMTPs (.txt)</button>
             <button id="btn-export-csv" class="btn ghost" disabled>Export CSV</button>
             <button id="btn-export-json" class="btn ghost" disabled>Export JSON</button>
+            <button id="btn-export-protocols" class="btn primary" disabled>Save Valid by Protocol</button>
           </div>
         </div>
         <div id="progress-bar" class="progress-bar" hidden><div id="progress-fill" class="progress-fill"></div></div>

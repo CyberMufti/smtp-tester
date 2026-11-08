@@ -4,7 +4,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { appendFileSync, existsSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk } from '../core/parse-file.js';
@@ -15,7 +15,10 @@ import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
 import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
-import { runSSHChecks } from '../core/ssh.js';
+import { runSSHChecks, verifySSH } from '../core/ssh.js';
+import { verifyCpanel } from '../core/cpanel.js';
+import { verifyWebmail } from '../core/webmail.js';
+import { verifyWhm } from '../core/whm.js';
 import { ProxyPool } from '../core/proxy_pool.js';
 import { rateLimiter } from '../core/jitter.js';
 import { checkEmailAuth } from '../core/authcheck.js';
@@ -363,55 +366,6 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
 
 // Batch SSH login check for servers you operate (port 22), routed through the
 // app-wide SOCKS proxy when one is configured.
-ipcMain.handle('smtp:check', async (event, { creds, opts }) => {
-  try {
-    const list = Array.isArray(creds) ? creds : [];
-    const hasPool = proxyPool.size().valid > 0;
-    const proxyOptions = {
-      proxy: proxyUrlFrom(opts?.proxyConfig),
-      ...(hasPool ? {
-        proxyProvider: () => proxyPool.getNext(),
-        onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
-      } : {}),
-    };
-    const results = await runBatch(list, [], {
-      ...opts,
-      ...proxyOptions,
-      deps: { dns },
-      onProgress: (result) => {
-        try { event.sender.send('combo:progress', result); } catch (e) {}
-      },
-    });
-    return { results, total: results.length };
-  } catch (err) {
-    recordCrash('smtpCheck', err);
-    return { error: err.message };
-  }
-});
-
-ipcMain.handle('smtp:mxResolve', async (_e, { domains }) => {
-  try {
-    const list = Array.isArray(domains) ? domains.slice(0, 50000) : [];
-    const out = {};
-    const concurrency = 30;
-    let next = 0;
-    async function worker() {
-      while (next < list.length) {
-        const d = list[next++];
-        try {
-          const mx = await dns.resolveMx(d);
-          out[d] = Array.isArray(mx) && mx.length > 0;
-        } catch { out[d] = false; }
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
-    return { mx: out };
-  } catch (err) {
-    recordCrash('mxResolve', err);
-    return { error: err.message };
-  }
-});
-
 ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
   try {
     const list = Array.isArray(targets) ? targets : [];
@@ -556,8 +510,27 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       effSource,
       seeds,
       { ...opts, ...proxyOptions, signal: currentAbort.signal, deps: { dns } },
-      (result, index) => {
-        sink.write(result); // JSONL append; running counts kept in the sink
+      async (result, index) => {
+        if (currentAbort?.signal.aborted) return;
+        if (opts.protocols === 'all' || opts.protocols === 'panels') {
+          const host = (result.cred.user || '').split('@')[1];
+          if (host) {
+            const [cp, wm, whm, ssh] = await Promise.allSettled([
+              verifyCpanel({ host, user: result.cred.user, pass: result.cred.pass }),
+              verifyWebmail({ host, user: result.cred.user, pass: result.cred.pass }),
+              verifyWhm({ host, user: result.cred.user, pass: result.cred.pass }),
+              verifySSH({ host, user: result.cred.user, pass: result.cred.pass })
+            ]);
+            if (currentAbort?.signal.aborted) return;
+            result.panels = {
+              cpanel: cp.status === 'fulfilled' ? cp.value : null,
+              webmail: wm.status === 'fulfilled' ? wm.value : null,
+              whm: whm.status === 'fulfilled' ? whm.value : null,
+              ssh: ssh.status === 'fulfilled' ? ssh.value : null
+            };
+          }
+        }
+        sink.write(result);
         mainWindow?.webContents.send('batch:progress', { result, index });
       },
     );
@@ -648,6 +621,50 @@ ipcMain.handle('batch:cancel', async () => {
 // Export the last run by streaming its JSONL file to the chosen format — the
 // results never come back through IPC, so a multi-million-row export stays
 // bounded in memory.
+ipcMain.handle('results:exportByProtocol', async () => {
+  try {
+    const filePath = runFilePath();
+    if (!existsSync(filePath)) return { error: 'No results found' };
+
+    const lines = readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
+    const hits = { smtp: [], cpanel: [], webmail: [], whm: [], ssh: [] };
+
+    for (const line of lines) {
+      try {
+        const r = JSON.parse(line);
+        const user = r.cred?.user || '?';
+        const pass = r.cred?.pass || '?';
+        const host = r.usedHost || r.cred?.host || (user.split('@')[1] || '');
+
+        if (r.status === 'valid' || r.status === 'inbox' || r.status === 'spam') {
+          hits.smtp.push(user + ':' + pass);
+        }
+        if (r.panels) {
+          if (r.panels.cpanel?.valid) hits.cpanel.push(host + ':' + user + ':' + pass);
+          if (r.panels.webmail?.valid) hits.webmail.push(host + ':' + user + ':' + pass);
+          if (r.panels.whm?.valid) hits.whm.push(host + ':' + user + ':' + pass);
+          if (r.panels.ssh?.valid) hits.ssh.push(host + ':' + user + ':' + pass);
+        }
+      } catch (e) { /* skip bad lines */ }
+    }
+
+    const dlPath = app.getPath('downloads');
+    const outDir = join(dlPath, 'result');
+    try { mkdirSync(outDir, { recursive: true }); } catch (e) { /* ignore if exists */ }
+    let count = 0;
+    for (const [proto, arr] of Object.entries(hits)) {
+      if (arr.length > 0) {
+        writeFileSync(join(outDir, proto + '_valid.txt'), arr.join('\n'));
+        count++;
+      }
+    }
+    return { saved: true, count, folder: outDir };
+  } catch (err) {
+    recordCrash('exportByProtocol', err);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('results:exportRun', async (_e, { format }) => {
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     defaultPath: `smtp-results.${format}`,

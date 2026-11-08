@@ -16,7 +16,7 @@
 /** @returns {Settings} */
 export function defaultSettings() {
   return {
-    concurrency: 5,
+    concurrency: 50,
     connectTimeout: 10000,
     sendTimeout: 15000,
     placementTimeoutMs: 90000,
