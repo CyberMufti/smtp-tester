@@ -98,7 +98,24 @@ export async function runWhmChecks(targets, opts = {}, onResult) {
       if (opts.signal?.aborted) return;
       const i = next++;
       if (opts.gate) await opts.gate();
-      results[i] = await verifyWhm(list[i], opts);
+      const _tgt = list[i];
+      if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_tgt.user, 'whm')) {
+        results[i] = { ..._tgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
+        onResult?.(results[i], i);
+        continue;
+      }
+      results[i] = await verifyWhm(_tgt, opts);
+      if (opts.lockoutRegistry) {
+        if (results[i].valid) opts.lockoutRegistry.recordSuccess(_tgt.user, 'whm');
+        else if (results[i].reachable && !results[i].valid) {
+          const _txt = String(results[i].detail || '');
+          if (opts.detectLockout ? opts.detectLockout(_txt) : /too many|locked|blocked|rate.?limit|cphulk|captcha/i.test(_txt)) {
+            opts.lockoutRegistry.markLocked(_tgt.user, 'whm', _txt);
+          } else {
+            opts.lockoutRegistry.recordFailure(_tgt.user, 'whm');
+          }
+        }
+      }
       onResult?.(results[i], i);
     }
   }

@@ -331,7 +331,7 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runCpanelChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }) },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
       (result, index) => mainWindow?.webContents.send('cpanel:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -358,6 +358,7 @@ ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
         port: Number(opts?.port) || 443,
         path: opts?.path || '/webmail',
         timeout: Number(opts?.timeout) || 10000,
+        lockoutRegistry,
       },
       (result, index) => mainWindow?.webContents.send('webmail:progress', { result, index, total: list.length }),
     );
@@ -378,7 +379,7 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
     const list = Array.isArray(targets) ? targets : [];
     const results = await runWhmChecks(
       list,
-      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }) },
+      { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
       (result, index) => mainWindow?.webContents.send('whm:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
@@ -405,6 +406,7 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
         concurrency: Number(opts?.concurrency) || 5,
         port: Number(opts?.port) || 22,
         timeout: Number(opts?.timeout) || 10000,
+        lockoutRegistry,
         proxyUrl: proxyUrlFrom(settings?.proxy),
         ...(proxyPool.size().valid > 0 ? {
           proxyProvider: () => proxyPool.getNext(),

@@ -169,8 +169,26 @@ export async function runCpanelChecks(targets, opts = {}, onResult) {
       if (opts.signal?.aborted) return;
       const i = next++;
       if (opts.gate) await opts.gate();
-      const r = await verifyCpanel(list[i], opts);
+      const _tgt = list[i];
+      if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_tgt.user, 'cpanel')) {
+        const skipped = { ..._tgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
+        results[i] = skipped;
+        onResult?.(skipped, i);
+        continue;
+      }
+      const r = await verifyCpanel(_tgt, opts);
       results[i] = r;
+      if (opts.lockoutRegistry) {
+        if (r.valid) opts.lockoutRegistry.recordSuccess(_tgt.user, 'cpanel');
+        else if (r.reachable && !r.valid) {
+          const _txt = String(r.detail || '');
+          if (/too many|locked|blocked|rate.?limit|cphulk|captcha/i.test(_txt)) {
+            opts.lockoutRegistry.markLocked(_tgt.user, 'cpanel', _txt);
+          } else {
+            opts.lockoutRegistry.recordFailure(_tgt.user, 'cpanel');
+          }
+        }
+      }
       onResult?.(r, i);
     }
   }

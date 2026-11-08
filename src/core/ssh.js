@@ -151,6 +151,13 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
       if (opts.signal?.aborted) return;
       const i = next++;
       if (opts.gate) await opts.gate();
+      const _sshTgt = list[i];
+      if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(_sshTgt.user, 'ssh')) {
+        const skipped = { ..._sshTgt, reachable: false, valid: false, status: 'unreachable', detail: 'skipped: locked', lockSkipped: true };
+        results[i] = skipped;
+        onResult?.(skipped, i);
+        continue;
+      }
       // Per-target proxy rotation via opts.proxyProvider (falls back to opts.proxyUrl).
       let proxyUrlForTarget = opts.proxyUrl;
       if (opts.proxyProvider) {
@@ -175,6 +182,17 @@ export async function runSSHChecks(targets, opts = {}, onResult) {
         }
       }
       results[i] = result;
+      if (opts.lockoutRegistry) {
+        if (result.valid) opts.lockoutRegistry.recordSuccess(_sshTgt.user, 'ssh');
+        else if (result.reachable && !result.valid) {
+          const _txt = String(result.detail || '');
+          if (/too many|locked|blocked|rate.?limit|cphulk|captcha/i.test(_txt)) {
+            opts.lockoutRegistry.markLocked(_sshTgt.user, 'ssh', _txt);
+          } else {
+            opts.lockoutRegistry.recordFailure(_sshTgt.user, 'ssh');
+          }
+        }
+      }
       onResult?.(results[i], i);
     }
   }
