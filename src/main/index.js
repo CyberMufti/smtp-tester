@@ -20,6 +20,7 @@ import { verifyCpanel } from '../core/cpanel.js';
 import { verifyWebmail } from '../core/webmail.js';
 import { verifyWhm } from '../core/whm.js';
 import { ProxyPool } from '../core/proxy_pool.js';
+import { LockoutRegistry } from '../core/lockout.js';
 import { rateLimiter } from '../core/jitter.js';
 import { checkEmailAuth } from '../core/authcheck.js';
 import { makeExec, sidecarAvailable } from '../core/pyauth.js';
@@ -123,6 +124,8 @@ let mainWindow;
 let currentAbort = null;
 
 const proxyPool = new ProxyPool();
+
+const lockoutRegistry = new LockoutRegistry({ maxFailures: 3, lockoutMs: 60000, hardLockFailures: 10 });
 
 // --- Email-auth Python sidecar auto-setup ---------------------------------
 // The sidecar's script + requirements ship read-only in the app; its venv is
@@ -534,7 +537,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, ...proxyOptions, signal: currentAbort.signal, deps: { dns } },
+      { ...opts, ...proxyOptions, lockoutRegistry, signal: currentAbort.signal, deps: { dns } },
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
         if (opts.protocols === 'all' || opts.protocols === 'panels') {
