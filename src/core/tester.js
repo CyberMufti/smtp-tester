@@ -1,6 +1,7 @@
 import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
+import { generateMutations } from './mutator.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';

@@ -107,6 +107,7 @@
               <option value="all">All</option>
             </select>
           </label>
+          <label class="checkbox"><input id="opt-mutations" type="checkbox" checked /> Smart mutations</label>
           <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
           <span id="seed-note" class="muted"></span>
           <div class="spacer"></div>
@@ -135,6 +136,19 @@
             <div class="spacer"></div>
             <span id="proxy-save-status" class="muted"></span>
             <button id="btn-save-proxy" class="btn primary">Save proxy</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <details>
+          <summary><b>Custom Server Mapping</b> — map email domain to real panel host</summary>
+          <p class="muted">If a domain's email is hosted elsewhere but cPanel is on a different server, map it here (one per line: <code>email-domain.com = cpanel-host.com</code>).</p>
+          <textarea id="hostmap-input" rows="3" placeholder="rememberingwwi.com = wxk.fke.mybluehost.me" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+          <div class="run-controls">
+            <span id="hostmap-status" class="muted"></span>
+            <div class="spacer"></div>
+            <button id="btn-save-hostmap" class="btn primary">Save Map</button>
           </div>
         </details>
       </section>

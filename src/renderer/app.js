@@ -175,6 +175,7 @@ function buildRunOpts() {
     proxyConfig: settings?.proxy,
     protocols: $('#opt-protocols')?.value || 'smtp',
     maxCandidates: 2,
+    enableMutations: $('#opt-mutations')?.checked || false,
     retries: 0,
     retryBackoffMs: 2000,
   };
@@ -421,7 +422,8 @@ function rowHtml(r) {
   if (r.userExists === false) parts.push('<span class="dbadge b-bad">account not found</span>');
   else if (r.userExists === true) parts.push('<span class="dbadge b-ok">account exists</span>');
 
-  if (r.proxyFallback) {
+  if (r.mutationUsed) parts.push('<span class="dbadge b-ok" style="background:#d97706">mutated: ' + esc(r.mutationUsed) + '</span>');
+    if (r.proxyFallback) {
     const dying = r.proxyThatDied ? ' (' + String(r.proxyThatDied).replace(/^socks[45]:\/\//, '').split('@').pop() + ')' : '';
     parts.push('<span class="dbadge b-neutral">dead proxy — retried direct' + dying + '</span>');
   }
@@ -1267,3 +1269,13 @@ async function startApp() {
     }
   } catch { /* noop */ }
 })();
+
+
+// ---------- Host Map ----------
+api.getHostMap?.().then(text => { if (text) $('#hostmap-input').value = text; }).catch(()=>{});
+$('#btn-save-hostmap')?.addEventListener('click', async () => {
+  const text = $('#hostmap-input').value;
+  const res = await api.saveHostMap(text);
+  $('#hostmap-status').textContent = 'Saved ' + res.size + ' mappings ✓';
+  setTimeout(() => $('#hostmap-status').textContent = '', 2000);
+});
