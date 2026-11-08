@@ -26,7 +26,7 @@ import { ProxyPool } from '../core/proxy_pool.js';
 import { LockoutRegistry } from '../core/lockout.js';
 import { rateLimiter } from '../core/jitter.js';
 import { checkEmailAuth } from '../core/authcheck.js';
-import { makeExec, sidecarAvailable } from '../core/pyauth.js';
+import { makeExec, sidecarAvailable, runAuthSidecar } from '../core/pyauth.js';
 import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -563,11 +563,17 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
     } : {}),
   };
+  // When the email-auth sidecar is ready, give the batch a real SPF/DMARC
+  // evaluator so deliverability checks (and the valid->unverified gate) use
+  // actual SPF-against-sending-IP and DMARC alignment, not just record presence.
+  const evalAuth = sidecarStatus.state === 'ready'
+    ? (request) => runAuthSidecar(request, { exec: authExec() })
+    : null;
   try {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, ...proxyOptions, lockoutRegistry, signal: currentAbort.signal, deps: { dns } },
+      { ...opts, ...proxyOptions, lockoutRegistry, signal: currentAbort.signal, deps: { dns, evalAuth } },
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
         try {

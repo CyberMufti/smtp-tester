@@ -520,3 +520,41 @@ test('a valid SMTP whose placement check outlasts the network budget is still cl
   });
   assert.equal(r.status, 'inbox', `expected inbox, got ${r.status} (${r.reason})`);
 });
+
+test('sidecar evalAuth drives the unverified gate: SPF fail for the sending IP -> unverified', async () => {
+  const deps = {
+    smtp: { async verify(){return {connected:true,authenticated:true};}, async send(_,o){return {accepted:[o.to]};} },
+    imap: { async findToken(){return {found:false};} },
+    dns: { async resolve4(){ return ['203.0.113.9']; }, async resolveTxt(){ return []; } },
+    // Sidecar says: SPF record exists but the sending IP is NOT authorized.
+    evalAuth: async ({ ip }) => ({
+      engine: 'python',
+      spf: { found: true, all: '-all', result: ip ? 'fail' : null },
+      dmarc: { found: true, policy: 'reject', aligned: false },
+    }),
+  };
+  const [r] = await runBatch(
+    [{ host: 'smtp.sender.com', port: 587, user: 'u@sender.com', pass: 'p' }],
+    [],
+    { concurrency: 1, deps, manualRecipients: ['t@x.com'], checks: { authRecords: true } },
+  );
+  assert.equal(r.status, 'unverified', `expected unverified, got ${r.status}`);
+  assert.equal(r.deliverability.authEngine, 'python');
+  assert.equal(r.deliverability.spf.result, 'fail');
+});
+
+test('no sidecar (evalAuth absent) falls back to JS record read and still gates on missing records', async () => {
+  const deps = {
+    smtp: { async verify(){return {connected:true,authenticated:true};}, async send(_,o){return {accepted:[o.to]};} },
+    imap: { async findToken(){return {found:false};} },
+    // JS fallback path: no TXT records -> SPF/DMARC both absent.
+    dns: { async resolve4(){ return ['203.0.113.9']; }, async resolveTxt(){ return []; } },
+  };
+  const [r] = await runBatch(
+    [{ host: 'smtp.sender.com', port: 587, user: 'u@sender.com', pass: 'p' }],
+    [],
+    { concurrency: 1, deps, manualRecipients: ['t@x.com'], checks: { authRecords: true } },
+  );
+  assert.equal(r.status, 'unverified');
+  assert.equal(r.deliverability.authEngine, 'js');
+});

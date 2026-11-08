@@ -164,11 +164,43 @@ test('applyAuthGate: valid + missing DMARC -> unverified', () => {
 test('applyAuthGate: valid + missing both -> unverified names both', () => {
   const g = applyAuthGate('valid', { spf: { found: false }, dmarc: { found: false } });
   assert.equal(g.status, 'unverified');
-  assert.match(g.reason, /SPF and DMARC/);
+  assert.match(g.reason, /SPF/);
+  assert.match(g.reason, /DMARC/);
 });
 
-test('applyAuthGate: valid + SPF and DMARC present (any policy) stays valid', () => {
+test('applyAuthGate: valid + SPF and DMARC present (records only) stays valid', () => {
   assert.equal(applyAuthGate('valid', { spf: { found: true }, dmarc: { found: true } }), null);
+});
+
+test('applyAuthGate: sidecar SPF result=fail (IP not authorized) -> unverified', () => {
+  const g = applyAuthGate('valid', { spf: { found: true, result: 'fail' }, dmarc: { found: true, aligned: true } });
+  assert.equal(g.status, 'unverified');
+  assert.match(g.reason, /SPF/);
+});
+
+test('applyAuthGate: sidecar SPF result=pass + DMARC aligned stays valid', () => {
+  assert.equal(
+    applyAuthGate('valid', { spf: { found: true, result: 'pass' }, dmarc: { found: true, aligned: true, policy: 'reject' } }),
+    null,
+  );
+});
+
+test('applyAuthGate: softfail/neutral SPF is lenient (not gated)', () => {
+  assert.equal(applyAuthGate('valid', { spf: { found: true, result: 'softfail' }, dmarc: { found: true } }), null);
+  assert.equal(applyAuthGate('valid', { spf: { found: true, result: 'neutral' }, dmarc: { found: true } }), null);
+});
+
+test('applyAuthGate: DMARC not aligned under enforcing policy -> unverified', () => {
+  const g = applyAuthGate('valid', { spf: { found: true, result: 'pass' }, dmarc: { found: true, aligned: false, policy: 'reject' } });
+  assert.equal(g.status, 'unverified');
+  assert.match(g.reason, /DMARC/);
+});
+
+test('applyAuthGate: DMARC not aligned under p=none is monitor-only (not gated)', () => {
+  assert.equal(
+    applyAuthGate('valid', { spf: { found: true, result: 'pass' }, dmarc: { found: true, aligned: false, policy: 'none' } }),
+    null,
+  );
 });
 
 test('applyAuthGate: inbox/spam are never downgraded (delivery already proven)', () => {

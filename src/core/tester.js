@@ -280,15 +280,41 @@ async function runChecks(cred, usedHost, opts, ctx) {
   const out = {};
 
   if (checks.authRecords && dns.resolveTxt) {
-    const domain = domainOf(opts.from || cred.from || cred.user);
+    const fromAddr = opts.from || cred.from || cred.user;
+    const domain = domainOf(fromAddr);
     if (domain) {
-      if (!ctx.domainCache.has(domain)) {
-        ctx.domainCache.set(domain, await checkDomain(domain, { resolveTxt: dns.resolveTxt }));
+      // Resolve the sending IP (the working SMTP host's address) so the sidecar
+      // can evaluate SPF against it. Cached per host; best-effort.
+      let ip = null;
+      if (dns.resolve4 && usedHost) {
+        if (!ctx.ipCache) ctx.ipCache = new Map();
+        if (!ctx.ipCache.has(usedHost)) {
+          let resolved = null;
+          try { resolved = (await dns.resolve4(usedHost))?.[0] || null; } catch { resolved = null; }
+          ctx.ipCache.set(usedHost, resolved);
+        }
+        ip = ctx.ipCache.get(usedHost);
       }
-      const { spf, dmarc } = ctx.domainCache.get(domain);
+      // Cache by domain+IP: the SPF verdict depends on the sending IP.
+      const key = `${domain}|${ip || ''}`;
+      if (!ctx.domainCache.has(key)) {
+        ctx.domainCache.set(
+          key,
+          await evaluateDomainAuth({
+            domain,
+            ip,
+            mailfrom: fromAddr,
+            helo: usedHost,
+            evalAuth: opts.deps?.evalAuth,
+            resolveTxt: dns.resolveTxt,
+          }),
+        );
+      }
+      const { spf, dmarc, engine } = ctx.domainCache.get(key);
       out.spf = spf;
       out.dmarc = dmarc;
       out.fromDomain = domain;
+      out.authEngine = engine;
     }
   }
 
@@ -300,6 +326,30 @@ async function runChecks(cred, usedHost, opts, ctx) {
   }
 
   return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Evaluate a sending domain's SPF/DMARC. Prefers the Python sidecar (`evalAuth`,
+ * wired in by the main process) for a REAL SPF verdict against the sending IP
+ * and DMARC alignment; falls back to JS record parsing when the sidecar is
+ * absent or errors. Returns the shape the result and {@link applyAuthGate} use:
+ * `{ spf:{found, all, result}, dmarc:{found, policy, aligned}, engine }`.
+ */
+async function evaluateDomainAuth({ domain, ip, mailfrom, helo, evalAuth, resolveTxt }) {
+  if (evalAuth && ip) {
+    try {
+      const rep = await evalAuth({ domain, ip, helo, mailfrom });
+      if (rep && rep.spf && rep.dmarc) {
+        return {
+          engine: rep.engine || 'python',
+          spf: { found: !!rep.spf.found, all: rep.spf.all ?? null, result: rep.spf.result ?? null },
+          dmarc: { found: !!rep.dmarc.found, policy: rep.dmarc.policy ?? null, aligned: rep.dmarc.aligned ?? null },
+        };
+      }
+    } catch { /* fall through to the JS record read */ }
+  }
+  const { spf, dmarc } = await checkDomain(domain, { resolveTxt });
+  return { engine: 'js', spf, dmarc };
 }
 
 /** Resolve a domain's MX servers, lowest-priority first (best-effort, capped). */

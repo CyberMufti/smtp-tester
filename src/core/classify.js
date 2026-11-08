@@ -36,13 +36,28 @@ export function applyAuthGate(status, deliverability) {
   // Only gate when the SPF/DMARC lookup actually ran (records were resolved);
   // with deliverability checks off there is nothing to judge.
   if (spf === undefined || dmarc === undefined) return null;
-  const missing = [];
-  if (!spf.found) missing.push('SPF');
-  if (!dmarc.found) missing.push('DMARC');
-  if (missing.length === 0) return null;
+
+  const reasons = [];
+  // SPF. `found` comes from either the JS record read or the sidecar. `result`
+  // is only present when the Python sidecar evaluated SPF against the real
+  // sending IP — a 'fail' there means the IP the SMTP sends from is explicitly
+  // NOT authorized (-all), so strict receivers reject. (softfail/neutral/none
+  // stay lenient, matching record-presence behavior.)
+  if (!spf.found) reasons.push('no SPF record');
+  else if (spf.result === 'fail') reasons.push('SPF rejects the sending IP (-all)');
+
+  // DMARC. Missing record always gates. With the sidecar, an explicit
+  // non-alignment under an enforcing policy (quarantine/reject) means the mail
+  // is quarantined/rejected; p=none is monitor-only, so it does not gate.
+  if (!dmarc.found) reasons.push('no DMARC record');
+  else if (dmarc.aligned === false && (dmarc.policy === 'reject' || dmarc.policy === 'quarantine')) {
+    reasons.push(`DMARC ${dmarc.policy} with no alignment`);
+  }
+
+  if (reasons.length === 0) return null;
   return {
     status: 'unverified',
-    reason: `sent, but the sending domain is missing ${missing.join(' and ')} — external inbox delivery will likely be blocked`,
+    reason: `sent, but ${reasons.join(' and ')} — external inbox delivery will likely be blocked`,
   };
 }
 
