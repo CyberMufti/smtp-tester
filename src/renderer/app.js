@@ -420,6 +420,8 @@ function rowHtml(r) {
   else if (r.reason) parts.push(esc(r.reason));
 
   // Account-existence verdict (only present when a server refused the login).
+  if (r.catchAll) parts.push('<span class="dbadge b-neutral">catch-all domain</span>');
+  if (r.userDoesNotExist) parts.push('<span class="dbadge b-bad">user does not exist (skipped)</span>');
   if (r.userExists === false) parts.push('<span class="dbadge b-bad">account not found</span>');
   else if (r.userExists === true) parts.push('<span class="dbadge b-ok">account exists</span>');
 
