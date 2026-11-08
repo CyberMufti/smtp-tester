@@ -123,3 +123,13 @@ test('dedupeFileToDisk preserves passwords containing the delimiter (raw round-t
     assert.deepEqual(reparsed, direct);
   });
 });
+
+test('parsedCredsPathFor gives distinct files distinct paths (no collision), same file a stable path', async () => {
+  const { parsedCredsPathFor } = await import('../src/core/parse-file.js');
+  const a = parsedCredsPathFor('/data', '/uploads/fileA.txt');
+  const b = parsedCredsPathFor('/data', '/uploads/fileB.txt');
+  const aAgain = parsedCredsPathFor('/data', '/uploads/fileA.txt');
+  assert.notEqual(a, b, 'different source files must map to different parsed paths');
+  assert.equal(a, aAgain, 'same source file must map to the same parsed path (idempotent)');
+  assert.ok(a.startsWith('/data/') && a.endsWith('.txt'));
+});

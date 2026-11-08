@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
-import { streamCredentialsFromFile, dedupeFileToDisk } from '../core/parse-file.js';
+import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
@@ -519,9 +519,14 @@ function runFilePath() {
   return join(app.getPath('userData'), 'last-run.jsonl');
 }
 
-/** Where an uploaded file's deduped, normalized credentials are cached on disk. */
-function parsedCredsPath() {
-  return join(app.getPath('userData'), 'parsed-creds.txt');
+/**
+ * Where an uploaded file's deduped, normalized credentials are cached on disk.
+ * Unique per source file — a single fixed name collides when several files are
+ * loaded, making each file's copy overwrite the previous one so the run streams
+ * the last file once per loaded file (double-counting it, skipping the others).
+ */
+function parsedCredsPath(srcPath) {
+  return parsedCredsPathFor(app.getPath('userData'), srcPath);
 }
 
 /** Yield only credentials not already present in `keys` (for resuming a run). */
@@ -625,7 +630,7 @@ ipcMain.handle('creds:countFile', async (_e, filePath) => {
     // Dedupe once, here, writing a normalized copy to disk. The run streams
     // that copy with dedupe off, so the multi-GB key Set is built a single
     // time instead of once now and again at run time.
-    const parsedPath = parsedCredsPath();
+    const parsedPath = parsedCredsPath(String(filePath));
     const { count, errors, sample } = await dedupeFileToDisk(String(filePath), parsedPath);
     return { count, errors, sample, parsedPath };
   } catch (err) {

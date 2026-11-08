@@ -12,7 +12,26 @@
  */
 import { createReadStream, createWriteStream } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { parseDelimitedLine, credKey } from './parser.js';
+
+/**
+ * Deterministic on-disk path for a source file's deduped copy, unique PER
+ * SOURCE. A single fixed name would collide: loading several files would make
+ * every file's deduped copy overwrite the same path, so the run would stream
+ * the last file once per loaded file (double-counting it, skipping the rest).
+ * Hashing the absolute source path keeps re-counting the same file idempotent
+ * while giving distinct files distinct destinations.
+ *
+ * @param {string} dir  directory to place the copy in (e.g. app userData)
+ * @param {string} srcPath  absolute path of the uploaded source file
+ * @returns {string}
+ */
+export function parsedCredsPathFor(dir, srcPath) {
+  const hash = createHash('sha1').update(String(srcPath)).digest('hex').slice(0, 16);
+  return join(dir, `parsed-creds-${hash}.txt`);
+}
 
 /**
  * Yield deduped {@link Credential} records parsed from `filePath`, one line at a
