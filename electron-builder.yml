@@ -17,11 +17,10 @@ files:
   # virtualenv (platform-specific; users create it from requirements.txt).
   - python/authcheck.py
   - python/requirements.txt
-# The sidecar script is a real file Python must execute, so keep it out of the
-# asar archive (Python can't run a script from inside app.asar). It's the dev /
-# no-Python-bundle fallback; the primary path is the frozen binary below.
-asarUnpack:
-  - python/**
+# The app is ESM ("type": "module") and Electron on Windows fails to load ESM
+# entry points from inside app.asar, so ship plain files. This also lets Python
+# execute the sidecar script directly (it can't run from inside an archive).
+asar: false
 # The frozen (PyInstaller) sidecar built in CI — a self-contained binary that
 # needs no Python/venv/pip on the user's machine. Copied into
 # <resources>/sidecar/authcheck[.exe]. Absent in a plain local build, in which
