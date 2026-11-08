@@ -10,8 +10,61 @@
  *   sendError?:string,
  *   seeds:SeedPlacement[],
  * }} StepResults
- * @typedef {{status:('dead'|'valid'|'inbox'|'spam'|'unverified'|'unknown'), reason:string, perSeed:SeedPlacement[]}} Classification
+ * @typedef {{status:('dead'|'valid'|'inbox'|'spam'|'unverified'|'limited'|'unknown'), reason:string, perSeed:SeedPlacement[]}} Classification
  */
+
+/**
+ * SMTP response language that signals a rate / quota / throttle / deferral
+ * condition — i.e. the login works but the server won't actually keep accepting
+ * and delivering mail. Matched against the send error, the server's final
+ * response line, and per-endpoint attempt outcomes.
+ */
+export const LIMIT_RE = new RegExp(
+  [
+    'quota',
+    'rate[\\s-]?limit',
+    'throttl',
+    'greylist',
+    'too many (messages|recipients|emails|connections|requests|attempts)',
+    'try again later',
+    'temporar(il)?y (deferred|rejected|unavailable|failed)',
+    'deferred',
+    'slow down',
+    'unusual (sign[\\s-]?in )?activity',
+    'suspicious activity',
+    'sending (limit|rate)',
+    'daily (user )?(sending )?(quota|limit)',
+    'limit (exceeded|reached)',
+    'maximum .{0,20}(exceeded|reached)',
+    'out of .{0,10}quota',
+    '\\b421\\b',
+    '4\\.7\\.0',
+  ].join('|'),
+  'i',
+);
+
+/**
+ * Reclassify a working SMTP whose sends are rate/quota-limited to "limited".
+ * Applies only to a credential that actually authenticated — any non-dead
+ * status, or a dead result that failed at the SEND stage (connect+auth were
+ * fine). A connect/auth failure stays dead; a clean accepted send stays as-is.
+ *
+ * @param {object} result — a tester Result (status, reason, deadReason, sendResponse, attempts)
+ * @returns {{status:'limited', reason:string}|null}
+ */
+export function detectLimited(result) {
+  if (!result || result.status === 'limited') return null;
+  const authed = result.status !== 'dead' || result.deadReason === 'send';
+  if (!authed) return null;
+  const texts = [result.reason, result.sendResponse, ...(result.attempts || []).map((a) => a && a.outcome)];
+  const hit = texts.find((t) => t && LIMIT_RE.test(String(t)));
+  if (!hit) return null;
+  const detail = String(result.reason || hit).trim().slice(0, 180);
+  return {
+    status: 'limited',
+    reason: `login works but the server is rate/quota-limiting sends — won't deliver reliably${detail ? ` (${detail})` : ''}`,
+  };
+}
 
 /**
  * Downgrade an authenticated-and-sent "valid" result to "unverified" when the

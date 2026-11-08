@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, applyAuthGate } from '../src/core/classify.js';
+import { classify, applyAuthGate, detectLimited } from '../src/core/classify.js';
 
 test('not connected -> dead with connection reason', () => {
   const r = classify({ connected: false, authenticated: false, sent: false, seeds: [] });
@@ -212,4 +212,35 @@ test('applyAuthGate: inbox/spam are never downgraded (delivery already proven)',
 test('applyAuthGate: no-op when deliverability checks did not run', () => {
   assert.equal(applyAuthGate('valid', undefined), null);
   assert.equal(applyAuthGate('valid', {}), null); // spf/dmarc undefined -> lookup never ran
+});
+
+test('detectLimited: authenticated send rejected with quota text -> limited', () => {
+  const r = { status: 'dead', deadReason: 'send', reason: '550 5.4.5 Daily user sending quota exceeded' };
+  const g = detectLimited(r);
+  assert.equal(g.status, 'limited');
+  assert.match(g.reason, /rate\/quota/i);
+});
+
+test('detectLimited: 421 deferral after auth -> limited', () => {
+  const r = { status: 'dead', deadReason: 'send', reason: '421 4.7.0 Try again later, closing connection' };
+  assert.equal(detectLimited(r).status, 'limited');
+});
+
+test('detectLimited: accepted send whose response carries throttle text -> limited', () => {
+  const r = { status: 'valid', reason: 'sent', sendResponse: '250 OK but temporarily deferred due to rate limiting' };
+  assert.equal(detectLimited(r).status, 'limited');
+});
+
+test('detectLimited: unusual activity / suspicious -> limited', () => {
+  const r = { status: 'dead', deadReason: 'send', reason: 'Please log in via your web browser: unusual sign-in activity' };
+  assert.equal(detectLimited(r).status, 'limited');
+});
+
+test('detectLimited: clean accepted send is NOT limited', () => {
+  assert.equal(detectLimited({ status: 'valid', reason: 'sent', sendResponse: '250 2.0.0 OK  1699 - gsmtp' }), null);
+});
+
+test('detectLimited: a connect/auth failure is never limited (login does not work)', () => {
+  assert.equal(detectLimited({ status: 'dead', deadReason: 'auth', reason: '535 too many bad auth attempts' }), null);
+  assert.equal(detectLimited({ status: 'dead', deadReason: 'connect', reason: 'connect ETIMEDOUT' }), null);
 });

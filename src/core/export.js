@@ -12,6 +12,7 @@ export const WORKING_GROUPS = [
   ['spam', 'SPAM'],
   ['valid', 'VALID / SENT'],
   ['unverified', 'UNVERIFIED (sending domain missing SPF/DMARC)'],
+  ['limited', 'LIMITED (login works but rate/quota-limited)'],
   ['unknown', 'UNKNOWN PLACEMENT'],
 ];
 const GROUPS = WORKING_GROUPS;
@@ -101,6 +102,7 @@ export function hostGroupedExportFiles(results) {
     const group = safeName(hostGroupKey(host));
     const line = workingCredLine(r);
     if (st === 'unverified') add(`unverified/${group}.txt`, line);
+    else if (st === 'limited') add(`limited/${group}.txt`, line);
     else add(`valid/${group}.txt`, line); // valid / inbox / spam / unknown-placement
     if (r.panels) {
       const user = r.cred?.user || '?';

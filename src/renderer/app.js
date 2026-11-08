@@ -391,6 +391,7 @@ const SUMMARY_ORDER = [
   ['spam', 'Spam'],
   ['valid', 'Valid'],
   ['unverified', 'Unverified'],
+  ['limited', 'Limited'],
   ['unknown', 'Unknown'],
   ['dead', 'Dead'],
 ];
@@ -420,6 +421,7 @@ function updateDashboardTiles() {
   set('#dash-spam', counts.spam || 0);
   set('#dash-valid', counts.valid || 0);
   set('#dash-unverified', counts.unverified || 0);
+  set('#dash-limited', counts.limited || 0);
   set('#dash-dead', counts.dead || 0);
   set('#dash-unknown', counts.unknown || 0);
 }

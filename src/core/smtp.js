@@ -118,7 +118,7 @@ export async function send(cred, { to, from, subject, text, html, sendTimeout = 
       text,
       html,
     });
-    return { accepted: info.accepted ?? [], messageId: info.messageId };
+    return { accepted: info.accepted ?? [], messageId: info.messageId, response: info.response };
   } catch (err) {
     return { accepted: [], error: err.message };
   } finally {

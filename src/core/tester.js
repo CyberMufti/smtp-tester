@@ -3,7 +3,7 @@ import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
-import { classify, applyAuthGate } from './classify.js';
+import { classify, applyAuthGate, detectLimited } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
@@ -74,6 +74,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let usedHost = null;
   let usedPort = null;
   let triedFallback = false;
+  let sendResponse = null;
   const attempts = [];
 
   if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(cred.user, 'smtp')) {
@@ -199,6 +200,9 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       });
       step.sent = (sendRes.accepted?.length ?? 0) > 0;
       if (!step.sent) step.sendError = sendRes.error || 'message not accepted by server';
+      // Keep the server's final response line (e.g. "250 2.0.0 OK ..."); some
+      // providers reveal a rate/quota condition there even on an accepted send.
+      sendResponse = sendRes.response || null;
 
       if (step.sent && activeSeeds.length > 0) {
         step.seeds = await Promise.all(
@@ -246,6 +250,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     usedHost,
     usedPort,
     triedFallback,
+    sendResponse,
     manualRecipients,
     attempts,
   };
@@ -253,6 +258,17 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const deliverability = await runChecks(cred, usedHost, opts, ctx);
   if (deliverability) result.deliverability = deliverability;
   if (ctx?.spamScore) result.spamScore = ctx.spamScore;
+
+  // A login that works but whose sends are rate/quota-limited is reported
+  // "limited" — not "valid" (it won't actually deliver) and not a bare "dead"
+  // (the credentials are good). Runs before the auth gate so a limited result
+  // is never also relabeled "unverified".
+  const lim = detectLimited(result);
+  if (lim) {
+    result.status = lim.status;
+    result.reason = lim.reason;
+    result.limited = true;
+  }
 
   // Gate "valid" on sending-domain auth: a domain missing SPF or DMARC will
   // have its mail dropped by major providers, so it is reported "unverified"
