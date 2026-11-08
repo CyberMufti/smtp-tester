@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;"
     />
-    <title>SMTP Tester</title>
+    <title>ENDPOINT Operator</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -18,7 +18,7 @@
           <div class="license-caption">contact <b>splean_tool</b> for license key</div>
           <button id="license-telegram" class="telegram-link">@splean_tool</button>
         </div>
-        <h1>Activate SMTP Tester</h1>
+        <h1>Activate ENDPOINT</h1>
         <p class="muted">
           This copy must be licensed to your machine. Send the Hardware ID below to
           <b>@splean_tool</b> on Telegram; you'll receive a license key to activate it here.
@@ -41,487 +41,646 @@
       </div>
     </div>
 
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">✉</span>
-        <span>SMTP Tester</span>
-      </div>
-      <nav class="tabs">
-        <button class="tab active" data-tab="test">Test</button>
-        <button class="tab" data-tab="monitor">Monitor</button>
-        <button class="tab" data-tab="settings">Settings</button>
-      </nav>
-    </header>
-
-    <!-- ============ TEST SCREEN ============ -->
-    <main id="screen-test" class="screen active">
-      
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Credentials</h2>
-          <div class="panel-actions">
-            <label class="btn ghost">
-              Load file
-              <input id="file-input" type="file" accept=".txt,.csv" multiple hidden />
-            </label>
-          </div>
-        </div>
-        <textarea
-          id="creds-input"
-          spellcheck="false"
-          placeholder="Paste or upload SMTP credentials in almost any format:&#10;host:port:user:pass   (also , ; | tab or spaces)&#10;user pass host port   (order is auto-detected)&#10;Or labeled blocks:&#10;  Host: smtp.sendgrid.net&#10;  Port: 587&#10;  Username: apikey&#10;  Password: SG.xxxx&#10;OAuth2 (Gmail / M365 with basic auth disabled):&#10;  oauth2 user@gmail.com smtp.gmail.com 587 REFRESH_TOKEN CLIENT_ID CLIENT_SECRET https://oauth2.googleapis.com/token&#10;  oauth2 user@host 587 token=ACCESS_TOKEN&#10;Lines starting with # are ignored."
-        ></textarea>
-        <div class="parse-summary">
-          <span id="parse-count" class="muted">0 credentials</span>
-          <span id="parse-errors" class="err-text"></span>
+    <!-- ============ APP SHELL ============ -->
+    <div class="app">
+      <!-- ---------- SIDEBAR ---------- -->
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="logo">⬢</span>
+          <span class="brand-name">ENDPOINT<small>OPERATOR</small></span>
         </div>
 
-        <label class="field-label" for="manual-recipients">
-          Your test inboxes <span class="muted">(optional)</span> — one email per line. The tool sends a
-          uniquely tagged message to each so you can open your mailbox and confirm Inbox vs Spam yourself.
-          Addresses you've set up as IMAP seeds in Settings are also classified automatically.
-        </label>
-        <textarea
-          id="manual-recipients"
-          rows="2"
-          spellcheck="false"
-          placeholder="you@gmail.com&#10;you@outlook.com"
-        ></textarea>
+        <nav class="nav">
+          <button class="nav-item active" data-tab="dashboard"><span class="nav-ico">▣</span> Dashboard</button>
+          <button class="nav-item" data-tab="test"><span class="nav-ico">▷</span> Test <span class="nav-sub">SMTP</span></button>
+          <button class="nav-item" data-tab="monitor"><span class="nav-ico">◉</span> Monitor</button>
 
-        <div class="run-controls">
-          <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="100" value="50" /></label>
-          <label>Max tests/sec <input id="opt-maxrate" type="number" min="0" max="1000" value="0" title="0 = unlimited. A cooperative cap so you don't overload your own server." /></label>
-          <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
-          <label>Protocols
-            <select id="opt-protocols">
-              <option value="smtp" selected>SMTP only</option>
-              <option value="panels">Panels only</option>
-              <option value="all">All protocols</option>
-            </select>
-          </label>
-          <label>Show rows
-            <select id="opt-rowcap">
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-              <option value="2000">2000</option>
-              <option value="all">All</option>
-            </select>
-          </label>
-          <label class="checkbox"><input id="opt-mutations" type="checkbox" checked /> Smart mutations</label>
-          <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
-          <span id="seed-note" class="muted"></span>
-          <div class="spacer"></div>
-          <button id="btn-resume" class="btn ghost" hidden>Resume last run</button>
-          <button id="btn-run" class="btn primary">Test All</button>
-          <button id="btn-cancel" class="btn danger" disabled>Cancel</button>
-        </div>
-      </section>
+          <div class="nav-group">Checks</div>
+          <button class="nav-item" data-tab="cpanel"><span class="nav-ico">▧</span> cPanel</button>
+          <button class="nav-item" data-tab="whm"><span class="nav-ico">▤</span> WHM</button>
+          <button class="nav-item" data-tab="webmail"><span class="nav-ico">✉</span> Webmail</button>
+          <button class="nav-item" data-tab="ssh"><span class="nav-ico">⌁</span> SSH</button>
 
-      <section class="panel">
-        <details>
-          <summary><b>SOCKS5 proxy</b> — route all testing through your own proxy (optional)</summary>
-          <p class="muted">
-            Send every connection (tests and relay) through a SOCKS5 proxy <b>you provide</b>, so the egress
-            IP is the proxy's instead of this computer's — e.g. a proxy on your own VPS so you can work from
-            any laptop.
-          </p>
-          <label class="checkbox"><input id="proxy-enabled" type="checkbox" /> Use my SOCKS5 proxy for all connections</label>
-          <div class="form-grid" style="margin-top:10px">
-            <label>Proxy host <input id="proxy-host" type="text" placeholder="proxy.example.com or 1.2.3.4" /></label>
-            <label>Port <input id="proxy-port" type="number" value="1080" /></label>
-            <label>Username <span class="muted">(optional)</span> <input id="proxy-user" type="text" /></label>
-            <label>Password <span class="muted">(optional)</span> <input id="proxy-pass" type="password" /></label>
-          </div>
-          <div class="run-controls">
-            <div class="spacer"></div>
-            <span id="proxy-save-status" class="muted"></span>
-            <button id="btn-save-proxy" class="btn primary">Save proxy</button>
-          </div>
-        </details>
-      </section>
+          <div class="nav-group">Audits</div>
+          <button class="nav-item" data-tab="audit"><span class="nav-ico">⚿</span> Server Security</button>
+          <button class="nav-item" data-tab="hygiene"><span class="nav-ico">⚕</span> Credential Hygiene</button>
+          <button class="nav-item" data-tab="emailauth"><span class="nav-ico">✓</span> Email Auth</button>
+          <button class="nav-item" data-tab="content"><span class="nav-ico">▦</span> Content Score</button>
 
-      <section class="panel">
-        <details>
-          <summary><b>Custom Server Mapping</b> — map email domain to real panel host</summary>
-          <p class="muted">If a domain's email is hosted elsewhere but cPanel is on a different server, map it here (one per line: <code>email-domain.com = cpanel-host.com</code>).</p>
-          <textarea id="hostmap-input" rows="3" placeholder="rememberingwwi.com = wxk.fke.mybluehost.me" style="width:100%;font-family:monospace;font-size:12px"></textarea>
-          <div class="run-controls">
-            <span id="hostmap-status" class="muted"></span>
-            <div class="spacer"></div>
-            <button id="btn-save-hostmap" class="btn primary">Save Map</button>
-          </div>
-        </details>
-      </section>
+          <div class="nav-group">Settings</div>
+          <button class="nav-item" data-tab="seeds"><span class="nav-ico">◎</span> Seed Mailboxes</button>
+          <button class="nav-item" data-tab="sending"><span class="nav-ico">➤</span> Sending Defaults</button>
+          <button class="nav-item" data-tab="network"><span class="nav-ico">⇄</span> Network</button>
+        </nav>
 
-      <section class="panel">
-        <details>
-          <summary><b>Scraped proxy pool</b> — auto-rotate free SOCKS proxies</summary>
-          <p class="muted">
-            Scrapes free SOCKS proxy lists from public sources, validates each against Cloudflare DNS,
-            and rotates the survivors across SMTP and SSH batches. Falls back to your manual proxy above
-            if the pool is empty.
-          </p>
-          <div class="run-controls">
-            <span id="proxy-pool-status" class="muted">Pool: 0 valid / 0 tested</span>
-            <div class="spacer"></div>
-            <button id="btn-proxy-clear" class="btn ghost">Clear pool</button>
-            <button id="btn-proxy-scrape" class="btn primary">Scrape &amp; Validate</button>
-          </div>
-        </details>
-      </section>
+        <div class="sidebar-foot muted">ENDPOINT · operator console</div>
+      </aside>
 
-      <section class="panel results-panel">
-        <div class="panel-head">
-          <h2>Results <span id="progress-label" class="muted"></span></h2>
-          <div class="panel-actions">
-            <div class="filters" id="filters">
-              <button class="chip-filter active" data-filter="all">All</button>
-              <button class="chip-filter" data-filter="inbox">Inbox</button>
-              <button class="chip-filter" data-filter="spam">Spam</button>
-              <button class="chip-filter" data-filter="valid">Valid</button>
-              <button class="chip-filter" data-filter="dead">Dead</button>
-              <button class="chip-filter" data-filter="unknown">Unknown</button>
+      <!-- ---------- CONTENT ---------- -->
+      <div class="content">
+
+        <!-- ===== DASHBOARD ===== -->
+        <main id="screen-dashboard" class="screen active">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Dashboard</h1>
+              <p class="pane-sub">Operator overview — current run and quick actions</p>
             </div>
-            <button id="btn-export-txt" class="btn primary" disabled>Save working SMTPs (.txt)</button>
-            <button id="btn-export-csv" class="btn ghost" disabled>Export CSV</button>
-            <button id="btn-export-json" class="btn ghost" disabled>Export JSON</button>
-            <button id="btn-export-protocols" class="btn primary" disabled>Save Valid by Protocol</button>
+            <div class="pane-actions">
+              <button class="btn primary" data-goto="test">New SMTP Test</button>
+            </div>
+          </header>
+
+          <div id="dash-tiles" class="tiles">
+            <div class="tile"><div class="tile-num" id="dash-total">0</div><div class="tile-lbl">Total tested</div></div>
+            <div class="tile"><div class="tile-num ok" id="dash-inbox">0</div><div class="tile-lbl">Inbox</div></div>
+            <div class="tile"><div class="tile-num warn" id="dash-spam">0</div><div class="tile-lbl">Spam</div></div>
+            <div class="tile"><div class="tile-num" id="dash-valid">0</div><div class="tile-lbl">Valid</div></div>
+            <div class="tile"><div class="tile-num bad" id="dash-dead">0</div><div class="tile-lbl">Dead</div></div>
+            <div class="tile"><div class="tile-num" id="dash-unknown">0</div><div class="tile-lbl">Unknown</div></div>
           </div>
-        </div>
-        <div id="progress-bar" class="progress-bar" hidden><div id="progress-fill" class="progress-fill"></div></div>
-        <div id="summary" class="summary"></div>
-        <div id="rows-note" class="rows-note"></div>
-        <div id="content-score-banner" class="content-score-banner"></div>
-        <div class="table-wrap">
-          <table id="results-table">
-            <thead>
-              <tr>
-                <th>Host</th>
-                <th>User</th>
-                <th>Status</th>
-                <th>Latency</th>
-                <th>Detail</th>
-              </tr>
-            </thead>
-            <tbody id="results-body">
-              <tr class="empty-row">
-                <td colspan="5">No results yet. Paste credentials and click <b>Test All</b>.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
 
-    <!-- ============ MONITOR SCREEN ============ -->
-    <main id="screen-monitor" class="screen">
-      <section class="panel">
-        <div class="panel-head"><h2>Health monitor</h2></div>
-        <p class="muted">
-          Re-test a saved list on a schedule and alert you when a previously-live SMTP goes dead.
-          Runs while the app is open. Uses your current seeds, proxy, and sending settings.
-        </p>
-        <label class="field-label">Monitored credentials (one per line — same formats as the Test screen)</label>
-        <textarea id="monitor-creds" rows="5" spellcheck="false" placeholder="host:port:user:pass  (or email:password)"></textarea>
-        <div class="run-controls">
-          <span id="monitor-creds-count" class="muted"></span>
-          <div class="spacer"></div>
-          <button id="btn-monitor-savelist" class="btn ghost">Save list</button>
-        </div>
+          <section class="panel">
+            <div class="panel-head"><h2>Getting started</h2></div>
+            <p class="muted">Paste or load SMTP credentials on the <b>Test</b> screen and run them. For an automatic Inbox/Spam verdict, add your mailboxes under <b>Seed Mailboxes</b> (IMAP). The <b>Checks</b> and <b>Audits</b> sections audit servers and accounts you operate.</p>
+            <div class="quicklinks">
+              <button class="btn ghost" data-goto="test">▷ Test SMTP</button>
+              <button class="btn ghost" data-goto="seeds">◎ Seed Mailboxes</button>
+              <button class="btn ghost" data-goto="monitor">◉ Monitor</button>
+              <button class="btn ghost" data-goto="emailauth">✓ Email Auth</button>
+            </div>
+          </section>
+        </main>
 
-        <div class="form-grid" style="margin-top:12px">
-          <label>Check every
-            <select id="monitor-interval">
-              <option value="1">1 hour</option>
-              <option value="3">3 hours</option>
-              <option value="6">6 hours</option>
-              <option value="12">12 hours</option>
-              <option value="24">24 hours</option>
-            </select>
-          </label>
-          <label class="checkbox" style="align-self:end"><input id="monitor-enabled" type="checkbox" /> Monitoring on</label>
-          <label>Alert Telegram bot token <span class="muted">(optional)</span>
-            <input id="monitor-token" type="password" placeholder="123456:ABC…" />
-          </label>
-          <label>Alert Telegram chat id <span class="muted">(optional)</span>
-            <input id="monitor-chatid" type="text" placeholder="your numeric id" />
-          </label>
-        </div>
-        <p class="muted">Leave the Telegram fields blank to get only a desktop notification. Use your own bot (from @BotFather) and your chat id.</p>
+        <!-- ===== TEST (SMTP) ===== -->
+        <main id="screen-test" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Test <span class="pane-slash">/ SMTP</span></h1>
+              <p class="pane-sub">Paste or load credentials and verify deliverability</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-resume" class="btn ghost" hidden>Resume last run</button>
+              <button id="btn-run" class="btn primary">Test All</button>
+              <button id="btn-cancel" class="btn danger" disabled>Cancel</button>
+            </div>
+          </header>
 
-        <div class="run-controls">
-          <span id="monitor-status" class="muted"></span>
-          <div class="spacer"></div>
-          <span id="monitor-save-status" class="muted"></span>
-          <button id="btn-monitor-check" class="btn ghost">Check now</button>
-          <button id="btn-monitor-save" class="btn primary">Save monitor settings</button>
-        </div>
-        <div id="monitor-log" class="score-result"></div>
-      </section>
-    </main>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Credentials</h2>
+              <div class="panel-actions">
+                <label class="btn ghost">
+                  Load file
+                  <input id="file-input" type="file" accept=".txt,.csv" multiple hidden />
+                </label>
+              </div>
+            </div>
+            <textarea
+              id="creds-input"
+              spellcheck="false"
+              placeholder="Paste or upload SMTP credentials in almost any format:&#10;host:port:user:pass   (also , ; | tab or spaces)&#10;user pass host port   (order is auto-detected)&#10;Or labeled blocks:&#10;  Host: smtp.sendgrid.net&#10;  Port: 587&#10;  Username: apikey&#10;  Password: SG.xxxx&#10;OAuth2 (Gmail / M365 with basic auth disabled):&#10;  oauth2 user@gmail.com smtp.gmail.com 587 REFRESH_TOKEN CLIENT_ID CLIENT_SECRET https://oauth2.googleapis.com/token&#10;  oauth2 user@host 587 token=ACCESS_TOKEN&#10;Lines starting with # are ignored."
+            ></textarea>
+            <div class="parse-summary">
+              <span id="parse-count" class="muted">0 credentials</span>
+              <span id="parse-errors" class="err-text"></span>
+            </div>
 
-    <!-- ============ SETTINGS SCREEN ============ -->
-    <main id="screen-settings" class="screen">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Seed mailboxes</h2>
-          <div class="panel-actions">
-            <button id="btn-add-seed" class="btn primary">Add mailbox</button>
-          </div>
-        </div>
-        <p class="muted">
-          The app sends each test email to these mailboxes, then reads them over IMAP to
-          report Inbox vs Spam. With no seeds, it still reports Dead / Valid (send only).
-        </p>
-        <div id="seeds-list" class="seeds-list"></div>
-      </section>
+            <label class="field-label" for="manual-recipients">
+              Your test inboxes <span class="muted">(optional)</span> — one email per line. The tool sends a
+              uniquely tagged message to each so you can open your mailbox and confirm Inbox vs Spam yourself.
+              Addresses you've set up as IMAP seeds in Settings are also classified automatically.
+            </label>
+            <textarea
+              id="manual-recipients"
+              rows="2"
+              spellcheck="false"
+              placeholder="you@gmail.com&#10;you@outlook.com"
+            ></textarea>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Server security audit</h2></div>
-        <p class="muted">
-          Check a mail server <b>you operate</b> for transport-security problems: is password
-          authentication offered over a cleartext channel (before STARTTLS), and is STARTTLS
-          available at all. This reads the server's advertised capabilities only — it never
-          sends credentials.
-        </p>
-        <div class="form-grid">
-          <label>Server host <input id="audit-host" type="text" placeholder="mail.yourdomain.com" /></label>
-          <label>Port
-            <select id="audit-port">
-              <option value="587">587 (submission / STARTTLS)</option>
-              <option value="465">465 (implicit TLS)</option>
-              <option value="25">25 (relay)</option>
-              <option value="2525">2525</option>
-            </select>
-          </label>
-        </div>
-        <div class="run-controls">
-          <div class="spacer"></div>
-          <button id="btn-audit-scan" class="btn primary">Scan server</button>
-        </div>
-        <div id="audit-result"></div>
-      </section>
+            <div class="run-controls">
+              <label>Concurrency <input id="opt-concurrency" type="number" min="1" max="100" value="50" /></label>
+              <label>Max tests/sec <input id="opt-maxrate" type="number" min="0" max="1000" value="0" title="0 = unlimited. A cooperative cap so you don't overload your own server." /></label>
+              <label>Placement timeout (s) <input id="opt-timeout" type="number" min="5" max="600" value="90" /></label>
+              <label>Protocols
+                <select id="opt-protocols">
+                  <option value="smtp" selected>SMTP only</option>
+                  <option value="panels">Panels only</option>
+                  <option value="all">All protocols</option>
+                </select>
+              </label>
+              <label>Show rows
+                <select id="opt-rowcap">
+                  <option value="500">500</option>
+                  <option value="1000">1000</option>
+                  <option value="2000">2000</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label class="checkbox"><input id="opt-mutations" type="checkbox" checked /> Smart mutations</label>
+              <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
+              <span id="seed-note" class="muted"></span>
+            </div>
+          </section>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Credential hygiene audit</h2></div>
-        <p class="muted">
-          Analyze an export of <b>your own</b> accounts (<code>email:password</code>, one per line)
-          for weak, reused, or breached passwords so you can force resets. This runs entirely on
-          your machine — no server is contacted and no credential is tested. Optionally supply a
-          breach corpus (one SHA-1 hash per line, e.g. a HIBP subset) to flag known-exposed passwords.
-        </p>
-        <div class="panel-actions">
-          <label class="btn ghost">
-            Load accounts
-            <input id="hygiene-file" type="file" accept=".txt,.csv" hidden />
-          </label>
-          <label class="btn ghost">
-            Load breach list (optional)
-            <input id="hygiene-breach" type="file" accept=".txt" hidden />
-          </label>
-          <button id="btn-hygiene-scan" class="btn primary">Analyze</button>
-        </div>
-        <div class="parse-summary">
-          <span id="hygiene-files" class="muted">No file loaded</span>
-        </div>
-        <div id="hygiene-result"></div>
-      </section>
+          <section class="panel results-panel">
+            <div class="panel-head">
+              <h2>Results <span id="progress-label" class="muted"></span></h2>
+              <div class="panel-actions">
+                <div class="filters" id="filters">
+                  <button class="chip-filter active" data-filter="all">All</button>
+                  <button class="chip-filter" data-filter="inbox">Inbox</button>
+                  <button class="chip-filter" data-filter="spam">Spam</button>
+                  <button class="chip-filter" data-filter="valid">Valid</button>
+                  <button class="chip-filter" data-filter="dead">Dead</button>
+                  <button class="chip-filter" data-filter="unknown">Unknown</button>
+                </div>
+                <button id="btn-export-txt" class="btn primary" disabled>Save working SMTPs (.txt)</button>
+                <button id="btn-export-csv" class="btn ghost" disabled>Export CSV</button>
+                <button id="btn-export-json" class="btn ghost" disabled>Export JSON</button>
+                <button id="btn-export-protocols" class="btn primary" disabled>Save Valid by Protocol</button>
+              </div>
+            </div>
+            <div id="summary" class="summary"></div>
+            <div id="progress-bar" class="progress-bar" hidden><div id="progress-fill" class="progress-fill"></div></div>
+            <div id="rows-note" class="rows-note"></div>
+            <div id="content-score-banner" class="content-score-banner"></div>
+            <div class="table-wrap">
+              <table id="results-table">
+                <thead>
+                  <tr>
+                    <th>Host</th>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Latency</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody id="results-body">
+                  <tr class="empty-row">
+                    <td colspan="5">No results yet. Paste credentials and click <b>Test All</b>.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <div class="panel-head"><h2>cPanel login check</h2></div>
-        <p class="muted">
-          Check which of <b>your own</b> cPanel accounts are up and still accept their login —
-          audit all your sites at once instead of signing into each by hand. One account per line as
-          <code>host:username:password</code> (the password may contain colons). The port below is
-          applied to every account.
-        </p>
-        <div class="form-grid">
-          <label>cPanel port
-            <input id="cpanel-port" type="number" min="1" max="65535" value="2083"
-              title="2083 cPanel · 2087 WHM · 2096 Webmail" />
-          </label>
-          <label>Concurrency
-            <input id="cpanel-concurrency" type="number" min="1" max="50" value="10" />
-          </label>
-        </div>
-        <label class="full">Accounts
-          <textarea id="cpanel-input" rows="5" placeholder="server.yourdomain.com:cpuser:secret&#10;shop.yourdomain.com:shopacct:secret"></textarea>
-        </label>
-        <div class="panel-actions">
-          <button id="btn-cpanel-check" class="btn primary">Check logins</button>
-          <span id="cpanel-progress" class="muted"></span>
-        </div>
-        <div id="cpanel-result"></div>
-      </section>
+        <!-- ===== MONITOR ===== -->
+        <main id="screen-monitor" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Health Monitor</h1>
+              <p class="pane-sub">Re-test a saved list on a schedule and alert when a live SMTP goes dead</p>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Re-test a saved list on a schedule and alert you when a previously-live SMTP goes dead.
+              Runs while the app is open. Uses your current seeds, proxy, and sending settings.
+            </p>
+            <label class="field-label">Monitored credentials (one per line — same formats as the Test screen)</label>
+            <textarea id="monitor-creds" rows="5" spellcheck="false" placeholder="host:port:user:pass  (or email:password)"></textarea>
+            <div class="run-controls">
+              <span id="monitor-creds-count" class="muted"></span>
+              <div class="spacer"></div>
+              <button id="btn-monitor-savelist" class="btn ghost">Save list</button>
+            </div>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Webmail login check</h2></div>
-        <p class="muted">
-          Check which of <b>your own</b> webmail logins (Roundcube / Horde / SquirrelMail) still
-          work — one account per line as <code>host:username:password</code> (the password may
-          contain colons). The port and path below are applied to every account.
-        </p>
-        <div class="form-grid">
-          <label>Port
-            <input id="webmail-port" type="number" min="1" max="65535" value="443" title="443 HTTPS" />
-          </label>
-          <label>Login path
-            <input id="webmail-path" type="text" value="/webmail" title="e.g. /webmail, /roundcube, /horde" />
-          </label>
-          <label>Concurrency
-            <input id="webmail-concurrency" type="number" min="1" max="50" value="10" />
-          </label>
-        </div>
-        <label class="full">Accounts
-          <textarea id="webmail-input" rows="5" placeholder="mail.yourdomain.com:user@yourdomain.com:secret&#10;webmail.yourdomain.com:another@yourdomain.com:secret"></textarea>
-        </label>
-        <div class="panel-actions">
-          <button id="btn-webmail-check" class="btn primary">Check logins</button>
-          <span id="webmail-progress" class="muted"></span>
-        </div>
-        <div id="webmail-result"></div>
-      </section>
+            <div class="form-grid" style="margin-top:12px">
+              <label>Check every
+                <select id="monitor-interval">
+                  <option value="1">1 hour</option>
+                  <option value="3">3 hours</option>
+                  <option value="6">6 hours</option>
+                  <option value="12">12 hours</option>
+                  <option value="24">24 hours</option>
+                </select>
+              </label>
+              <label class="checkbox" style="align-self:end"><input id="monitor-enabled" type="checkbox" /> Monitoring on</label>
+              <label>Alert Telegram bot token <span class="muted">(optional)</span>
+                <input id="monitor-token" type="password" placeholder="123456:ABC…" />
+              </label>
+              <label>Alert Telegram chat id <span class="muted">(optional)</span>
+                <input id="monitor-chatid" type="text" placeholder="your numeric id" />
+              </label>
+            </div>
+            <p class="muted">Leave the Telegram fields blank to get only a desktop notification. Use your own bot (from @BotFather) and your chat id.</p>
 
-      <section class="panel">
-        <div class="panel-head"><h2>WHM login check</h2></div>
-        <p class="muted">
-          Check which of <b>your own</b> WHM (Web Host Manager) root logins still work — one
-          account per line as <code>host:username:password</code> (the password may contain colons).
-          The port below is applied to every account.
-        </p>
-        <div class="form-grid">
-          <label>WHM port
-            <input id="whm-port" type="number" min="1" max="65535" value="2087" title="2087 WHM (SSL)" />
-          </label>
-          <label>Concurrency
-            <input id="whm-concurrency" type="number" min="1" max="50" value="10" />
-          </label>
-        </div>
-        <label class="full">Accounts
-          <textarea id="whm-input" rows="5" placeholder="server.yourdomain.com:root:secret&#10;srv2.yourdomain.com:reseller:secret"></textarea>
-        </label>
-        <div class="panel-actions">
-          <button id="btn-whm-check" class="btn primary">Check logins</button>
-          <span id="whm-progress" class="muted"></span>
-        </div>
-        <div id="whm-result"></div>
-      </section>
+            <div class="run-controls">
+              <span id="monitor-status" class="muted"></span>
+              <div class="spacer"></div>
+              <span id="monitor-save-status" class="muted"></span>
+              <button id="btn-monitor-check" class="btn ghost">Check now</button>
+              <button id="btn-monitor-save" class="btn primary">Save monitor settings</button>
+            </div>
+            <div id="monitor-log" class="score-result"></div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <div class="panel-head"><h2>SSH login check</h2></div>
-        <p class="muted">
-          Check which of <b>your own</b> servers still accept their SSH login — one account per line
-          as <code>host:username:password</code> (the password may contain colons). The port below
-          is applied to every account; connections use the app-wide SOCKS proxy if one is set.
-        </p>
-        <div class="form-grid">
-          <label>SSH port
-            <input id="ssh-port" type="number" min="1" max="65535" value="22" />
-          </label>
-          <label>Concurrency
-            <input id="ssh-concurrency" type="number" min="1" max="50" value="5" />
-          </label>
-        </div>
-        <label class="full">Accounts
-          <textarea id="ssh-input" rows="5" placeholder="server.yourdomain.com:root:secret&#10;10.0.0.5:deploy:secret"></textarea>
-        </label>
-        <div class="panel-actions">
-          <button id="btn-ssh-check" class="btn primary">Check logins</button>
-          <span id="ssh-progress" class="muted"></span>
-        </div>
-        <div id="ssh-result"></div>
-      </section>
+        <!-- ===== cPANEL ===== -->
+        <main id="screen-cpanel" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">cPanel <span class="pane-slash">/ login check</span></h1>
+              <p class="pane-sub">Audit which of your own cPanel accounts still accept their login</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-cpanel-check" class="btn primary">Check logins</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check which of <b>your own</b> cPanel accounts are up and still accept their login —
+              audit all your sites at once instead of signing into each by hand. One account per line as
+              <code>host:username:password</code> (the password may contain colons). The port below is
+              applied to every account.
+            </p>
+            <div class="form-grid">
+              <label>cPanel port
+                <input id="cpanel-port" type="number" min="1" max="65535" value="2083"
+                  title="2083 cPanel · 2087 WHM · 2096 Webmail" />
+              </label>
+              <label>Concurrency
+                <input id="cpanel-concurrency" type="number" min="1" max="50" value="10" />
+              </label>
+            </div>
+            <label class="full">Accounts
+              <textarea id="cpanel-input" rows="5" placeholder="server.yourdomain.com:cpuser:secret&#10;shop.yourdomain.com:shopacct:secret"></textarea>
+            </label>
+            <div class="panel-actions">
+              <span id="cpanel-progress" class="muted"></span>
+            </div>
+            <div id="cpanel-result"></div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Email authentication check</h2></div>
-        <p class="muted">
-          Check a <b>domain you send from</b> for SPF, DKIM, and DMARC. With the optional Python
-          sidecar installed, SPF is fully evaluated against a sending IP (following
-          <code>include:</code>/<code>redirect=</code>), DKIM signatures are cryptographically
-          verified, and DMARC alignment is computed. Without it, the app falls back to reading the
-          published SPF/DMARC records.
-        </p>
-        <div class="form-grid">
-          <label>From domain <input id="auth-domain" type="text" placeholder="yourdomain.com" /></label>
-          <label>Sending IP (optional) <input id="auth-ip" type="text" placeholder="203.0.113.4" /></label>
-          <label>HELO (optional) <input id="auth-helo" type="text" placeholder="mail.yourdomain.com" /></label>
-          <label>MAIL FROM (optional) <input id="auth-mailfrom" type="text" placeholder="bounce@yourdomain.com" /></label>
-        </div>
-        <label class="full">Raw message for DKIM verification (optional — paste a received email incl. headers)
-          <textarea id="auth-message" rows="4" placeholder="DKIM-Signature: v=1; a=rsa-sha256; d=yourdomain.com; ..."></textarea>
-        </label>
-        <div class="panel-actions">
-          <button id="btn-auth-check" class="btn primary">Check authentication</button>
-          <span id="auth-status" class="muted"></span>
-        </div>
-        <div id="auth-result"></div>
-      </section>
+        <!-- ===== WHM ===== -->
+        <main id="screen-whm" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">WHM <span class="pane-slash">/ login check</span></h1>
+              <p class="pane-sub">Check which of your own WHM root logins still work</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-whm-check" class="btn primary">Check logins</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check which of <b>your own</b> WHM (Web Host Manager) root logins still work — one
+              account per line as <code>host:username:password</code> (the password may contain colons).
+              The port below is applied to every account.
+            </p>
+            <div class="form-grid">
+              <label>WHM port
+                <input id="whm-port" type="number" min="1" max="65535" value="2087" title="2087 WHM (SSL)" />
+              </label>
+              <label>Concurrency
+                <input id="whm-concurrency" type="number" min="1" max="50" value="10" />
+              </label>
+            </div>
+            <label class="full">Accounts
+              <textarea id="whm-input" rows="5" placeholder="server.yourdomain.com:root:secret&#10;srv2.yourdomain.com:reseller:secret"></textarea>
+            </label>
+            <div class="panel-actions">
+              <span id="whm-progress" class="muted"></span>
+            </div>
+            <div id="whm-result"></div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Sending defaults</h2></div>
-        <div class="form-grid">
-          <label>Default From address
-            <input id="set-from" type="text" placeholder="you@yourdomain.com" />
-          </label>
-          <label>Subject template
-            <input id="set-subject" type="text" />
-          </label>
-          <label class="full">Body template
-            <textarea id="set-body" rows="3"></textarea>
+        <!-- ===== WEBMAIL ===== -->
+        <main id="screen-webmail" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Webmail <span class="pane-slash">/ login check</span></h1>
+              <p class="pane-sub">Check which of your own webmail logins still work</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-webmail-check" class="btn primary">Check logins</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check which of <b>your own</b> webmail logins (Roundcube / Horde / SquirrelMail) still
+              work — one account per line as <code>host:username:password</code> (the password may
+              contain colons). The port and path below are applied to every account.
+            </p>
+            <div class="form-grid">
+              <label>Port
+                <input id="webmail-port" type="number" min="1" max="65535" value="443" title="443 HTTPS" />
+              </label>
+              <label>Login path
+                <input id="webmail-path" type="text" value="/webmail" title="e.g. /webmail, /roundcube, /horde" />
+              </label>
+              <label>Concurrency
+                <input id="webmail-concurrency" type="number" min="1" max="50" value="10" />
+              </label>
+            </div>
+            <label class="full">Accounts
+              <textarea id="webmail-input" rows="5" placeholder="mail.yourdomain.com:user@yourdomain.com:secret&#10;webmail.yourdomain.com:another@yourdomain.com:secret"></textarea>
+            </label>
+            <div class="panel-actions">
+              <span id="webmail-progress" class="muted"></span>
+            </div>
+            <div id="webmail-result"></div>
+          </section>
+        </main>
 
-        <label>HTML Body Template <span class="muted">(optional, use {token})</span>
-          <textarea id="set-html" rows="4" spellcheck="false" placeholder="Leave empty to use the built-in HTML template"></textarea>
-        </label>
-          </label>
-          <label>Connect timeout (s) <input id="set-connect-timeout" type="number" min="1" max="120" /></label>
-          <label>Send timeout (s) <input id="set-send-timeout" type="number" min="1" max="120" /></label>
-          <label>Poll interval (s) <input id="set-poll" type="number" min="1" max="60" /></label>
-        </div>
-        <p class="muted">Templates must contain <code>{token}</code> — the unique tag the app searches for.</p>
-        <div class="run-controls">
-          <div class="spacer"></div>
-          <span id="save-status" class="muted"></span>
-          <button id="btn-save-settings" class="btn primary">Save settings</button>
-        </div>
-      </section>
+        <!-- ===== SSH ===== -->
+        <main id="screen-ssh" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">SSH <span class="pane-slash">/ login check</span></h1>
+              <p class="pane-sub">Check which of your own servers still accept their SSH login</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-ssh-check" class="btn primary">Check logins</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check which of <b>your own</b> servers still accept their SSH login — one account per line
+              as <code>host:username:password</code> (the password may contain colons). The port below
+              is applied to every account; connections use the app-wide SOCKS proxy if one is set.
+            </p>
+            <div class="form-grid">
+              <label>SSH port
+                <input id="ssh-port" type="number" min="1" max="65535" value="22" />
+              </label>
+              <label>Concurrency
+                <input id="ssh-concurrency" type="number" min="1" max="50" value="5" />
+              </label>
+            </div>
+            <label class="full">Accounts
+              <textarea id="ssh-input" rows="5" placeholder="server.yourdomain.com:root:secret&#10;10.0.0.5:deploy:secret"></textarea>
+            </label>
+            <div class="panel-actions">
+              <span id="ssh-progress" class="muted"></span>
+            </div>
+            <div id="ssh-result"></div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <div class="panel-head"><h2>Check your campaign content</h2></div>
-        <p class="muted">
-          Placement depends heavily on your actual content. Paste a real subject and body to get a
-          heuristic spam score before you send. (This is a guide, not a guarantee — see the README.)
-        </p>
-        <div class="form-grid">
-          <label class="full">Subject
-            <input id="score-subject" type="text" placeholder="Your campaign subject line" />
-          </label>
-          <label class="full">Body (text or HTML)
-            <textarea id="score-body" rows="5" placeholder="Paste your email body here"></textarea>
-          </label>
-        </div>
-        <div class="run-controls">
-          <div class="spacer"></div>
-          <button id="btn-score" class="btn primary">Score content</button>
-        </div>
-        <div id="score-result" class="score-result"></div>
-      </section>
+        <!-- ===== SERVER SECURITY AUDIT ===== -->
+        <main id="screen-audit" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Server Security Audit</h1>
+              <p class="pane-sub">Check a mail server you operate for transport-security problems</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-audit-scan" class="btn primary">Scan server</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check a mail server <b>you operate</b> for transport-security problems: is password
+              authentication offered over a cleartext channel (before STARTTLS), and is STARTTLS
+              available at all. This reads the server's advertised capabilities only — it never
+              sends credentials.
+            </p>
+            <div class="form-grid">
+              <label>Server host <input id="audit-host" type="text" placeholder="mail.yourdomain.com" /></label>
+              <label>Port
+                <select id="audit-port">
+                  <option value="587">587 (submission / STARTTLS)</option>
+                  <option value="465">465 (implicit TLS)</option>
+                  <option value="25">25 (relay)</option>
+                  <option value="2525">2525</option>
+                </select>
+              </label>
+            </div>
+            <div id="audit-result"></div>
+          </section>
+        </main>
 
-      <section class="panel">
-        <details>
-          <summary>How to get an app-password + enable IMAP</summary>
-          <div class="help">
-            <p><b>Gmail</b>: Turn on 2-Step Verification, then create an App Password at
-              <code>myaccount.google.com/apppasswords</code>. IMAP host <code>imap.gmail.com</code>, port <code>993</code>.
-              Enable IMAP in Gmail → Settings → Forwarding and POP/IMAP.</p>
-            <p><b>Outlook / Microsoft 365</b>: Enable 2-Step Verification, create an app password in Security settings.
-              IMAP host <code>outlook.office365.com</code>, port <code>993</code>.</p>
-            <p><b>Yahoo</b>: Account Security → Generate app password.
-              IMAP host <code>imap.mail.yahoo.com</code>, port <code>993</code>.</p>
-            <p class="muted">Credentials and app-passwords are stored only on this computer.</p>
-          </div>
-        </details>
-      </section>
-    </main>
+        <!-- ===== CREDENTIAL HYGIENE ===== -->
+        <main id="screen-hygiene" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Credential Hygiene Audit</h1>
+              <p class="pane-sub">Analyze your own accounts for weak, reused, or breached passwords</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-hygiene-scan" class="btn primary">Analyze</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Analyze an export of <b>your own</b> accounts (<code>email:password</code>, one per line)
+              for weak, reused, or breached passwords so you can force resets. This runs entirely on
+              your machine — no server is contacted and no credential is tested. Optionally supply a
+              breach corpus (one SHA-1 hash per line, e.g. a HIBP subset) to flag known-exposed passwords.
+            </p>
+            <div class="panel-actions">
+              <label class="btn ghost">
+                Load accounts
+                <input id="hygiene-file" type="file" accept=".txt,.csv" hidden />
+              </label>
+              <label class="btn ghost">
+                Load breach list (optional)
+                <input id="hygiene-breach" type="file" accept=".txt" hidden />
+              </label>
+            </div>
+            <div class="parse-summary">
+              <span id="hygiene-files" class="muted">No file loaded</span>
+            </div>
+            <div id="hygiene-result"></div>
+          </section>
+        </main>
+
+        <!-- ===== EMAIL AUTH ===== -->
+        <main id="screen-emailauth" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Email Authentication Check</h1>
+              <p class="pane-sub">Check a domain you send from for SPF, DKIM, and DMARC</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-auth-check" class="btn primary">Check authentication</button>
+              <span id="auth-status" class="muted"></span>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Check a <b>domain you send from</b> for SPF, DKIM, and DMARC. With the optional Python
+              sidecar installed, SPF is fully evaluated against a sending IP (following
+              <code>include:</code>/<code>redirect=</code>), DKIM signatures are cryptographically
+              verified, and DMARC alignment is computed. Without it, the app falls back to reading the
+              published SPF/DMARC records.
+            </p>
+            <div class="form-grid">
+              <label>From domain <input id="auth-domain" type="text" placeholder="yourdomain.com" /></label>
+              <label>Sending IP (optional) <input id="auth-ip" type="text" placeholder="203.0.113.4" /></label>
+              <label>HELO (optional) <input id="auth-helo" type="text" placeholder="mail.yourdomain.com" /></label>
+              <label>MAIL FROM (optional) <input id="auth-mailfrom" type="text" placeholder="bounce@yourdomain.com" /></label>
+            </div>
+            <label class="full">Raw message for DKIM verification (optional — paste a received email incl. headers)
+              <textarea id="auth-message" rows="4" placeholder="DKIM-Signature: v=1; a=rsa-sha256; d=yourdomain.com; ..."></textarea>
+            </label>
+            <div id="auth-result"></div>
+          </section>
+        </main>
+
+        <!-- ===== CONTENT SCORE ===== -->
+        <main id="screen-content" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Content Score</h1>
+              <p class="pane-sub">Heuristic spam score for your campaign before you send</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-score" class="btn primary">Score content</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Placement depends heavily on your actual content. Paste a real subject and body to get a
+              heuristic spam score before you send. (This is a guide, not a guarantee — see the README.)
+            </p>
+            <div class="form-grid">
+              <label class="full">Subject
+                <input id="score-subject" type="text" placeholder="Your campaign subject line" />
+              </label>
+              <label class="full">Body (text or HTML)
+                <textarea id="score-body" rows="5" placeholder="Paste your email body here"></textarea>
+              </label>
+            </div>
+            <div id="score-result" class="score-result"></div>
+          </section>
+        </main>
+
+        <!-- ===== SEED MAILBOXES ===== -->
+        <main id="screen-seeds" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Seed Mailboxes</h1>
+              <p class="pane-sub">Mailboxes the app reads over IMAP to report Inbox vs Spam</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-add-seed" class="btn primary">Add mailbox</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              The app sends each test email to these mailboxes, then reads them over IMAP to
+              report Inbox vs Spam. With no seeds, it still reports Dead / Valid (send only).
+            </p>
+            <div id="seeds-list" class="seeds-list"></div>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>How to get an app-password + enable IMAP</summary>
+              <div class="help">
+                <p><b>Gmail</b>: Turn on 2-Step Verification, then create an App Password at
+                  <code>myaccount.google.com/apppasswords</code>. IMAP host <code>imap.gmail.com</code>, port <code>993</code>.
+                  Enable IMAP in Gmail → Settings → Forwarding and POP/IMAP.</p>
+                <p><b>Outlook / Microsoft 365</b>: Enable 2-Step Verification, create an app password in Security settings.
+                  IMAP host <code>outlook.office365.com</code>, port <code>993</code>.</p>
+                <p><b>Yahoo</b>: Account Security → Generate app password.
+                  IMAP host <code>imap.mail.yahoo.com</code>, port <code>993</code>.</p>
+                <p class="muted">Credentials and app-passwords are stored only on this computer.</p>
+              </div>
+            </details>
+          </section>
+        </main>
+
+        <!-- ===== SENDING DEFAULTS ===== -->
+        <main id="screen-sending" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Sending Defaults</h1>
+              <p class="pane-sub">From address, templates, and timeouts for the test message</p>
+            </div>
+            <div class="pane-actions">
+              <span id="save-status" class="muted"></span>
+              <button id="btn-save-settings" class="btn primary">Save settings</button>
+            </div>
+          </header>
+          <section class="panel">
+            <div class="form-grid">
+              <label>Default From address
+                <input id="set-from" type="text" placeholder="you@yourdomain.com" />
+              </label>
+              <label>Subject template
+                <input id="set-subject" type="text" />
+              </label>
+              <label class="full">Body template
+                <textarea id="set-body" rows="3"></textarea>
+              </label>
+              <label class="full">HTML Body Template <span class="muted">(optional, use {token})</span>
+                <textarea id="set-html" rows="4" spellcheck="false" placeholder="Leave empty to use the built-in HTML template"></textarea>
+              </label>
+              <label>Connect timeout (s) <input id="set-connect-timeout" type="number" min="1" max="120" /></label>
+              <label>Send timeout (s) <input id="set-send-timeout" type="number" min="1" max="120" /></label>
+              <label>Poll interval (s) <input id="set-poll" type="number" min="1" max="60" /></label>
+            </div>
+            <p class="muted">Templates must contain <code>{token}</code> — the unique tag the app searches for.</p>
+          </section>
+        </main>
+
+        <!-- ===== NETWORK ===== -->
+        <main id="screen-network" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Network</h1>
+              <p class="pane-sub">Route testing through your own proxy, map hosts, and rotate a scraped pool</p>
+            </div>
+          </header>
+
+          <section class="panel">
+            <div class="panel-head"><h2>SOCKS5 proxy</h2></div>
+            <p class="muted">
+              Send every connection (tests and relay) through a SOCKS5 proxy <b>you provide</b>, so the egress
+              IP is the proxy's instead of this computer's — e.g. a proxy on your own VPS so you can work from
+              any laptop.
+            </p>
+            <label class="checkbox"><input id="proxy-enabled" type="checkbox" /> Use my SOCKS5 proxy for all connections</label>
+            <div class="form-grid" style="margin-top:10px">
+              <label>Proxy host <input id="proxy-host" type="text" placeholder="proxy.example.com or 1.2.3.4" /></label>
+              <label>Port <input id="proxy-port" type="number" value="1080" /></label>
+              <label>Username <span class="muted">(optional)</span> <input id="proxy-user" type="text" /></label>
+              <label>Password <span class="muted">(optional)</span> <input id="proxy-pass" type="password" /></label>
+            </div>
+            <div class="run-controls">
+              <div class="spacer"></div>
+              <span id="proxy-save-status" class="muted"></span>
+              <button id="btn-save-proxy" class="btn primary">Save proxy</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Custom Server Mapping</h2></div>
+            <p class="muted">If a domain's email is hosted elsewhere but cPanel is on a different server, map it here (one per line: <code>email-domain.com = cpanel-host.com</code>).</p>
+            <textarea id="hostmap-input" rows="3" placeholder="rememberingwwi.com = wxk.fke.mybluehost.me" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+            <div class="run-controls">
+              <span id="hostmap-status" class="muted"></span>
+              <div class="spacer"></div>
+              <button id="btn-save-hostmap" class="btn primary">Save Map</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Scraped proxy pool</h2></div>
+            <p class="muted">
+              Scrapes free SOCKS proxy lists from public sources, validates each against Cloudflare DNS,
+              and rotates the survivors across SMTP and SSH batches. Falls back to your manual proxy above
+              if the pool is empty.
+            </p>
+            <div class="run-controls">
+              <span id="proxy-pool-status" class="muted">Pool: 0 valid / 0 tested</span>
+              <div class="spacer"></div>
+              <button id="btn-proxy-clear" class="btn ghost">Clear pool</button>
+              <button id="btn-proxy-scrape" class="btn primary">Scrape &amp; Validate</button>
+            </div>
+          </section>
+        </main>
+
+      </div>
+    </div>
 
     <!-- Seed editor template -->
     <template id="seed-row-tpl">

@@ -34,13 +34,22 @@ function resetRunState() {
   firstSpamScore = null;
 }
 
-// ---------- Tabs ----------
-$$('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    $$('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-    $$('.screen').forEach((s) => s.classList.remove('active'));
-    $(`#screen-${tab.dataset.tab}`).classList.add('active');
-  });
+// ---------- Sidebar navigation ----------
+function navTo(tab) {
+  const target = $(`#screen-${tab}`);
+  if (!target) return;
+  $$('.nav-item').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
+  $$('.screen').forEach((s) => s.classList.remove('active'));
+  target.classList.add('active');
+  const scroller = $('.content');
+  if (scroller) scroller.scrollTop = 0;
+}
+$$('.nav-item').forEach((item) => {
+  item.addEventListener('click', () => navTo(item.dataset.tab));
+});
+// Quick-link buttons (Dashboard) that jump to another pane.
+$$('[data-goto]').forEach((btn) => {
+  btn.addEventListener('click', () => navTo(btn.dataset.goto));
 });
 
 // ---------- Credential input / parsing ----------
@@ -386,6 +395,7 @@ const SUMMARY_ORDER = [
 ];
 
 function renderSummary() {
+  updateDashboardTiles();
   const el = $('#summary');
   if (!testedCount) {
     el.innerHTML = '';
@@ -396,6 +406,20 @@ function renderSummary() {
       `<span class="summary-chip status-${key}">${label}: ${counts[key] || 0}</span>`,
   ).join('');
   el.innerHTML = `${chips}<span class="summary-chip summary-total">Total: ${testedCount}</span>`;
+}
+
+// Mirror the running counts onto the Dashboard stat tiles.
+function updateDashboardTiles() {
+  const set = (id, val) => {
+    const el = $(id);
+    if (el) el.textContent = String(val);
+  };
+  set('#dash-total', testedCount);
+  set('#dash-inbox', counts.inbox || 0);
+  set('#dash-spam', counts.spam || 0);
+  set('#dash-valid', counts.valid || 0);
+  set('#dash-dead', counts.dead || 0);
+  set('#dash-unknown', counts.unknown || 0);
 }
 
 function renderContentScoreBanner() {

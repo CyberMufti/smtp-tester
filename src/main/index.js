@@ -102,7 +102,7 @@ async function runMonitorCheck() {
     const lines = died.map((d) => `• ${d.cred.user} (${d.usedHost || d.cred.host || 'auto'})`).join('\n');
     if (Notification.isSupported()) {
       new Notification({
-        title: 'SMTP Tester — credentials went dead',
+        title: 'ENDPOINT — credentials went dead',
         body: `${died.length} monitored SMTP${died.length === 1 ? '' : 's'} stopped working.`,
       }).show();
     }
@@ -229,9 +229,9 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
-    minWidth: 900,
+    minWidth: 960,
     minHeight: 600,
-    title: 'SMTP Tester',
+    title: 'ENDPOINT Operator',
     webPreferences: {
       preload: join(__dirname, '..', 'preload.cjs'),
       contextIsolation: true,
