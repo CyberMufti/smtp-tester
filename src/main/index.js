@@ -363,7 +363,7 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
 
 // Batch SSH login check for servers you operate (port 22), routed through the
 // app-wide SOCKS proxy when one is configured.
-ipcMain.handle('smtp:check', async (_e, { creds, opts }) => {
+ipcMain.handle('smtp:check', async (event, { creds, opts }) => {
   try {
     const list = Array.isArray(creds) ? creds : [];
     const hasPool = proxyPool.size().valid > 0;
@@ -378,6 +378,9 @@ ipcMain.handle('smtp:check', async (_e, { creds, opts }) => {
       ...opts,
       ...proxyOptions,
       deps: { dns },
+      onProgress: (result) => {
+        try { event.sender.send('combo:progress', result); } catch (e) {}
+      },
     });
     return { results, total: results.length };
   } catch (err) {

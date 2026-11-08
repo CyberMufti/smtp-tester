@@ -1039,14 +1039,17 @@ $('#btn-combo-crack').addEventListener('click', async () => {
 
       if (mode === 'smtp' || mode === 'all') {
         const smtpCreds = chunk.map((r) => ({ user: r.user, pass: r.pass, host: r.host || null, port: r.port || 587 }));
-        const res = await api.checkSmtp(smtpCreds, {
+        const off = api.onComboProgress((r) => {
+          out.insertAdjacentHTML('beforeend', comboRenderRow({
+            user: r.cred?.user || '?', host: comboDeriveHost(r.cred || {}), smtp: r,
+          }));
+          while (out.children.length > 2000) out.removeChild(out.firstElementChild);
+        });
+        await api.checkSmtp(smtpCreds, {
           concurrency, maxPerSec: 0,
           connectTimeout: timeoutSec * 1000, sendTimeout: timeoutSec * 1000,
-        }).catch((e) => ({ error: e.message }));
-        const rows = (res.results || chunk.map((r) => ({ cred: r, status: 'dead', reason: 'ipc-error' })));
-        out.insertAdjacentHTML('beforeend', rows.map((r) => comboRenderRow({
-          user: r.cred?.user || '?', host: comboDeriveHost(r.cred || {}), smtp: r,
-        })).join(''));
+        }).catch((e) => console.error('smtp chunk error', e));
+        if (off) off();
       }
 
       if (mode === 'panels' || mode === 'all') {

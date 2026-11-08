@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('api', {
   },
   checkSsh: (targets, opts) => ipcRenderer.invoke('ssh:check', { targets, opts }),
   checkSmtp: (creds, opts) => ipcRenderer.invoke('smtp:check', { creds, opts }),
+  onComboProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('combo:progress', handler);
+    return () => ipcRenderer.removeListener('combo:progress', handler);
+  },
   mxResolve: (domains) => ipcRenderer.invoke('smtp:mxResolve', { domains }),
   scrapeProxies: () => ipcRenderer.invoke('proxy:scrape'),
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
