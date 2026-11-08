@@ -186,6 +186,8 @@ function buildRunOpts() {
     protocols: $('#opt-protocols')?.value || 'smtp',
     maxCandidates: 2,
     enableMutations: $('#opt-mutations')?.checked || false,
+    limitProbe: $('#opt-limit-probe')?.checked || false,
+    limitProbeCount: Math.max(1, Math.min(Number($('#opt-limit-probe-count')?.value) || 3, 10)),
     retries: 0,
     retryBackoffMs: 2000,
   };

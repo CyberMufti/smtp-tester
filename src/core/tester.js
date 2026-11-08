@@ -3,7 +3,7 @@ import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
-import { classify, applyAuthGate, detectLimited } from './classify.js';
+import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
@@ -217,6 +217,33 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
           }),
         );
       }
+
+      // Opt-in deep limit probe: a single accepted send can't reveal an account
+      // that is near its cap. Send a few EXTRA self-addressed messages through
+      // the same server and watch for throttling/deferral — if later sends start
+      // getting rejected or rate-limited, the account is 'limited', not valid.
+      // Sends to the account itself so it never floods the user's test inboxes.
+      if (step.sent && opts.limitProbe) {
+        const n = Math.max(1, Math.min(Number(opts.limitProbeCount) || 3, 10));
+        const selfTo = opts.from || cred.from || cred.user;
+        for (let k = 0; k < n; k++) {
+          if (opts.signal?.aborted) break;
+          const probe = await smtp.send(effective, {
+            to: selfTo,
+            from: opts.from || cred.from || cred.user,
+            subject: `${subject} probe ${k + 1}`,
+            text: `${text}\n(automated limit probe ${k + 1})`,
+            sendTimeout: opts.sendTimeout,
+            proxy: opts.proxy,
+          });
+          const probeText = `${probe.error || ''} ${probe.response || ''}`.trim();
+          const probeAccepted = (probe.accepted?.length ?? 0) > 0;
+          if (!probeAccepted || LIMIT_RE.test(probeText)) {
+            step.limitProbe = { tripped: true, at: k + 1, detail: probeText || 'send not accepted' };
+            break;
+          }
+        }
+      }
     }
   } catch (err) {
     // Unexpected failure anywhere in the pipeline: record it so classify -> dead.
@@ -268,6 +295,15 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     result.status = lim.status;
     result.reason = lim.reason;
     result.limited = true;
+  }
+
+  // Deep-probe override: if the multi-send probe tripped a limit, the account
+  // is 'limited' even though its first send was accepted.
+  if (step.limitProbe?.tripped && result.status !== 'dead') {
+    result.status = 'limited';
+    result.reason = `sending limit reached after ${step.limitProbe.at} extra message(s) — ${step.limitProbe.detail}`.slice(0, 200);
+    result.limited = true;
+    result.limitProbe = step.limitProbe;
   }
 
   // Gate "valid" on sending-domain auth: a domain missing SPF or DMARC will

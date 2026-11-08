@@ -558,3 +558,42 @@ test('no sidecar (evalAuth absent) falls back to JS record read and still gates 
   assert.equal(r.status, 'unverified');
   assert.equal(r.deliverability.authEngine, 'js');
 });
+
+test('deep limit probe: an account that throttles after the first send -> limited', async () => {
+  let sends = 0;
+  const deps = {
+    smtp: {
+      async verify(){ return { connected: true, authenticated: true }; },
+      async send(_, o) {
+        sends++;
+        // First send (the real test) is accepted; the 2nd probe gets throttled.
+        if (sends >= 2) return { accepted: [], error: '421 4.7.0 Try again later, rate limited' };
+        return { accepted: [o.to], response: '250 OK' };
+      },
+    },
+    imap: { async findToken(){ return { found: false }; } },
+  };
+  const [r] = await runBatch(
+    [{ host: 'smtp.sender.com', port: 587, user: 'u@sender.com', pass: 'p' }],
+    [],
+    { concurrency: 1, deps, manualRecipients: ['t@x.com'], limitProbe: true, limitProbeCount: 3 },
+  );
+  assert.equal(r.status, 'limited', `expected limited, got ${r.status}`);
+  assert.ok(r.limitProbe?.tripped);
+});
+
+test('deep limit probe: an account that accepts every probe stays valid', async () => {
+  const deps = {
+    smtp: {
+      async verify(){ return { connected: true, authenticated: true }; },
+      async send(_, o){ return { accepted: [o.to], response: '250 2.0.0 OK gsmtp' }; },
+    },
+    imap: { async findToken(){ return { found: false }; } },
+  };
+  const [r] = await runBatch(
+    [{ host: 'smtp.sender.com', port: 587, user: 'u@sender.com', pass: 'p' }],
+    [],
+    { concurrency: 1, deps, manualRecipients: ['t@x.com'], limitProbe: true, limitProbeCount: 3 },
+  );
+  assert.equal(r.status, 'valid');
+});

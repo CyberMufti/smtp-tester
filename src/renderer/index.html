@@ -181,6 +181,8 @@
               </label>
               <label class="checkbox"><input id="opt-mutations" type="checkbox" checked /> Smart mutations</label>
               <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
+              <label class="checkbox" title="Sends extra self-addressed messages through each working SMTP to detect accounts that accept the first message but are near their sending cap. Uses the account's own quota and is slower."><input id="opt-limit-probe" type="checkbox" /> Deep limit check <span class="muted">(extra probe sends)</span></label>
+              <label>Probe sends <input id="opt-limit-probe-count" type="number" min="1" max="10" value="3" /></label>
               <span id="seed-note" class="muted"></span>
             </div>
           </section>
