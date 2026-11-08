@@ -161,7 +161,7 @@ function buildRunOpts() {
     // Honest backpressure: when the server returns a rate-limit response, every
     // worker waits this long before starting another test.
     rateLimitCooldownMs: 5000,
-    connectTimeout: (settings?.connectTimeout) || 10000,
+    connectTimeout: (settings?.connectTimeout) || 3000,
     sendTimeout: (settings?.sendTimeout) || 15000,
     placementTimeoutMs: (Number($('#opt-timeout').value) || 90) * 1000,
     pollIntervalMs: (settings?.pollIntervalMs) || 5000,
@@ -455,7 +455,7 @@ function rowHtml(r) {
       if (v.reachable === false) return '<span class="dbadge b-neutral">' + k + '-</span>';
       return '<span class="dbadge b-bad">' + k + '✗</span>';
     };
-    parts.push('<span class="badges">' + b('CP', p.cpanel) + ' ' + b('WM', p.webmail) + ' ' + b('WHM', p.whm) + ' ' + b('SSH', p.ssh) + ' ' + b('IMAP', p.imap) + ' ' + b('POP3', p.pop3) + '</span>');
+    parts.push('<span class="badges">' + b('CP', p.cpanel) + ' ' + b('WM', p.webmail) + ' ' + b('WHM', p.whm) + ' ' + b('SSH', p.ssh) + ' ' + b('IMAP', p.imap) + ' ' + b('POP3', p.pop3) + ' ' + b('PLESK', p.plesk) + ' ' + b('DA', p.directadmin) + '</span>');
   }
   const deliv = deliverabilityBadges(r);
   if (deliv) parts.push(deliv);
