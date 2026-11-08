@@ -3,7 +3,6 @@ import * as realImap from './imap.js';
 import { LockoutRegistry, detectLockout } from './lockout.js';
 import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
-import { getRandomTemplate } from './templates.js';
 import { classify } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
 import { discoverHosts } from './discovery.js';
@@ -50,34 +49,25 @@ function makeToken(index) {
 async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   const start = Date.now();
   const token = makeToken(index);
-  // Rotate subject and HTML body, but respect explicit overrides from opts.
-  const tpl = getRandomTemplate();
-  const baseSubject = opts.subjectTemplate || tpl.subject;
+  // A plain, recognizable, text-only deliverability probe — the format that
+  // reliably lands in a real test inbox. Elaborate HTML with styled markup (and
+  // especially hidden text) reads as promotional/deceptive and gets filtered or
+  // dropped, so the message a "valid" result delivers would never actually show
+  // up in the user's inbox. Keep it simple: a clear automated-test subject and
+  // body, both carrying the unique token. The subject always contains the token
+  // (IMAP placement search matches on it). HTML is sent only when the user
+  // supplies their own template; otherwise the message is text-only.
+  const baseSubject = opts.subjectTemplate || 'SMTP deliverability test {token}';
   const subject = baseSubject.includes('{token}')
     ? baseSubject.replace('{token}', token)
-    : baseSubject + ' #' + token;
-  const baseText = opts.bodyTemplate || 'This is an automated notification. Ref: {token}';
+    : `${baseSubject} ${token}`;
+  const baseText =
+    opts.bodyTemplate ||
+    'This is an automated SMTP deliverability test.\n\nToken: {token}\n\nYou can safely ignore this message.';
   const text = baseText.includes('{token}')
     ? baseText.replace('{token}', token)
-    : baseText + ' Ref: ' + token;
-  const htmlBody = tpl.html.replace('{token}', token);
-  
-  // Generate the HTML body. Use the user's template if provided, else a realistic default.
-  const defaultHtml = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-  <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-bottom: 2px solid #0056b3;">
-    <h2 style="margin: 0; color: #0056b3;">Account Notification</h2>
-  </div>
-  <div style="padding: 20px;">
-    <p>Hello,</p>
-    <p>This is an automated system message regarding your recent account activity.</p>
-    <p>Reference ID: <strong>{token}</strong></p>
-    <p>If you did not request this, please contact support immediately.</p>
-  </div>
-  <div style="background-color: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #777;">
-    &copy; 2026 System Administrator. All rights reserved.
-  </div>
-</div>`;
-  const html = (opts.htmlTemplate ? opts.htmlTemplate.replace('{token}', token) : htmlBody);
+    : `${baseText}\n\nToken: ${token}`;
+  const html = opts.htmlTemplate ? opts.htmlTemplate.replace('{token}', token) : undefined;
 
   const step = { connected: false, authenticated: false, sent: false, seeds: [] };
   const manualRecipients = (opts.manualRecipients || []).map((r) => String(r).trim()).filter(Boolean);
