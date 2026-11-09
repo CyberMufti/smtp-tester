@@ -41,6 +41,9 @@ export const PROVIDER_BUCKETS = [
   'NetEase',
   'Tencent Exmail',
   'Alibaba Mail',
+  'Optimum',
+  'Spectrum/RR',
+  'Mailgun',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
   'Proofpoint',
@@ -94,7 +97,31 @@ const CONSUMER_DOMAINS = new Map([
   ['163.com', 'NetEase'], ['126.com', 'NetEase'], ['yeah.net', 'NetEase'],
   ['qq.com', 'Tencent Exmail'], ['foxmail.com', 'Tencent Exmail'],
   ['aliyun.com', 'Alibaba Mail'],
+  ['optimum.net', 'Optimum'], ['optonline.net', 'Optimum'],
+  ['rr.com', 'Spectrum/RR'], ['roadrunner.com', 'Spectrum/RR'], ['twc.com', 'Spectrum/RR'],
+  ['charter.net', 'Spectrum/RR'], ['spectrum.net', 'Spectrum/RR'], ['cfl.rr.com', 'Spectrum/RR'],
 ]);
+
+// Providers whose users are strongly concentrated in one country, used as a
+// FALLBACK lead country only when the domain's TLD gives no signal. Global
+// mailbox platforms (Gmail/Microsoft/Yahoo/hosting resellers) are intentionally
+// absent — their users are everywhere, so guessing a country would mislead.
+const PROVIDER_HOME_COUNTRY = {
+  'NetEase': 'China', 'Tencent Exmail': 'China', 'Alibaba Mail': 'China',
+  'Yandex': 'Russia', 'Mail.ru': 'Russia',
+  'Optimum': 'United States', 'Spectrum/RR': 'United States', 'Mailgun': 'United States',
+  'GMX/Web.de': 'Germany',
+};
+
+/**
+ * The home country for a provider bucket, or "Unknown" for global providers.
+ * Used only as a fallback after the domain's country TLD.
+ * @param {string} bucket
+ * @returns {string}
+ */
+export function providerHomeCountry(bucket) {
+  return PROVIDER_HOME_COUNTRY[bucket] || 'Unknown';
+}
 
 // MX / host hostname patterns → platform bucket, most specific first. For a
 // custom domain, Google and Microsoft MX mean the business platforms. Security
@@ -124,6 +151,9 @@ const PLATFORM_PATTERNS = [
   { re: /(netease\.com|mxmail\.netease|qiye163|163mx|\b163\.com|126\.com)/i, bucket: 'NetEase' },
   { re: /(exmail\.qq\.com|mxbiz\d*\.qq\.com|\bqq\.com)/i, bucket: 'Tencent Exmail' },
   { re: /(mxhichina\.com|aliyun|alibaba-inc|alimail)/i, bucket: 'Alibaba Mail' },
+  { re: /mailgun\.(org|net)/i, bucket: 'Mailgun' },
+  { re: /(optimum\.net|optonline\.net)/i, bucket: 'Optimum' },
+  { re: /(\brr\.com|roadrunner|twc\.com|charter\.net|spectrum\.net|rr\.com)/i, bucket: 'Spectrum/RR' },
   { re: /(yandex)\./i, bucket: 'Yandex' },
   { re: /(\.mail\.ru|mxs\.mail\.ru)/i, bucket: 'Mail.ru' },
   { re: /(gmx\.|web\.de)/i, bucket: 'GMX/Web.de' },

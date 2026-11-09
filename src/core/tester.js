@@ -5,7 +5,7 @@ import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
 import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
-import { classifyProvider, classifyFromBanner } from './provider-class.js';
+import { classifyProvider, classifyFromBanner, providerHomeCountry } from './provider-class.js';
 import { grabBanner } from './banner.js';
 import { domainCountry } from './country-names.js';
 import { discoverHosts } from './discovery.js';
@@ -316,7 +316,12 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     attempts,
     provider,
     country,                                   // server location (GeoIP of the mail server IP)
-    domainCountry: domainCountry(domainOf(cred.user) || ''), // lead country from the domain ccTLD
+    // Lead country: the domain's country TLD when present, else the provider's
+    // home country for region-tied providers (Alibaba/NetEase→China, etc.).
+    domainCountry: (() => {
+      const dc = domainCountry(domainOf(cred.user) || '');
+      return dc !== 'Unknown' ? dc : providerHomeCountry(provider);
+    })(),
   };
 
   const deliverability = await runChecks(cred, usedHost, opts, ctx);

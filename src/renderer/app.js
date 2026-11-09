@@ -500,7 +500,7 @@ function rowHtml(r) {
   // mail-server location (GeoIP) shown separately — the server location is the
   // datacenter, not where the lead is.
   if (r.provider && r.provider !== 'Unknown') parts.push(`<span class="dbadge b-neutral">${esc(r.provider)}</span>`);
-  if (r.domainCountry && r.domainCountry !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Lead country (from the domain's country TLD)">🏳 ${esc(r.domainCountry)}</span>`);
+  if (r.domainCountry && r.domainCountry !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Lead country (from the domain's country TLD, or a region-tied provider's home country)">🏳 ${esc(r.domainCountry)}</span>`);
   if (r.country && r.country !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Mail-server location (GeoIP) — the datacenter, not the lead's country">🖥 ${esc(r.country)}</span>`);
 
   // Account-existence verdict (only present when a server refused the login).
