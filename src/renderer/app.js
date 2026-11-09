@@ -1,5 +1,6 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
+import { countryName } from '../core/country-names.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -500,8 +501,10 @@ function rowHtml(r) {
   // mail-server location (GeoIP) shown separately — the server location is the
   // datacenter, not where the lead is.
   if (r.provider && r.provider !== 'Unknown') parts.push(`<span class="dbadge b-neutral">${esc(r.provider)}</span>`);
-  if (r.domainCountry && r.domainCountry !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Lead country (from the domain's country TLD, or a region-tied provider's home country)">🏳 ${esc(r.domainCountry)}</span>`);
-  if (r.country && r.country !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Mail-server location (GeoIP) — the datacenter, not the lead's country">🖥 ${esc(r.country)}</span>`);
+  if (r.domainCountry && r.domainCountry !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Lead country (domain TLD, a region-tied provider's home country, or the hosting datacenter)">🏳 ${esc(r.domainCountry)}</span>`);
+  // Show the server location only when it adds info beyond the lead country.
+  const serverName = countryName(r.country);
+  if (serverName !== 'Unknown' && serverName !== r.domainCountry) parts.push(`<span class="dbadge b-neutral" title="Mail-server location (GeoIP) — the datacenter, shown when it differs from the lead's country">🖥 ${esc(serverName)}</span>`);
 
   // Account-existence verdict (only present when a server refused the login).
   if (r.catchAll) parts.push('<span class="dbadge b-neutral">catch-all domain</span>');

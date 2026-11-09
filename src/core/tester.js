@@ -5,9 +5,9 @@ import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
 import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
-import { classifyProvider, classifyFromBanner, providerHomeCountry } from './provider-class.js';
+import { classifyProvider, classifyFromBanner, providerHomeCountry, serverLocationMeaningful } from './provider-class.js';
 import { grabBanner } from './banner.js';
-import { domainCountry } from './country-names.js';
+import { domainCountry, countryName } from './country-names.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
@@ -316,11 +316,16 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     attempts,
     provider,
     country,                                   // server location (GeoIP of the mail server IP)
-    // Lead country: the domain's country TLD when present, else the provider's
-    // home country for region-tied providers (Alibaba/NetEase→China, etc.).
+    // Lead country, best signal first: the domain's country TLD; else a
+    // region-tied provider's home country (Alibaba/NetEase→China); else, for a
+    // regional/self-hosted mail host, the server's GeoIP country (the mailbox
+    // lives in that datacenter). Global anycast platforms (Gmail/Microsoft/…)
+    // skip the server fallback — their IP is just an edge — and stay Unknown.
     domainCountry: (() => {
-      const dc = domainCountry(domainOf(cred.user) || '');
-      return dc !== 'Unknown' ? dc : providerHomeCountry(provider);
+      let c = domainCountry(domainOf(cred.user) || '');
+      if (c === 'Unknown') c = providerHomeCountry(provider);
+      if (c === 'Unknown' && serverLocationMeaningful(provider)) c = countryName(country);
+      return c;
     })(),
   };
 

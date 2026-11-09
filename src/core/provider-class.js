@@ -123,6 +123,28 @@ export function providerHomeCountry(bucket) {
   return PROVIDER_HOME_COUNTRY[bucket] || 'Unknown';
 }
 
+// Global/anycast platforms whose MX geolocates to an edge datacenter, so the
+// server's country says nothing about where the lead is. For every OTHER
+// provider (regional hosts, self-hosted servers), the mailbox lives in a real
+// datacenter the customer chose, so the server country is a usable fallback.
+const GLOBAL_EDGE_PROVIDERS = new Set([
+  'Gmail', 'Google Workspace', 'Microsoft 365', 'Outlook/Hotmail', 'Yahoo/AOL',
+  'Zoho', 'iCloud', 'Proton Mail', 'Fastmail', 'Yandex', 'Mail.ru', 'GMX/Web.de',
+  'NetEase', 'Tencent Exmail', 'Alibaba Mail', 'Amazon WorkMail',
+  'Mimecast', 'Proofpoint', 'Barracuda',
+]);
+
+/**
+ * Whether the mail server's GeoIP country is a meaningful lead-country signal
+ * for this provider — true for regional/self-hosted servers, false for global
+ * anycast platforms where the IP is just the nearest edge.
+ * @param {string} bucket
+ * @returns {boolean}
+ */
+export function serverLocationMeaningful(bucket) {
+  return !GLOBAL_EDGE_PROVIDERS.has(bucket);
+}
+
 // MX / host hostname patterns → platform bucket, most specific first. For a
 // custom domain, Google and Microsoft MX mean the business platforms. Security
 // gateways (Mimecast/Proofpoint/Barracuda) are labeled by the gateway since the
