@@ -22,6 +22,11 @@ test('other major mailbox hosts are recognized from MX', () => {
   assert.equal(mx('a@acme.com', 'mail.titan.email'), 'Titan');
 });
 
+test('Intermedia hosted Exchange is recognized (not mistaken for Microsoft 365)', () => {
+  assert.equal(mx('a@wildewealth.com', 'east.smtp.mx.o365.serverdata.net'), 'Intermedia');
+  assert.equal(mx('a@acme.com', 'mx1.intermedia.net'), 'Intermedia');
+});
+
 test('security gateways are labeled by the gateway', () => {
   assert.equal(mx('a@acme.com', 'acme-com.mail.protection.outlook.com'), 'Microsoft 365'); // still M365
   assert.equal(mx('a@acme.com', 'us-smtp-inbound-1.mimecast.com'), 'Mimecast');

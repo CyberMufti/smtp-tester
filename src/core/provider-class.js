@@ -44,6 +44,7 @@ export const PROVIDER_BUCKETS = [
   'Optimum',
   'Spectrum/RR',
   'Mailgun',
+  'Intermedia',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
   'Proofpoint',
@@ -151,6 +152,7 @@ export function serverLocationMeaningful(bucket) {
 // real mailbox is hidden behind them.
 const PLATFORM_PATTERNS = [
   { re: /(aspmx|googlemail|google)\./i, bucket: 'Google Workspace' },
+  { re: /(serverdata\.net|intermedia\.(net|com))/i, bucket: 'Intermedia' }, // before M365: hostnames contain "o365" branding
   { re: /(protection\.outlook|mail\.protection|office365|outlook\.com)/i, bucket: 'Microsoft 365' },
   { re: /(mimecast)\./i, bucket: 'Mimecast' },
   { re: /(pphosted\.com|proofpoint)/i, bucket: 'Proofpoint' },
