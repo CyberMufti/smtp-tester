@@ -38,6 +38,9 @@ export const PROVIDER_BUCKETS = [
   'Hostinger',
   'SiteGround',
   'Amazon WorkMail',
+  'NetEase',
+  'Tencent Exmail',
+  'Alibaba Mail',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
   'Proofpoint',
@@ -88,6 +91,9 @@ const CONSUMER_DOMAINS = new Map([
   ['yandex.com', 'Yandex'], ['yandex.ru', 'Yandex'], ['ya.ru', 'Yandex'],
   ['mail.ru', 'Mail.ru'], ['bk.ru', 'Mail.ru'], ['inbox.ru', 'Mail.ru'], ['list.ru', 'Mail.ru'],
   ['fastmail.com', 'Fastmail'],
+  ['163.com', 'NetEase'], ['126.com', 'NetEase'], ['yeah.net', 'NetEase'],
+  ['qq.com', 'Tencent Exmail'], ['foxmail.com', 'Tencent Exmail'],
+  ['aliyun.com', 'Alibaba Mail'],
 ]);
 
 // MX / host hostname patterns → platform bucket, most specific first. For a
@@ -115,6 +121,9 @@ const PLATFORM_PATTERNS = [
   { re: /hostinger/i, bucket: 'Hostinger' },
   { re: /siteground/i, bucket: 'SiteGround' },
   { re: /(amazonaws\.com|awsapps\.com)/i, bucket: 'Amazon WorkMail' },
+  { re: /(netease\.com|mxmail\.netease|qiye163|163mx|\b163\.com|126\.com)/i, bucket: 'NetEase' },
+  { re: /(exmail\.qq\.com|mxbiz\d*\.qq\.com|\bqq\.com)/i, bucket: 'Tencent Exmail' },
+  { re: /(mxhichina\.com|aliyun|alibaba-inc|alimail)/i, bucket: 'Alibaba Mail' },
   { re: /(yandex)\./i, bucket: 'Yandex' },
   { re: /(\.mail\.ru|mxs\.mail\.ru)/i, bucket: 'Mail.ru' },
   { re: /(gmx\.|web\.de)/i, bucket: 'GMX/Web.de' },

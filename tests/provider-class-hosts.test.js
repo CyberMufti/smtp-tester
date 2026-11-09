@@ -29,6 +29,14 @@ test('security gateways are labeled by the gateway', () => {
   assert.equal(mx('a@acme.com', 'cust00000.in.cloud.barracuda.com'), 'Barracuda');
 });
 
+test('major Chinese providers are recognized', () => {
+  assert.equal(mx('a@junzejun.com', 'qiye163mx01.mxmail.netease.com'), 'NetEase');
+  assert.equal(mx('a@acme.com', 'mxbiz1.qq.com'), 'Tencent Exmail');
+  assert.equal(mx('a@acme.cn', 'mxn.mxhichina.com'), 'Alibaba Mail');
+  assert.equal(classifyProvider({ user: 'a@163.com' }), 'NetEase');
+  assert.equal(classifyProvider({ user: 'a@qq.com' }), 'Tencent Exmail');
+});
+
 test('consumer webmail domains added', () => {
   assert.equal(classifyProvider({ user: 'a@gmx.com' }), 'GMX/Web.de');
   assert.equal(classifyProvider({ user: 'a@web.de' }), 'GMX/Web.de');
