@@ -22,6 +22,26 @@ export const PROVIDER_BUCKETS = [
   'Zoho',
   'GoDaddy',
   'Network Solutions',
+  'IONOS',
+  'OVH',
+  'Rackspace',
+  'Namecheap',
+  'Proton Mail',
+  'Fastmail',
+  'iCloud',
+  'Yandex',
+  'Mail.ru',
+  'GMX/Web.de',
+  'Titan',
+  'HostGator',
+  'Bluehost',
+  'Hostinger',
+  'SiteGround',
+  'Amazon WorkMail',
+  // Security gateways (the real mailbox sits behind them).
+  'Mimecast',
+  'Proofpoint',
+  'Barracuda',
   // Self-hosted mail software, detected from the server banner (see
   // classifyFromBanner) when domain/MX give no platform signal.
   'Zimbra',
@@ -60,18 +80,45 @@ const CONSUMER_DOMAINS = new Map([
   ['gmail.com', 'Gmail'], ['googlemail.com', 'Gmail'],
   ['outlook.com', 'Outlook/Hotmail'], ['hotmail.com', 'Outlook/Hotmail'],
   ['live.com', 'Outlook/Hotmail'], ['msn.com', 'Outlook/Hotmail'],
-  ['yahoo.com', 'Yahoo/AOL'], ['ymail.com', 'Yahoo/AOL'], ['aol.com', 'Yahoo/AOL'],
+  ['yahoo.com', 'Yahoo/AOL'], ['ymail.com', 'Yahoo/AOL'], ['rocketmail.com', 'Yahoo/AOL'], ['aol.com', 'Yahoo/AOL'],
   ['zoho.com', 'Zoho'],
+  ['gmx.com', 'GMX/Web.de'], ['gmx.net', 'GMX/Web.de'], ['gmx.de', 'GMX/Web.de'], ['web.de', 'GMX/Web.de'],
+  ['proton.me', 'Proton Mail'], ['protonmail.com', 'Proton Mail'], ['pm.me', 'Proton Mail'],
+  ['icloud.com', 'iCloud'], ['me.com', 'iCloud'], ['mac.com', 'iCloud'],
+  ['yandex.com', 'Yandex'], ['yandex.ru', 'Yandex'], ['ya.ru', 'Yandex'],
+  ['mail.ru', 'Mail.ru'], ['bk.ru', 'Mail.ru'], ['inbox.ru', 'Mail.ru'], ['list.ru', 'Mail.ru'],
+  ['fastmail.com', 'Fastmail'],
 ]);
 
-// MX / host hostname patterns → platform bucket. For a custom domain, Google and
-// Microsoft MX mean the business platforms, not the consumer mailbox.
+// MX / host hostname patterns → platform bucket, most specific first. For a
+// custom domain, Google and Microsoft MX mean the business platforms. Security
+// gateways (Mimecast/Proofpoint/Barracuda) are labeled by the gateway since the
+// real mailbox is hidden behind them.
 const PLATFORM_PATTERNS = [
   { re: /(aspmx|googlemail|google)\./i, bucket: 'Google Workspace' },
   { re: /(protection\.outlook|mail\.protection|office365|outlook\.com)/i, bucket: 'Microsoft 365' },
+  { re: /(mimecast)\./i, bucket: 'Mimecast' },
+  { re: /(pphosted\.com|proofpoint)/i, bucket: 'Proofpoint' },
+  { re: /(barracuda(networks)?\.com|cudamail)/i, bucket: 'Barracuda' },
   { re: /zoho\./i, bucket: 'Zoho' },
-  { re: /(worldnic|netsol|networksolutions)\./i, bucket: 'Network Solutions' },
+  { re: /(worldnic|netsol|networksolutions)/i, bucket: 'Network Solutions' },
   { re: /secureserver\.net/i, bucket: 'GoDaddy' },
+  { re: /(\bionos\b|1and1|1und1|kundenserver\.de|perfora\.net|\bonline\.de)/i, bucket: 'IONOS' },
+  { re: /\bovh\.(net|com|ca|us|co\.uk)\b/i, bucket: 'OVH' },
+  { re: /emailsrvr\.com/i, bucket: 'Rackspace' },
+  { re: /(privateemail\.com|registrar-servers\.com)/i, bucket: 'Namecheap' },
+  { re: /(protonmail|proton\.me)/i, bucket: 'Proton Mail' },
+  { re: /(messagingengine\.com|fastmail)/i, bucket: 'Fastmail' },
+  { re: /titan\.email/i, bucket: 'Titan' },
+  { re: /(hostgator|websitewelcome\.com|launchpad.*hostgator)/i, bucket: 'HostGator' },
+  { re: /bluehost/i, bucket: 'Bluehost' },
+  { re: /hostinger/i, bucket: 'Hostinger' },
+  { re: /siteground/i, bucket: 'SiteGround' },
+  { re: /(amazonaws\.com|awsapps\.com)/i, bucket: 'Amazon WorkMail' },
+  { re: /(yandex)\./i, bucket: 'Yandex' },
+  { re: /(\.mail\.ru|mxs\.mail\.ru)/i, bucket: 'Mail.ru' },
+  { re: /(gmx\.|web\.de)/i, bucket: 'GMX/Web.de' },
+  { re: /(mail\.me\.com|icloud)/i, bucket: 'iCloud' },
   { re: /(yahoodns|yahoo)\./i, bucket: 'Yahoo/AOL' },
 ];
 
