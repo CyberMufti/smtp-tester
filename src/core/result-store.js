@@ -19,6 +19,8 @@ import {
   csvHeaderLine,
   csvRowLine,
   WORKING_GROUPS,
+  confirmedTxtHeaderLines,
+  CONFIRMED_STATUSES,
 } from './export.js';
 
 /**
@@ -130,6 +132,13 @@ export async function exportRun(src, dest, format, opts = {}) {
     } else if (format === 'csv') {
       await write(csvHeaderLine() + '\n');
       for await (const r of readResults(src)) await write(csvRowLine(r) + '\n');
+    } else if (format === 'confirmed') {
+      // Confirmed-delivered only (inbox/spam) — one bounded-memory pass, no
+      // grouping. Excludes "valid" (accepted but never found in a mailbox).
+      await write(confirmedTxtHeaderLines(opts.generatedAt).join('\n') + '\n');
+      for await (const r of readResults(src)) {
+        if (CONFIRMED_STATUSES.includes(r.status)) await write(workingCredLine(r) + '\n');
+      }
     } else {
       // txt — working credentials grouped by placement.
       await write(workingTxtHeaderLines(opts.generatedAt).join('\n') + '\n');

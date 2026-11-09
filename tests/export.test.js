@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toWorkingTxt } from '../src/core/export.js';
+import { toWorkingTxt, toConfirmedTxt } from '../src/core/export.js';
 import { parse } from '../src/core/parser.js';
 
 function result(status, cred, usedHost, usedPort) {
@@ -22,6 +22,33 @@ test('excludes dead results and groups the rest by status', () => {
   assert.ok(/# === INBOX \(1\) ===/.test(txt));
   assert.ok(/# === SPAM \(1\) ===/.test(txt));
   assert.ok(/# === VALID \/ SENT \(2\) ===/.test(txt));
+});
+
+test('toConfirmedTxt writes ONLY inbox+spam credentials as host:port:user:pass', () => {
+  const txt = toConfirmedTxt(SAMPLE, {});
+  // Confirmed-delivered only: inbox + spam.
+  assert.ok(txt.includes('smtp.gmail.com:587:a@gmail.com:p1'), 'inbox credential present');
+  assert.ok(txt.includes('smtp.x.com:587:b@x.com:p2'), 'spam credential present');
+  // Accepted-but-unconfirmed and dead must NOT appear.
+  assert.ok(!txt.includes('c@y.com'), 'valid (accepted, unconfirmed) must be excluded');
+  assert.ok(!txt.includes('e@gmail.com'), 'valid host-less must be excluded');
+  assert.ok(!txt.includes('dead.com'), 'dead must be excluded');
+});
+
+test('toConfirmedTxt output is re-importable: exactly the 2 confirmed creds', () => {
+  const { records, errors } = parse(toConfirmedTxt(SAMPLE, {}));
+  assert.equal(errors.length, 0);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records.map((r) => r.user).sort(), ['a@gmail.com', 'b@x.com']);
+});
+
+test('toConfirmedTxt is empty of credentials when nothing was confirmed', () => {
+  const noneConfirmed = [
+    result('valid', { host: 'smtp.y.com', port: 465, user: 'c@y.com', pass: 'p3' }, 'smtp.y.com', 465),
+    result('dead', { host: 'dead.com', port: 587, user: 'd@dead.com', pass: 'p4' }, null, null),
+  ];
+  const { records } = parse(toConfirmedTxt(noneConfirmed, {}));
+  assert.equal(records.length, 0);
 });
 
 test('writes the detected working host:port for a host-less credential', () => {

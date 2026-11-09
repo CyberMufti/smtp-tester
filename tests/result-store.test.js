@@ -85,3 +85,19 @@ test('exportRun txt excludes dead, groups by placement, and re-imports cleanly',
     assert.equal(records.length, 3, 'three working credentials round-trip');
   });
 });
+
+test('exportRun confirmed writes only inbox+spam credentials, re-importable', async () => {
+  await withTempDir(async (dir) => {
+    const { path } = await writeRun(dir);
+    const dest = join(dir, 'confirmed.txt');
+    await exportRun(path, dest, 'confirmed', { generatedAt: '2026-11-07' });
+    const txt = await readFile(dest, 'utf8');
+    assert.ok(txt.includes('smtp.gmail.com:587:a@gmail.com:p1'), 'inbox credential present');
+    assert.ok(txt.includes('smtp.x.com:587:b@x.com:p2'), 'spam credential present');
+    assert.ok(!txt.includes('c@y.com'), 'valid (unconfirmed) must be excluded');
+    assert.ok(!txt.includes('dead.com'), 'dead must be excluded');
+    const { records, errors } = parse(txt);
+    assert.equal(errors.length, 0);
+    assert.equal(records.length, 2, 'only the two confirmed credentials round-trip');
+  });
+});

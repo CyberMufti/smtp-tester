@@ -744,3 +744,15 @@ ipcMain.handle('results:exportRun', async (_e, { format }) => {
   await exportRun(runFilePath(), filePath, format, { generatedAt: new Date().toISOString() });
   return { saved: true, path: filePath };
 });
+
+// Confirmed-only export: just the SMTPs whose test message was found in a seed
+// inbox/spam folder, as re-importable host:port:user:pass. Written as a .txt.
+ipcMain.handle('results:exportConfirmed', async () => {
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: 'smtp-confirmed.txt',
+    filters: [{ name: 'TXT', extensions: ['txt'] }],
+  });
+  if (canceled || !filePath) return { saved: false };
+  await exportRun(runFilePath(), filePath, 'confirmed', { generatedAt: new Date().toISOString() });
+  return { saved: true, path: filePath };
+});

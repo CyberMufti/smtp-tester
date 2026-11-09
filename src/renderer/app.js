@@ -297,6 +297,10 @@ function setRunning(on) {
   // TXT export holds only working (non-dead) credentials.
   const working = testedCount - (counts.dead || 0);
   $('#btn-export-txt').disabled = on || working <= 0;
+  // Confirmed export holds only inbox+spam (message found in a seed mailbox).
+  const confirmed = (counts.inbox || 0) + (counts.spam || 0);
+  const ce = $('#btn-export-confirmed');
+  if (ce) ce.disabled = on || confirmed <= 0;
   const pe = $('#btn-export-protocols');
   if (pe) pe.disabled = on || testedCount === 0;
 }
@@ -582,6 +586,10 @@ function authBadges(a) {
 $('#btn-export-txt').addEventListener('click', () => doExport('txt'));
 $('#btn-export-csv').addEventListener('click', () => doExport('csv'));
 $('#btn-export-json').addEventListener('click', () => doExport('json'));
+$('#btn-export-confirmed')?.addEventListener('click', async () => {
+  const res = await api.exportConfirmed();
+  if (res?.saved) $('#progress-label').textContent = `Saved to ${res.path}`;
+});
 $('#btn-export-protocols')?.addEventListener('click', async () => {
   const res = await api.exportByProtocol();
   if (res.error) {

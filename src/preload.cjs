@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
   runProgress: () => ipcRenderer.invoke('run:progress'),
   cancel: () => ipcRenderer.invoke('batch:cancel'),
   exportRun: (format) => ipcRenderer.invoke('results:exportRun', { format }),
+  exportConfirmed: () => ipcRenderer.invoke('results:exportConfirmed'),
   exportByProtocol: () => ipcRenderer.invoke('results:exportByProtocol'),
   scoreContent: (content) => ipcRenderer.invoke('content:score', content),
   checkEmailAuth: (request) => ipcRenderer.invoke('auth:check', request),

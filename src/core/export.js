@@ -138,6 +138,40 @@ export function toWorkingTxt(results, { generatedAt = '' } = {}) {
   return lines.join('\n');
 }
 
+/**
+ * The statuses that mean a message was *confirmed delivered* to a seed mailbox
+ * (found over IMAP), as opposed to merely accepted by the SMTP server. "valid"
+ * only proves the server returned 250 OK — the mail may still have been dropped
+ * or filtered before any inbox — so it is deliberately excluded here.
+ */
+export const CONFIRMED_STATUSES = ['inbox', 'spam'];
+
+/** Header lines for a confirmed-only TXT export. */
+export function confirmedTxtHeaderLines(generatedAt = '') {
+  const lines = ['# SMTP Tester — confirmed delivered (landed in a seed inbox/spam)'];
+  if (generatedAt) lines.push(`# generated ${generatedAt}`);
+  lines.push('# format: host:port:username:password', '');
+  return lines;
+}
+
+/**
+ * Export only the credentials whose test message was confirmed delivered to a
+ * seed mailbox (status inbox or spam), as re-importable host:port:user:pass
+ * lines. Unlike {@link toWorkingTxt} this never includes "valid" (accepted but
+ * unconfirmed) results — it is the trustworthy set.
+ *
+ * @param {Result[]} results
+ * @param {{generatedAt?:string}} [opts]
+ * @returns {string}
+ */
+export function toConfirmedTxt(results, { generatedAt = '' } = {}) {
+  const lines = confirmedTxtHeaderLines(generatedAt);
+  for (const r of results || []) {
+    if (CONFIRMED_STATUSES.includes(r.status)) lines.push(workingCredLine(r));
+  }
+  return lines.join('\n') + '\n';
+}
+
 const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'userExists', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
 
 /** 'yes'/'no' when the account-existence probe had a verdict, else blank. */
