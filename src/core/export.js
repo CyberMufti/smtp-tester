@@ -119,6 +119,16 @@ export function hostGroupedExportFiles(results) {
   return files;
 }
 
+/**
+ * A lead is "alive" for the Leads export when the mailbox is provably real: the
+ * SMTP worked (any non-dead status), or the server refused the login but
+ * confirmed the account exists (dead + userExists === true). A dead result that
+ * reports no such user, or that never connected, is not a usable lead.
+ */
+function isAliveLead(r) {
+  return r.status !== 'dead' || r.userExists === true;
+}
+
 /** Which "SMTP result" status folder a working result belongs in. */
 function smtpStatusFolder(status) {
   if (status === 'inbox') return 'inbox';
@@ -160,12 +170,16 @@ export function resultFolderFiles(results) {
       add(`SMTP result/${smtpStatusFolder(st)}/${safeName(hostGroupKey(host))}.txt`, line);
     }
 
-    // Leads view — ALL tested leads (incl. dead), by provider bucket and server
-    // country (full name). Two cross-sections of the same leads.
-    const provider = safeName(r.provider || classifyProvider({ user: r.cred?.user, host }) || 'Unknown');
-    const country = safeName(countryName(r.country));
-    add(`Leads/hosts/${provider}/${provider}_${country}.txt`, line);
-    add(`Leads/countries/${country}/${provider}.txt`, line);
+    // Leads view — ALIVE leads only (the SMTP worked, or the server confirmed
+    // the account exists even though the password was wrong). Account-not-found
+    // and pure connection failures are not provable leads, so they're dropped.
+    // By provider bucket and server country (full name), two cross-sections.
+    if (isAliveLead(r)) {
+      const provider = safeName(r.provider || classifyProvider({ user: r.cred?.user, host }) || 'Unknown');
+      const country = safeName(countryName(r.country));
+      add(`Leads/hosts/${provider}/${provider}_${country}.txt`, line);
+      add(`Leads/countries/${country}/${provider}.txt`, line);
+    }
 
     if (r.panels) {
       const user = r.cred?.user || '?';
