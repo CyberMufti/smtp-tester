@@ -7,6 +7,7 @@ import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js'
 import { candidatesFor, detectProvider } from './providers.js';
 import { classifyProvider, classifyFromBanner, providerHomeCountry, serverLocationMeaningful } from './provider-class.js';
 import { grabBanner } from './banner.js';
+import { classifyM365Realm } from './ms-realm.js';
 import { domainCountry, countryName } from './country-names.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
@@ -291,6 +292,25 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       if (bucket) provider = bucket;
     } catch { /* keep the domain/MX classification */ }
   }
+
+  // Microsoft 365 sub-type: probe Microsoft's realm endpoint to tell how the
+  // tenant authenticates (Native Office / DesktopSSO / Federated-by-IdP /
+  // GoDaddy). Cached per domain; the prober is injected via deps so unit tests
+  // never hit the network. Refines the provider label, e.g. "Microsoft 365 — GoDaddy".
+  if (provider === 'Microsoft 365' && typeof opts.deps?.msRealm === 'function') {
+    const dom = domainOf(cred.user);
+    const cache = ctx?.realmCache || (ctx ? (ctx.realmCache = new Map()) : null);
+    try {
+      let sub = cache?.get(dom);
+      if (sub === undefined) {
+        const realm = await opts.deps.msRealm(cred.user);
+        sub = classifyM365Realm(realm) || null;
+        cache?.set(dom, sub);
+      }
+      if (sub) provider = `Microsoft 365 — ${sub}`;
+    } catch { /* keep base Microsoft 365 */ }
+  }
+
   let country;
   if (typeof opts.geoResolver === 'function') {
     const geoHost = usedHost || cred.host || mxForClass[0] || domainOf(cred.user);

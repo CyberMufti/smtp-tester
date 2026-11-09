@@ -12,6 +12,7 @@ import { createResultSink, exportRun, readRunProgress, readResults } from '../co
 import { resultFolderFiles } from '../core/export.js';
 import { makeGeoResolver, loadCountryLookup } from '../core/geoip.js';
 import { grabBanner } from '../core/banner.js';
+import { probeRealm } from '../core/ms-realm.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -591,7 +592,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, ...proxyOptions, geoResolver, lockoutRegistry, signal: currentAbort.signal, deps: { dns, evalAuth, grabBanner } },
+      { ...opts, ...proxyOptions, geoResolver, lockoutRegistry, signal: currentAbort.signal, deps: { dns, evalAuth, grabBanner, msRealm: (login) => probeRealm(login) } },
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
         try {
