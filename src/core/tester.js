@@ -5,7 +5,8 @@ import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
 import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
-import { classifyProvider } from './provider-class.js';
+import { classifyProvider, classifyFromBanner } from './provider-class.js';
+import { grabBanner } from './banner.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
@@ -269,7 +270,26 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   // Leads-filter classification: which mail provider this lead is on, and the
   // ISO country of the server it resolves to (GeoIP, best-effort — "Unknown"
   // when no database is loaded or the host can't be resolved).
-  const provider = classifyProvider({ user: cred.user, host: usedHost || cred.host, mxHosts: mxForClass });
+  const classHost = usedHost || cred.host;
+  let provider = classifyProvider({ user: cred.user, host: classHost, mxHosts: mxForClass });
+  // Domain/MX gave no platform signal: read the server banner to recognize
+  // self-hosted software (Zimbra, Exim/cPanel, Postfix, Exchange). Only when we
+  // actually reached the server (probing an unreachable host just wastes time),
+  // and cached per host so a bulk list probes each server once. The banner
+  // grabber is injected via deps so unit tests never touch the network.
+  const bannerGrab = opts.deps?.grabBanner || grabBanner;
+  if (opts.deps?.grabBanner && (provider === 'Other' || provider === 'Unknown') && step.connected && classHost) {
+    const cache = ctx?.bannerCache || (ctx ? (ctx.bannerCache = new Map()) : null);
+    try {
+      let bucket = cache?.get(classHost);
+      if (bucket === undefined) {
+        const banner = await bannerGrab(classHost, { timeout: opts.bannerTimeoutMs || 5000 });
+        bucket = classifyFromBanner(banner) || null;
+        cache?.set(classHost, bucket);
+      }
+      if (bucket) provider = bucket;
+    } catch { /* keep the domain/MX classification */ }
+  }
   let country;
   if (typeof opts.geoResolver === 'function') {
     const geoHost = usedHost || cred.host || mxForClass[0] || domainOf(cred.user);

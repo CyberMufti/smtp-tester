@@ -22,9 +22,38 @@ export const PROVIDER_BUCKETS = [
   'Zoho',
   'GoDaddy',
   'Network Solutions',
+  // Self-hosted mail software, detected from the server banner (see
+  // classifyFromBanner) when domain/MX give no platform signal.
+  'Zimbra',
+  'cPanel/Exim',
+  'Postfix',
+  'Microsoft Exchange',
   'Other',
   'Unknown',
 ];
+
+// Server-banner signatures, highest-priority first. Zimbra ships a customized
+// Postfix, so its marker must beat the generic Postfix one.
+const BANNER_PATTERNS = [
+  { re: /zimbra/i, bucket: 'Zimbra' },
+  { re: /(microsoft esmtp|exchange)/i, bucket: 'Microsoft Exchange' },
+  { re: /\bexim\b/i, bucket: 'cPanel/Exim' },
+  { re: /\bpostfix\b/i, bucket: 'Postfix' },
+];
+
+/**
+ * Classify self-hosted mail software from an SMTP/IMAP server banner (the
+ * greeting + EHLO response, or an IMAP capability line). Returns a provider
+ * bucket, or null when nothing recognizable is present.
+ * @param {string} bannerText
+ * @returns {string|null}
+ */
+export function classifyFromBanner(bannerText) {
+  const t = String(bannerText || '');
+  if (!t) return null;
+  const hit = BANNER_PATTERNS.find((p) => p.re.test(t));
+  return hit ? hit.bucket : null;
+}
 
 // Consumer email domains → bucket (the domain alone is authoritative).
 const CONSUMER_DOMAINS = new Map([
