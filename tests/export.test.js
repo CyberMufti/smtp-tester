@@ -122,3 +122,27 @@ test('hostGroupedExportFiles groups working SMTPs by host and separates unverifi
   // dead excluded entirely
   assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('f@x.com'))));
 });
+
+test('resultFolderFiles puts confirmed at top level, unconfirmed/unverified/limited in subfolders', async () => {
+  const { resultFolderFiles } = await import('../src/core/export.js');
+  const rows = [
+    result('inbox', { host: 'smtp.gmail.com', port: 587, user: 'a@gmail.com', pass: 'p1' }, 'smtp.gmail.com', 587),
+    result('spam', { host: 'smtp.gmail.com', port: 587, user: 'b@gmail.com', pass: 'p2' }, 'smtp.gmail.com', 587),
+    result('valid', { host: 'smtp.ionos.com', port: 587, user: 'c@ionos.com', pass: 'p3' }, 'smtp.ionos.com', 587),
+    result('unknown', { host: 'smtp.ionos.com', port: 587, user: 'd@ionos.com', pass: 'p4' }, 'smtp.ionos.com', 587),
+    result('unverified', { host: 'smtp.gmail.com', port: 587, user: 'e@gmail.com', pass: 'p5' }, 'smtp.gmail.com', 587),
+    result('limited', { host: 'smtp.gmail.com', port: 587, user: 'f@gmail.com', pass: 'p6' }, 'smtp.gmail.com', 587),
+    result('dead', { host: 'x.com', port: 587, user: 'g@x.com', pass: 'p7' }, null, null),
+  ];
+  const files = resultFolderFiles(rows);
+  // Confirmed (inbox + spam) land in a flat top-level per-provider file.
+  assert.deepEqual(files['gmail.com.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:b@gmail.com:p2']);
+  // Accepted-but-unconfirmed (valid + unknown) go under unconfirmed/.
+  assert.deepEqual(files['unconfirmed/ionos.com.txt'], ['smtp.ionos.com:587:c@ionos.com:p3', 'smtp.ionos.com:587:d@ionos.com:p4']);
+  // SPF/DMARC-missing and rate-limited keep their own subfolders.
+  assert.deepEqual(files['unverified/gmail.com.txt'], ['smtp.gmail.com:587:e@gmail.com:p5']);
+  assert.deepEqual(files['limited/gmail.com.txt'], ['smtp.gmail.com:587:f@gmail.com:p6']);
+  // Dead is never written, and confirmed files never contain unconfirmed creds.
+  assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('g@x.com'))));
+  assert.ok(!files['gmail.com.txt'].some((l) => l.includes('e@gmail.com')));
+});

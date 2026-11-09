@@ -4,12 +4,12 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
-import { createResultSink, exportRun, readRunProgress } from '../core/result-store.js';
-import { hostGroupedExportFiles } from '../core/export.js';
+import { createResultSink, exportRun, readRunProgress, readResults } from '../core/result-store.js';
+import { resultFolderFiles } from '../core/export.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -606,7 +606,16 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
         mainWindow?.webContents.send('batch:progress', { result, index });
       },
     );
-    return await sink.close();
+    const summary = await sink.close();
+    // Auto-write the per-provider result folder to the Desktop after every run,
+    // so the user never has to click Export. Best-effort: a write failure must
+    // not fail the run itself.
+    try {
+      await writeResultFolder(runFilePath(), resultFolderPath());
+    } catch (e) {
+      recordCrash('autoResultFolder', e);
+    }
+    return summary;
   } catch (err) {
     await sink.close().catch(() => {});
     throw err;
@@ -702,33 +711,45 @@ ipcMain.handle('batch:cancel', async () => {
 // Export the last run by streaming its JSONL file to the chosen format — the
 // results never come back through IPC, so a multi-million-row export stays
 // bounded in memory.
+// The Desktop folder a run's per-provider files are written to.
+function resultFolderPath() {
+  return join(app.getPath('desktop'), 'result');
+}
+
+/**
+ * Write a run's working credentials to `outDir` as one file per provider,
+ * grouped by trustworthiness (see resultFolderFiles). Streams the run file so a
+ * multi-million-row run stays bounded in memory — only the working lines are
+ * held. The folder is cleared first so it always reflects the latest run.
+ * Returns the number of files written. Never throws for a missing run file.
+ */
+async function writeResultFolder(runFile, outDir) {
+  if (!existsSync(runFile)) return { count: 0, folder: outDir };
+  const files = {};
+  for await (const r of readResults(runFile)) {
+    const one = resultFolderFiles([r]);
+    for (const [name, lines] of Object.entries(one)) (files[name] ||= []).push(...lines);
+  }
+  // Clear and recreate so stale providers from a previous run don't linger.
+  try { rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  mkdirSync(outDir, { recursive: true });
+  let count = 0;
+  for (const [name, arr] of Object.entries(files)) {
+    if (arr.length === 0) continue;
+    const full = join(outDir, name);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, arr.join('\n'));
+    count++;
+  }
+  return { count, folder: outDir };
+}
+
 ipcMain.handle('results:exportByProtocol', async () => {
   try {
     const filePath = runFilePath();
     if (!existsSync(filePath)) return { error: 'No results found' };
-
-    const lines = readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
-    const results = [];
-    for (const line of lines) {
-      try { results.push(JSON.parse(line)); } catch (e) { /* skip bad lines */ }
-    }
-    // Working SMTPs grouped by host (valid/<domain>.txt), with auth-gated ones
-    // kept wholly separate under unverified/<domain>.txt.
-    const files = hostGroupedExportFiles(results);
-
-    const dlPath = app.getPath('downloads');
-    const outDir = join(dlPath, 'result');
-    try { mkdirSync(outDir, { recursive: true }); } catch (e) { /* ignore if exists */ }
-    let count = 0;
-    for (const [name, arr] of Object.entries(files)) {
-      if (arr.length > 0) {
-        const full = join(outDir, name);
-        mkdirSync(dirname(full), { recursive: true });
-        writeFileSync(full, arr.join('\n'));
-        count++;
-      }
-    }
-    return { saved: true, count, folder: outDir };
+    const { count, folder } = await writeResultFolder(filePath, resultFolderPath());
+    return { saved: true, count, folder };
   } catch (err) {
     recordCrash('exportByProtocol', err);
     return { error: err.message };

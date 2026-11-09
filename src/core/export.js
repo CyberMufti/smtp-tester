@@ -118,6 +118,47 @@ export function hostGroupedExportFiles(results) {
 }
 
 /**
+ * Lay out a run for the Desktop `result/` folder, one file per provider domain,
+ * split by how trustworthy the result is:
+ *   <provider>.txt               confirmed delivered — inbox + spam
+ *   unconfirmed/<provider>.txt   accepted by the server but never confirmed in a
+ *                                seed inbox (valid + unknown-placement)
+ *   unverified/<provider>.txt    sent but the sending domain lacks SPF/DMARC
+ *   limited/<provider>.txt       login works but sends are rate/quota-limited
+ * Dead results are never written. Panel hits keep their flat cpanel_valid.txt
+ * etc. at the top level. Returns a map of relative path -> lines; the caller
+ * creates directories and writes the files. Pure and unit-tested.
+ *
+ * @param {Result[]} results
+ * @returns {Record<string, string[]>}
+ */
+export function resultFolderFiles(results) {
+  const files = {};
+  const add = (name, line) => { (files[name] ||= []).push(line); };
+  for (const r of results || []) {
+    const st = r.status;
+    if (st === 'dead') continue;
+    const host = r.usedHost || r.cred?.host || (r.cred?.user?.split('@')[1] || '');
+    const group = safeName(hostGroupKey(host));
+    const line = workingCredLine(r);
+    if (st === 'inbox' || st === 'spam') add(`${group}.txt`, line);           // confirmed
+    else if (st === 'unverified') add(`unverified/${group}.txt`, line);
+    else if (st === 'limited') add(`limited/${group}.txt`, line);
+    else add(`unconfirmed/${group}.txt`, line);                               // valid / unknown
+    if (r.panels) {
+      const user = r.cred?.user || '?';
+      const pass = r.cred?.pass || '?';
+      const pLine = `${host}:${user}:${pass}`;
+      if (r.panels.cpanel?.valid) add('cpanel_valid.txt', pLine);
+      if (r.panels.webmail?.valid) add('webmail_valid.txt', pLine);
+      if (r.panels.whm?.valid) add('whm_valid.txt', pLine);
+      if (r.panels.ssh?.valid) add('ssh_valid.txt', pLine);
+    }
+  }
+  return files;
+}
+
+/**
  * @param {Result[]} results
  * @param {{generatedAt?:string}} [opts]
  * @returns {string}
