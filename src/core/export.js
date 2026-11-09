@@ -7,7 +7,6 @@
  * @typedef {import('./tester.js').Result} Result
  */
 import { classifyProvider } from './provider-class.js';
-import { countryName } from './country-names.js';
 
 export const WORKING_GROUPS = [
   ['inbox', 'INBOX'],
@@ -176,7 +175,9 @@ export function resultFolderFiles(results) {
     // By provider bucket and server country (full name), two cross-sections.
     if (isAliveLead(r)) {
       const provider = safeName(r.provider || classifyProvider({ user: r.cred?.user, host }) || 'Unknown');
-      const country = safeName(countryName(r.country));
+      // Lead country = the domain's ccTLD country (accurate), NOT the mail
+      // server's GeoIP location (which, for cloud providers, is just a datacenter).
+      const country = safeName(r.domainCountry || 'Unknown');
       add(`Leads/hosts/${provider}/${provider}_${country}.txt`, line);
       add(`Leads/countries/${country}/${provider}.txt`, line);
     }

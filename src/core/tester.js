@@ -7,6 +7,7 @@ import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js'
 import { candidatesFor, detectProvider } from './providers.js';
 import { classifyProvider, classifyFromBanner } from './provider-class.js';
 import { grabBanner } from './banner.js';
+import { domainCountry } from './country-names.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
@@ -314,7 +315,8 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     manualRecipients,
     attempts,
     provider,
-    country,
+    country,                                   // server location (GeoIP of the mail server IP)
+    domainCountry: domainCountry(domainOf(cred.user) || ''), // lead country from the domain ccTLD
   };
 
   const deliverability = await runChecks(cred, usedHost, opts, ctx);

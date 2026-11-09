@@ -125,33 +125,35 @@ test('hostGroupedExportFiles groups working SMTPs by host and separates unverifi
 
 test('resultFolderFiles splits into SMTP result (by status/host) and Leads (alive only, by provider/country)', async () => {
   const { resultFolderFiles } = await import('../src/core/export.js');
-  const geo = (status, cred, host, provider, country, extra = {}) => ({ status, cred, usedHost: host, usedPort: cred.port, provider, country, ...extra });
+  // domainCountry = the lead's ccTLD country (what drives the Leads sort);
+  // `country` = server GeoIP (NOT used for folders, shown as info only).
+  const geo = (status, cred, host, provider, domainCountry, extra = {}) => ({ status, cred, usedHost: host, usedPort: cred.port, provider, country: 'US', domainCountry, ...extra });
   const rows = [
-    geo('inbox', { host: 'smtp.gmail.com', port: 587, user: 'a@gmail.com', pass: 'p1' }, 'smtp.gmail.com', 'Gmail', 'US'),
-    geo('spam', { host: 'smtp.mail.yahoo.com', port: 465, user: 'b@yahoo.com', pass: 'p2' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'IE'),
-    geo('valid', { host: 'smtp.ionos.com', port: 587, user: 'c@ionos.com', pass: 'p3' }, 'smtp.ionos.com', 'Other', 'DE'),
-    geo('unverified', { host: 'smtp.gmail.com', port: 587, user: 'e@gmail.com', pass: 'p5' }, 'smtp.gmail.com', 'Gmail', 'US'),
+    geo('inbox', { host: 'smtp.gmail.com', port: 587, user: 'a@acme.co.uk', pass: 'p1' }, 'smtp.gmail.com', 'Google Workspace', 'United Kingdom'),
+    geo('spam', { host: 'smtp.mail.yahoo.com', port: 465, user: 'b@firma.de', pass: 'p2' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'Germany'),
+    geo('valid', { host: 'smtp.ionos.com', port: 587, user: 'c@shop.com', pass: 'p3' }, 'smtp.ionos.com', 'IONOS', 'Unknown'),
+    geo('unverified', { host: 'smtp.gmail.com', port: 587, user: 'e@firm.co.uk', pass: 'p5' }, 'smtp.gmail.com', 'Google Workspace', 'United Kingdom'),
     // dead but the account EXISTS (wrong password) -> alive lead, included in Leads
-    geo('dead', { host: 'smtp.mail.yahoo.com', port: 587, user: 'g@yahoo.com', pass: 'p7' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'FR', { userExists: true }),
+    geo('dead', { host: 'smtp.mail.yahoo.com', port: 587, user: 'g@societe.fr', pass: 'p7' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'France', { userExists: true }),
     // dead, account NOT found -> not alive, excluded from Leads
-    geo('dead', { host: 'smtp.mail.yahoo.com', port: 587, user: 'h@yahoo.com', pass: 'p8' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'FR', { userExists: false }),
+    geo('dead', { host: 'smtp.mail.yahoo.com', port: 587, user: 'h@societe.fr', pass: 'p8' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'France', { userExists: false }),
     // dead on connect (no existence signal) -> excluded from Leads
-    geo('dead', { host: 'mail.gone.com', port: 587, user: 'i@gone.com', pass: 'p9' }, 'mail.gone.com', 'Other', 'US'),
+    geo('dead', { host: 'mail.gone.com', port: 587, user: 'i@gone.com', pass: 'p9' }, 'mail.gone.com', 'Other', 'Unknown'),
   ];
   const files = resultFolderFiles(rows);
 
   // SMTP result/: working SMTPs by delivery status, grouped by host. Dead excluded.
-  assert.deepEqual(files['SMTP result/inbox/gmail.com.txt'], ['smtp.gmail.com:587:a@gmail.com:p1']);
-  assert.deepEqual(files['SMTP result/spam/yahoo.com.txt'], ['smtp.mail.yahoo.com:465:b@yahoo.com:p2']);
-  assert.deepEqual(files['SMTP result/unconfirmed/ionos.com.txt'], ['smtp.ionos.com:587:c@ionos.com:p3']);
-  assert.deepEqual(files['SMTP result/unverified/gmail.com.txt'], ['smtp.gmail.com:587:e@gmail.com:p5']);
+  assert.deepEqual(files['SMTP result/inbox/gmail.com.txt'], ['smtp.gmail.com:587:a@acme.co.uk:p1']);
+  assert.deepEqual(files['SMTP result/spam/yahoo.com.txt'], ['smtp.mail.yahoo.com:465:b@firma.de:p2']);
+  assert.deepEqual(files['SMTP result/unconfirmed/ionos.com.txt'], ['smtp.ionos.com:587:c@shop.com:p3']);
   const smtpLines = Object.entries(files).filter(([k]) => k.startsWith('SMTP result/')).flatMap(([, v]) => v);
-  assert.ok(!smtpLines.some((l) => /g@yahoo|h@yahoo|i@gone/.test(l)), 'no dead creds under SMTP result');
+  assert.ok(!smtpLines.some((l) => /g@societe|h@societe|i@gone/.test(l)), 'no dead creds under SMTP result');
 
-  // Leads/: ALIVE leads only (working, or account confirmed to exist).
-  assert.deepEqual(files['Leads/hosts/Gmail/Gmail_United_States.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:e@gmail.com:p5']);
-  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_France.txt'], ['smtp.mail.yahoo.com:587:g@yahoo.com:p7']); // dead-but-account-exists kept
-  assert.deepEqual(files['Leads/countries/France/Yahoo_AOL.txt'], ['smtp.mail.yahoo.com:587:g@yahoo.com:p7']);
+  // Leads/: ALIVE leads only, sorted by DOMAIN country (ccTLD), not server GeoIP.
+  assert.deepEqual(files['Leads/hosts/Google_Workspace/Google_Workspace_United_Kingdom.txt'], ['smtp.gmail.com:587:a@acme.co.uk:p1', 'smtp.gmail.com:587:e@firm.co.uk:p5']);
+  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_France.txt'], ['smtp.mail.yahoo.com:587:g@societe.fr:p7']); // dead-but-account-exists kept
+  assert.deepEqual(files['Leads/countries/Germany/Yahoo_AOL.txt'], ['smtp.mail.yahoo.com:465:b@firma.de:p2']);
+  assert.deepEqual(files['Leads/countries/Unknown/IONOS.txt'], ['smtp.ionos.com:587:c@shop.com:p3']); // generic .com -> Unknown country
   // account-not-found and connect-failure dead leads are excluded entirely.
-  assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('h@yahoo.com') || l.includes('i@gone.com'))));
+  assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('h@societe.fr') || l.includes('i@gone.com'))));
 });

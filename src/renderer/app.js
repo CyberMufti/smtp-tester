@@ -339,7 +339,8 @@ api.onProgress(({ result }) => {
   // Track distinct provider/country values for the leads-filter dropdowns.
   const pBefore = seenProviders.size, cBefore = seenCountries.size;
   if (result.provider) seenProviders.add(result.provider);
-  if (result.country) seenCountries.add(result.country);
+  // The country filter targets the accurate lead country (domain TLD).
+  if (result.domainCountry) seenCountries.add(result.domainCountry);
   if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) refreshLeadFilters();
   // Retain only the newest window for the table; trim in bulk so this stays
   // amortized O(1) even across millions of results.
@@ -361,7 +362,7 @@ api.onProgress(({ result }) => {
 function rowMatches(r) {
   if (!(activeFilter === 'all' || r.status === activeFilter)) return false;
   if (activeProvider !== 'all' && (r.provider || 'Unknown') !== activeProvider) return false;
-  if (activeCountry !== 'all' && (r.country || 'Unknown') !== activeCountry) return false;
+  if (activeCountry !== 'all' && (r.domainCountry || 'Unknown') !== activeCountry) return false;
   return true;
 }
 
@@ -495,9 +496,12 @@ function rowHtml(r) {
   if (seedDetail) parts.push(seedDetail);
   else if (r.reason) parts.push(esc(r.reason));
 
-  // Leads classification: provider bucket + server country (GeoIP).
+  // Leads classification: provider bucket, lead country (domain TLD), and the
+  // mail-server location (GeoIP) shown separately — the server location is the
+  // datacenter, not where the lead is.
   if (r.provider && r.provider !== 'Unknown') parts.push(`<span class="dbadge b-neutral">${esc(r.provider)}</span>`);
-  if (r.country && r.country !== 'Unknown') parts.push(`<span class="dbadge b-neutral">🌐 ${esc(r.country)}</span>`);
+  if (r.domainCountry && r.domainCountry !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Lead country (from the domain's country TLD)">🏳 ${esc(r.domainCountry)}</span>`);
+  if (r.country && r.country !== 'Unknown') parts.push(`<span class="dbadge b-neutral" title="Mail-server location (GeoIP) — the datacenter, not the lead's country">🖥 ${esc(r.country)}</span>`);
 
   // Account-existence verdict (only present when a server refused the login).
   if (r.catchAll) parts.push('<span class="dbadge b-neutral">catch-all domain</span>');

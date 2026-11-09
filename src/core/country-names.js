@@ -58,3 +58,25 @@ export function countryName(code) {
   if (!c || c === 'UNKNOWN') return 'Unknown';
   return NAMES[c] || c;
 }
+
+// A few ccTLDs whose ISO code differs from the TLD label.
+const CCTLD_ALIAS = { uk: 'GB', su: 'RU', ac: 'SH', eu: 'Unknown' };
+// ccTLDs sold/used globally as vanity domains — not a reliable country signal.
+const VANITY_CCTLD = new Set(['io', 'co', 'me', 'tv', 'ai', 'cc', 'ws', 'fm', 'to', 'ly', 'gg', 'sh', 'nu', 'la', 'vc', 'gd', 'cx', 'st', 'ad', 'is']);
+
+/**
+ * The lead's country inferred from the domain's country-code TLD — the accurate
+ * signal for where a lead is, independent of where its mail server is hosted.
+ * Generic gTLDs (.com/.net/.org/…) and vanity ccTLDs (.io/.co/.me/…) give no
+ * country and return "Unknown".
+ *
+ * @param {string} domain e.g. "acme.co.uk"
+ * @returns {string} full country name or "Unknown"
+ */
+export function domainCountry(domain) {
+  const tld = String(domain || '').trim().toLowerCase().split('.').filter(Boolean).pop() || '';
+  if (tld.length !== 2 || VANITY_CCTLD.has(tld)) return 'Unknown';
+  const code = CCTLD_ALIAS[tld] || tld.toUpperCase();
+  if (code === 'Unknown') return 'Unknown';
+  return countryName(code);
+}
