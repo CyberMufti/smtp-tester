@@ -194,6 +194,15 @@ export function parseDelimitedLine(raw) {
   const trimmed = String(raw ?? '').trim();
   if (trimmed === '' || trimmed.startsWith('#')) return null;
 
+  // A URL is not a credential. ULP combolists (url:login:pass) and raw scraped
+  // URLs otherwise split on ":" into a bogus record — host="https",
+  // port=<a path number>, user="//host/path" — that gets tested as a real SMTP
+  // endpoint. The "scheme://" marker is unambiguous: no host:port:user:pass line
+  // begins with it. Reject with a clear reason so the user sees it was skipped.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    return { error: 'looks like a URL, not an SMTP credential (expected host:port:user:pass or email:password)' };
+  }
+
   // OAuth2 accounts can't ride the positional format (tokens contain the field
   // delimiters :, |, ,). They use an explicit, whitespace-separated tag line
   // parsed on its own so they still flow through the normal batch.
@@ -315,8 +324,15 @@ function buildRecord(fields, delim) {
   if (portIdx === -1) {
     return { error: `no numeric port field found` };
   }
-  let hostIdx = fields.findIndex((f, idx) => idx !== portIdx && HOSTNAME_RE.test(f) && !f.includes('@'));
-  if (hostIdx === -1) hostIdx = fields.findIndex((_, idx) => idx !== portIdx);
+  const hostIdx = fields.findIndex((f, idx) => idx !== portIdx && HOSTNAME_RE.test(f) && !f.includes('@'));
+  // No field looks like a real hostname (dotted, no slash/path). Reject rather
+  // than fabricate a host from an arbitrary field — otherwise junk like a URL
+  // path ("www.site.com/login.php") or a bare word ("randomword") would be sent
+  // off to be tested as a mail server, polluting results with guaranteed-dead
+  // rows that were never credentials in the first place.
+  if (hostIdx === -1) {
+    return { error: `no valid hostname field found (expected a dotted host like smtp.example.com)` };
+  }
 
   const rest = fields.filter((_, idx) => idx !== portIdx && idx !== hostIdx);
   if (rest.length < 2) {

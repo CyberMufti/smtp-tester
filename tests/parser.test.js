@@ -94,6 +94,35 @@ test('line with too few fields is a ParseError', () => {
   assert.equal(errors[0].line, 1);
 });
 
+test('a URL line (http/https) is rejected, not mis-parsed into host=scheme', () => {
+  // ULP combolists (url:login:pass) and raw scraped URLs must never be treated
+  // as SMTP credentials — splitting on ":" otherwise yields host="https",
+  // port=<a path number>, user="//host/path". These are not real endpoints.
+  for (const url of [
+    'https://www.soudeurs.com/inscription.php:1983:user@x.com:pass',
+    'https://www.soucompetidor.com.br/perfil-cadastro:1684:login:secret',
+    'http://example.com/login:25:a:b',
+  ]) {
+    const res = parseDelimitedLine(url);
+    assert.ok(res && res.error, `expected error for URL line: ${url}`);
+    assert.match(res.error, /url/i);
+  }
+});
+
+test('a field with no real hostname is rejected, not fabricated into a host', () => {
+  // These have a numeric "port" but no dotted hostname anywhere, so the old
+  // reordered-input fallback invented a host (the URL path, or a bare word) and
+  // tested it as a mail server. All must now be parse errors instead.
+  for (const line of [
+    'www.soudesergipe.com.br/inscription.php:2087:bob:pw', // schemeless URL + path
+    'randomword:8080:user:pass',                            // not a hostname
+    'foo bar baz 587',                                      // whitespace junk + a number
+  ]) {
+    const res = parseDelimitedLine(line);
+    assert.ok(res && res.error, `expected error for junk line: ${line}`);
+  }
+});
+
 // --- flexible "any format" detection ---------------------------------------
 
 test('dedupeCredentials removes exact duplicates, keeping the first and order', () => {
