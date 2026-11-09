@@ -572,15 +572,18 @@
               <p class="pane-sub">Mailboxes the app reads over IMAP to report Inbox vs Spam</p>
             </div>
             <div class="pane-actions">
-              <button id="btn-add-seed" class="btn primary">Add mailbox</button>
+              <button id="btn-add-seed" class="btn ghost">Add mailbox</button>
+              <button id="btn-save-seeds" class="btn primary">Save mailboxes</button>
             </div>
           </header>
           <section class="panel">
             <p class="muted">
               The app sends each test email to these mailboxes, then reads them over IMAP to
               report Inbox vs Spam. With no seeds, it still reports Dead / Valid (send only).
+              <b>After adding or editing a mailbox, click “Save mailboxes” to apply it.</b>
             </p>
             <div id="seeds-list" class="seeds-list"></div>
+            <div id="seed-save-status" class="muted" style="margin-top:8px"></div>
           </section>
 
           <section class="panel">

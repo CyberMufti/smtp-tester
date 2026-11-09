@@ -608,6 +608,23 @@ async function doExport(format) {
 const seedsList = $('#seeds-list');
 $('#btn-add-seed').addEventListener('click', () => addSeedRow({}));
 $('#btn-save-settings').addEventListener('click', saveSettings);
+// Persist seed mailboxes from this screen (collectSettings reads every .seed-card),
+// so a user never has to hunt for the Save button on another screen. Refreshes the
+// Test-screen banner immediately via saveSettings -> updateSeedNote.
+$('#btn-save-seeds')?.addEventListener('click', async () => {
+  const status = $('#seed-save-status');
+  if (status) status.textContent = 'Saving…';
+  try {
+    settings = await api.saveSettings(collectSettings());
+    updateSeedNote();
+    const st = seedPlacementStatus(settings.seeds || []);
+    if (status) status.textContent = st.enabled
+      ? `Saved ✓ — ${st.usableCount} mailbox${st.usableCount === 1 ? '' : 'es'} active for Inbox/Spam checks`
+      : 'Saved, but no usable mailbox yet — each needs address + IMAP host, user and password';
+  } catch (err) {
+    if (status) status.textContent = 'Save failed: ' + err.message;
+  }
+});
 $('#btn-save-proxy').addEventListener('click', async () => {
   settings = await api.saveSettings(collectSettings());
   $('#proxy-save-status').textContent = settings.proxy?.enabled ? 'Saved ✓ (proxy on)' : 'Saved ✓ (proxy off)';
