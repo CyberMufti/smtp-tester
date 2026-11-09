@@ -6,6 +6,8 @@
  *
  * @typedef {import('./tester.js').Result} Result
  */
+import { classifyProvider } from './provider-class.js';
+import { countryName } from './country-names.js';
 
 export const WORKING_GROUPS = [
   ['inbox', 'INBOX'],
@@ -117,17 +119,30 @@ export function hostGroupedExportFiles(results) {
   return files;
 }
 
+/** Which "SMTP result" status folder a working result belongs in. */
+function smtpStatusFolder(status) {
+  if (status === 'inbox') return 'inbox';
+  if (status === 'spam') return 'spam';
+  if (status === 'unverified') return 'unverified';
+  return 'unconfirmed'; // valid / unknown / limited — accepted, not confirmed
+}
+
 /**
- * Lay out a run for the Desktop `result/` folder, one file per provider domain,
- * split by how trustworthy the result is:
- *   <provider>.txt               confirmed delivered — inbox + spam
- *   unconfirmed/<provider>.txt   accepted by the server but never confirmed in a
- *                                seed inbox (valid + unknown-placement)
- *   unverified/<provider>.txt    sent but the sending domain lacks SPF/DMARC
- *   limited/<provider>.txt       login works but sends are rate/quota-limited
- * Dead results are never written. Panel hits keep their flat cpanel_valid.txt
- * etc. at the top level. Returns a map of relative path -> lines; the caller
- * creates directories and writes the files. Pure and unit-tested.
+ * Lay out a run for the Desktop `result/` folder as two views:
+ *
+ *   SMTP result/<status>/<host>.txt   working SMTPs by delivery status
+ *                                     (inbox | spam | unverified | unconfirmed),
+ *                                     grouped by registrable host domain; dead
+ *                                     credentials are excluded here.
+ *   Leads/hosts/<Provider>/<Provider>_<Country>.txt   every tested lead (dead
+ *   Leads/countries/<Country>/<Provider>.txt          included), by provider
+ *                                     bucket and server country (full name) —
+ *                                     two cross-sections of the same leads.
+ *
+ * Panel hits keep their flat cpanel_valid.txt etc. at the top level. Returns a
+ * map of relative path -> lines; the caller creates directories. Pure and
+ * unit-tested. provider/country come from the tester; absent values fall back
+ * to a live classification / "Unknown".
  *
  * @param {Result[]} results
  * @returns {Record<string, string[]>}
@@ -137,14 +152,21 @@ export function resultFolderFiles(results) {
   const add = (name, line) => { (files[name] ||= []).push(line); };
   for (const r of results || []) {
     const st = r.status;
-    if (st === 'dead') continue;
     const host = r.usedHost || r.cred?.host || (r.cred?.user?.split('@')[1] || '');
-    const group = safeName(hostGroupKey(host));
     const line = workingCredLine(r);
-    if (st === 'inbox' || st === 'spam') add(`${group}.txt`, line);           // confirmed
-    else if (st === 'unverified') add(`unverified/${group}.txt`, line);
-    else if (st === 'limited') add(`limited/${group}.txt`, line);
-    else add(`unconfirmed/${group}.txt`, line);                               // valid / unknown
+
+    // SMTP result view — working SMTPs only, by delivery status then host.
+    if (st !== 'dead') {
+      add(`SMTP result/${smtpStatusFolder(st)}/${safeName(hostGroupKey(host))}.txt`, line);
+    }
+
+    // Leads view — ALL tested leads (incl. dead), by provider bucket and server
+    // country (full name). Two cross-sections of the same leads.
+    const provider = safeName(r.provider || classifyProvider({ user: r.cred?.user, host }) || 'Unknown');
+    const country = safeName(countryName(r.country));
+    add(`Leads/hosts/${provider}/${provider}_${country}.txt`, line);
+    add(`Leads/countries/${country}/${provider}.txt`, line);
+
     if (r.panels) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';

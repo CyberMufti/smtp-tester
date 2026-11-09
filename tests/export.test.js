@@ -123,26 +123,30 @@ test('hostGroupedExportFiles groups working SMTPs by host and separates unverifi
   assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('f@x.com'))));
 });
 
-test('resultFolderFiles puts confirmed at top level, unconfirmed/unverified/limited in subfolders', async () => {
+test('resultFolderFiles splits into SMTP result (by status/host) and Leads (by provider/country)', async () => {
   const { resultFolderFiles } = await import('../src/core/export.js');
+  const geo = (status, cred, host, provider, country) => ({ status, cred, usedHost: host, usedPort: cred.port, provider, country });
   const rows = [
-    result('inbox', { host: 'smtp.gmail.com', port: 587, user: 'a@gmail.com', pass: 'p1' }, 'smtp.gmail.com', 587),
-    result('spam', { host: 'smtp.gmail.com', port: 587, user: 'b@gmail.com', pass: 'p2' }, 'smtp.gmail.com', 587),
-    result('valid', { host: 'smtp.ionos.com', port: 587, user: 'c@ionos.com', pass: 'p3' }, 'smtp.ionos.com', 587),
-    result('unknown', { host: 'smtp.ionos.com', port: 587, user: 'd@ionos.com', pass: 'p4' }, 'smtp.ionos.com', 587),
-    result('unverified', { host: 'smtp.gmail.com', port: 587, user: 'e@gmail.com', pass: 'p5' }, 'smtp.gmail.com', 587),
-    result('limited', { host: 'smtp.gmail.com', port: 587, user: 'f@gmail.com', pass: 'p6' }, 'smtp.gmail.com', 587),
-    result('dead', { host: 'x.com', port: 587, user: 'g@x.com', pass: 'p7' }, null, null),
+    geo('inbox', { host: 'smtp.gmail.com', port: 587, user: 'a@gmail.com', pass: 'p1' }, 'smtp.gmail.com', 'Gmail', 'US'),
+    geo('spam', { host: 'smtp.mail.yahoo.com', port: 465, user: 'b@yahoo.com', pass: 'p2' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'IE'),
+    geo('valid', { host: 'smtp.ionos.com', port: 587, user: 'c@ionos.com', pass: 'p3' }, 'smtp.ionos.com', 'Other', 'DE'),
+    geo('unverified', { host: 'smtp.gmail.com', port: 587, user: 'e@gmail.com', pass: 'p5' }, 'smtp.gmail.com', 'Gmail', 'US'),
+    geo('dead', { host: 'smtp.mail.yahoo.com', port: 587, user: 'g@yahoo.com', pass: 'p7' }, 'smtp.mail.yahoo.com', 'Yahoo/AOL', 'FR'),
   ];
   const files = resultFolderFiles(rows);
-  // Confirmed (inbox + spam) land in a flat top-level per-provider file.
-  assert.deepEqual(files['gmail.com.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:b@gmail.com:p2']);
-  // Accepted-but-unconfirmed (valid + unknown) go under unconfirmed/.
-  assert.deepEqual(files['unconfirmed/ionos.com.txt'], ['smtp.ionos.com:587:c@ionos.com:p3', 'smtp.ionos.com:587:d@ionos.com:p4']);
-  // SPF/DMARC-missing and rate-limited keep their own subfolders.
-  assert.deepEqual(files['unverified/gmail.com.txt'], ['smtp.gmail.com:587:e@gmail.com:p5']);
-  assert.deepEqual(files['limited/gmail.com.txt'], ['smtp.gmail.com:587:f@gmail.com:p6']);
-  // Dead is never written, and confirmed files never contain unconfirmed creds.
-  assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('g@x.com'))));
-  assert.ok(!files['gmail.com.txt'].some((l) => l.includes('e@gmail.com')));
+
+  // SMTP result/: working SMTPs by delivery status, grouped by host. Dead excluded.
+  assert.deepEqual(files['SMTP result/inbox/gmail.com.txt'], ['smtp.gmail.com:587:a@gmail.com:p1']);
+  assert.deepEqual(files['SMTP result/spam/yahoo.com.txt'], ['smtp.mail.yahoo.com:465:b@yahoo.com:p2']);
+  assert.deepEqual(files['SMTP result/unconfirmed/ionos.com.txt'], ['smtp.ionos.com:587:c@ionos.com:p3']);
+  assert.deepEqual(files['SMTP result/unverified/gmail.com.txt'], ['smtp.gmail.com:587:e@gmail.com:p5']);
+  assert.ok(!Object.keys(files).some((k) => k.startsWith('SMTP result/') && k.includes('g@yahoo')));
+  assert.ok(!('SMTP result/dead/yahoo.com.txt' in files), 'no dead folder under SMTP result');
+
+  // Leads/: ALL tested leads (incl dead), by provider bucket then country (full names).
+  assert.deepEqual(files['Leads/hosts/Gmail/Gmail_United_States.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:e@gmail.com:p5']);
+  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_Ireland.txt'], ['smtp.mail.yahoo.com:465:b@yahoo.com:p2']);
+  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_France.txt'], ['smtp.mail.yahoo.com:587:g@yahoo.com:p7']); // dead lead included
+  assert.deepEqual(files['Leads/countries/United_States/Gmail.txt'], ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.gmail.com:587:e@gmail.com:p5']);
+  assert.deepEqual(files['Leads/countries/France/Yahoo_AOL.txt'], ['smtp.mail.yahoo.com:587:g@yahoo.com:p7']);
 });
