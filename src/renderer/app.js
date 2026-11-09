@@ -1,4 +1,5 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
+import { seedPlacementStatus } from '../core/seed-status.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -715,10 +716,17 @@ async function saveSettings() {
 }
 
 function updateSeedNote() {
-  const n = settings?.seeds?.length || 0;
-  $('#seed-note').textContent = n
-    ? `${n} seed mailbox${n === 1 ? '' : 'es'} — placement enabled`
-    : 'No seeds — reports Dead / Valid only';
+  const status = seedPlacementStatus(settings?.seeds || []);
+  $('#seed-note').textContent = status.enabled
+    ? `${status.usableCount} seed mailbox${status.usableCount === 1 ? '' : 'es'} — placement enabled`
+    : 'No usable seeds — reports Dead / Valid only';
+  // Prominent banner on the Test screen whenever placement can't be verified.
+  const banner = $('#seed-warning');
+  if (banner) {
+    banner.hidden = !status.warn;
+    const txt = $('#seed-warning-text');
+    if (txt) txt.textContent = status.message;
+  }
 }
 
 function applySettingsToForm() {

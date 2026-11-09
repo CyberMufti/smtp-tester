@@ -14,3 +14,7 @@ python/build/
 
 # aider assistant artifacts
 .aider*
+
+# Local Claude Code settings (may contain secrets/tokens) + atomic-write temp files
+.claude/settings.local.json
+.claude/*.tmp*
