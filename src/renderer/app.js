@@ -9,6 +9,12 @@ let settings = null;
 let parsed = { records: [], errors: [] };
 let runTotal = 0;
 let activeFilter = 'all';
+let activeProvider = 'all';
+let activeCountry = 'all';
+// Distinct provider/country values seen across the whole run (not just the
+// retained window), so the filter dropdowns stay complete even after trimming.
+const seenProviders = new Set();
+const seenCountries = new Set();
 let running = false;
 
 // Results are streamed to disk in the main process (bounded memory), so the
@@ -33,6 +39,11 @@ function resetRunState() {
   testedCount = 0;
   recent = [];
   firstSpamScore = null;
+  seenProviders.clear();
+  seenCountries.clear();
+  activeProvider = 'all';
+  activeCountry = 'all';
+  refreshLeadFilters();
 }
 
 // ---------- Sidebar navigation ----------
@@ -325,6 +336,11 @@ api.onProgress(({ result }) => {
   testedCount++;
   counts[result.status] = (counts[result.status] || 0) + 1;
   if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
+  // Track distinct provider/country values for the leads-filter dropdowns.
+  const pBefore = seenProviders.size, cBefore = seenCountries.size;
+  if (result.provider) seenProviders.add(result.provider);
+  if (result.country) seenCountries.add(result.country);
+  if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) refreshLeadFilters();
   // Retain only the newest window for the table; trim in bulk so this stays
   // amortized O(1) even across millions of results.
   recent.push(result);
@@ -341,8 +357,32 @@ api.onProgress(({ result }) => {
   appendResultRow(result);
 });
 
+// Does a result pass all three active filters (status + provider + country)?
+function rowMatches(r) {
+  if (!(activeFilter === 'all' || r.status === activeFilter)) return false;
+  if (activeProvider !== 'all' && (r.provider || 'Unknown') !== activeProvider) return false;
+  if (activeCountry !== 'all' && (r.country || 'Unknown') !== activeCountry) return false;
+  return true;
+}
+
+// Repopulate the provider/country dropdowns from the values seen so far,
+// preserving the current selection.
+function refreshLeadFilters() {
+  const fill = (sel, values, label) => {
+    const el = $(sel);
+    if (!el) return;
+    const current = el.value;
+    const opts = [`<option value="all">${label}</option>`]
+      .concat([...values].sort().map((v) => `<option value="${esc(v)}">${esc(v)}</option>`));
+    el.innerHTML = opts.join('');
+    el.value = [...values].includes(current) || current === 'all' ? current : 'all';
+  };
+  fill('#filter-provider', seenProviders, 'All providers');
+  fill('#filter-country', seenCountries, 'All countries');
+}
+
 function appendResultRow(r) {
-  if (!(activeFilter === 'all' || r.status === activeFilter)) return;
+  if (!rowMatches(r)) return;
   const body = $('#results-body');
   const empty = body.querySelector('.empty-row');
   if (empty) empty.remove();
@@ -374,6 +414,8 @@ $('#filters').addEventListener('click', (e) => {
   $$('.chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
   renderResults();
 });
+$('#filter-provider')?.addEventListener('change', (e) => { activeProvider = e.target.value; renderResults(); });
+$('#filter-country')?.addEventListener('change', (e) => { activeCountry = e.target.value; renderResults(); });
 
 function renderResults() {
   renderSummary();
@@ -381,7 +423,7 @@ function renderResults() {
   renderRowsNote();
   const body = $('#results-body');
   // Filtering/paging works over the retained window of recent results.
-  const rows = recent.filter((r) => activeFilter === 'all' || r.status === activeFilter);
+  const rows = recent.filter(rowMatches);
   if (!rows.length) {
     body.innerHTML = `<tr class="empty-row"><td colspan="5">${
       testedCount ? 'No results match this filter in the recent window.' : 'No results yet. Paste credentials and click <b>Test All</b>.'
@@ -452,6 +494,10 @@ function rowHtml(r) {
     .join('');
   if (seedDetail) parts.push(seedDetail);
   else if (r.reason) parts.push(esc(r.reason));
+
+  // Leads classification: provider bucket + server country (GeoIP).
+  if (r.provider && r.provider !== 'Unknown') parts.push(`<span class="dbadge b-neutral">${esc(r.provider)}</span>`);
+  if (r.country && r.country !== 'Unknown') parts.push(`<span class="dbadge b-neutral">🌐 ${esc(r.country)}</span>`);
 
   // Account-existence verdict (only present when a server refused the login).
   if (r.catchAll) parts.push('<span class="dbadge b-neutral">catch-all domain</span>');

@@ -5,6 +5,7 @@ import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
 import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
+import { classifyProvider } from './provider-class.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
@@ -75,6 +76,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   let usedPort = null;
   let triedFallback = false;
   let sendResponse = null;
+  let mxForClass = [];
   const attempts = [];
 
   if (opts.lockoutRegistry && opts.lockoutRegistry.isLocked(cred.user, 'smtp')) {
@@ -103,6 +105,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       }
       ({ mxHosts, discovered } = ctx?.discoverCache.get(domain) || { mxHosts: [], discovered: [] });
     }
+    mxForClass = mxHosts;
 
     // Build the ordered list of (host, port) endpoints to try: the user's
     // input first, then the detected provider / discovered hosts as fallback.
@@ -263,6 +266,16 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     else deadReason = 'send';
   }
 
+  // Leads-filter classification: which mail provider this lead is on, and the
+  // ISO country of the server it resolves to (GeoIP, best-effort — "Unknown"
+  // when no database is loaded or the host can't be resolved).
+  const provider = classifyProvider({ user: cred.user, host: usedHost || cred.host, mxHosts: mxForClass });
+  let country;
+  if (typeof opts.geoResolver === 'function') {
+    const geoHost = usedHost || cred.host || mxForClass[0] || domainOf(cred.user);
+    try { country = geoHost ? await opts.geoResolver(geoHost) : 'Unknown'; } catch { country = 'Unknown'; }
+  }
+
   const result = {
     cred,
     status,
@@ -280,6 +293,8 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     sendResponse,
     manualRecipients,
     attempts,
+    provider,
+    country,
   };
 
   const deliverability = await runChecks(cred, usedHost, opts, ctx);

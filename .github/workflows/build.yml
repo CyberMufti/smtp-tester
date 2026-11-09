@@ -67,6 +67,12 @@ jobs:
           [ -f "$BIN.exe" ] && BIN="$BIN.exe"
           "$BIN" --selfcheck
 
+      # Fetch the GeoIP country database (DB-IP Lite) so electron-builder can
+      # bundle it. Best-effort — the script exits 0 even if the download fails.
+      - name: Download GeoIP database
+        shell: bash
+        run: node scripts/download-geoip.mjs
+
       # Expose code-signing env to electron-builder ONLY on Windows AND only when
       # a cert is configured. Setting CSC_LINK empty on macOS breaks its signing
       # path, so the vars must be absent there — hence this gated step instead of

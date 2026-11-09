@@ -10,6 +10,7 @@ import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress, readResults } from '../core/result-store.js';
 import { resultFolderFiles } from '../core/export.js';
+import { makeGeoResolver, loadCountryLookup } from '../core/geoip.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -546,8 +547,24 @@ async function* skipKnown(source, keys) {
  * `resume`, prior results in the run file are kept and already-tested
  * credentials are skipped.
  */
+// GeoIP country resolver, built once from the bundled DB-IP database. If the
+// database isn't present (e.g. a build without the download step), the lookup
+// yields null and every country degrades to "Unknown" — never an error.
+let geoResolverPromise = null;
+function getGeoResolver() {
+  if (!geoResolverPromise) {
+    geoResolverPromise = (async () => {
+      const dbPath = join(process.resourcesPath || app.getAppPath(), 'geoip', 'dbip-country-lite.mmdb');
+      const lookup = await loadCountryLookup(dbPath);
+      return makeGeoResolver({ resolve4: (h) => resolve4(h), lookup });
+    })();
+  }
+  return geoResolverPromise;
+}
+
 async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   currentAbort = new AbortController();
+  const geoResolver = await getGeoResolver();
   // Resume: keep prior results, append new ones, and skip anything already done.
   const prior = resume ? await safeReadProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
   const sink = resume
@@ -573,7 +590,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     await runBatch(
       effSource,
       seeds,
-      { ...opts, ...proxyOptions, lockoutRegistry, signal: currentAbort.signal, deps: { dns, evalAuth } },
+      { ...opts, ...proxyOptions, geoResolver, lockoutRegistry, signal: currentAbort.signal, deps: { dns, evalAuth } },
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
         try {

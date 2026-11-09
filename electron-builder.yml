@@ -31,6 +31,13 @@ extraResources:
     filter:
       - authcheck
       - authcheck.exe
+  # GeoIP country database (DB-IP Lite, CC BY 4.0), fetched by
+  # scripts/download-geoip.mjs before packaging. Absent in a build that skipped
+  # the download — the app then reports country as "Unknown".
+  - from: resources/geoip
+    to: geoip
+    filter:
+      - dbip-country-lite.mmdb
 mac:
   artifactName: SMTP-Tester-${version}-${arch}.${ext}
   category: public.app-category.utilities

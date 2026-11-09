@@ -206,6 +206,12 @@
                   <button class="chip-filter" data-filter="dead">Dead</button>
                   <button class="chip-filter" data-filter="unknown">Unknown</button>
                 </div>
+                <select id="filter-provider" class="lead-filter" title="Filter by mail provider">
+                  <option value="all">All providers</option>
+                </select>
+                <select id="filter-country" class="lead-filter" title="Filter by server country (GeoIP)">
+                  <option value="all">All countries</option>
+                </select>
                 <button id="btn-export-txt" class="btn primary" disabled>Save working SMTPs (.txt)</button>
                 <button id="btn-export-confirmed" class="btn primary" disabled title="Only SMTPs whose test message was confirmed in a seed inbox/spam folder">Save confirmed only (.txt)</button>
                 <button id="btn-export-csv" class="btn ghost" disabled>Export CSV</button>
