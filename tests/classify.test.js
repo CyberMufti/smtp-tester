@@ -68,7 +68,10 @@ test('sent, all seeds inbox -> inbox', () => {
   assert.equal(r.status, 'inbox');
 });
 
-test('sent, any seed spam -> spam (conservative)', () => {
+test('sent, inbox on one seed + spam on another -> inbox (best placement)', () => {
+  // It demonstrably reached an inbox, so a single strict receiver spam-filtering
+  // it must not mask that. The reason notes the partial spam; perSeed keeps the
+  // full breakdown.
   const r = classify({
     connected: true,
     authenticated: true,
@@ -78,7 +81,36 @@ test('sent, any seed spam -> spam (conservative)', () => {
       { label: 'Outlook', folder: 'spam' },
     ],
   });
+  assert.equal(r.status, 'inbox');
+  assert.match(r.reason, /inbox on 1 of 2 seeds \(spam on 1\)/);
+});
+
+test('sent, spam on every resolved seed -> spam', () => {
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: 'spam' },
+      { label: 'Rackspace', folder: 'spam' },
+    ],
+  });
   assert.equal(r.status, 'spam');
+  assert.match(r.reason, /spam on all 2 resolved seeds/);
+});
+
+test('sent, inbox on the only resolved seed (other errored) -> inbox', () => {
+  // The user-reported case: Gmail spam-filters or errors, Rackspace inboxes.
+  const r = classify({
+    connected: true,
+    authenticated: true,
+    sent: true,
+    seeds: [
+      { label: 'Gmail', folder: null, error: 'timeout' },
+      { label: 'Rackspace', folder: 'inbox' },
+    ],
+  });
+  assert.equal(r.status, 'inbox');
 });
 
 test('sent, all seeds null folder -> unknown', () => {

@@ -154,39 +154,34 @@ export function providerHomeCountry(bucket) {
   return PROVIDER_HOME_COUNTRY[bucket] || 'Unknown';
 }
 
-// Global/anycast platforms whose MX geolocates to an edge datacenter, so the
-// server's country says nothing about where the lead is. For every OTHER
-// provider (regional hosts, self-hosted servers), the mailbox lives in a real
-// datacenter the customer chose, so the server country is a usable fallback.
-const GLOBAL_EDGE_PROVIDERS = new Set([
-  'Gmail', 'Google Workspace', 'Microsoft 365', 'Outlook/Hotmail', 'Yahoo/AOL',
-  'Zoho', 'iCloud', 'Proton Mail', 'Fastmail', 'Yandex', 'Mail.ru', 'GMX/Web.de',
-  'NetEase', 'Tencent Exmail', 'Alibaba Mail', 'Amazon WorkMail',
-  'Mimecast', 'Proofpoint', 'Barracuda',
-  // Rackspace Email is a large shared multi-tenant platform whose *.emailsrvr.com
-  // mail hosts rotate across US and UK datacenters, so the server IP's country
-  // is not the lead's — it reported wrong/EU countries for US customers.
-  'Rackspace',
-  // IONOS (1&1) and OVH run their shared mail platforms from European
-  // datacenters (DE / FR), so a US customer's mail server geolocates to Germany
-  // or France — the server country is the datacenter's, not the lead's. Reported
-  // wrong EU countries for US customers, same failure mode as Rackspace. US-based
-  // resellers (Network Solutions, Intermedia/ServerData, GoDaddy) host in US
-  // datacenters and stay location-meaningful — their server GeoIP correctly
-  // reports US for US customers.
-  'IONOS',
-  'OVH',
+// Buckets for which the mail server's GeoIP country IS a usable lead-country
+// signal — i.e. self-hosted mail software detected from the server banner, where
+// the server is plausibly the customer's own machine in their own country
+// (an on-prem Exchange, a company cPanel/Exim box, a self-run Postfix/Zimbra).
+//
+// Every OTHER bucket is excluded on purpose: SaaS mailbox providers and hosting
+// resellers (Gmail/Microsoft/Rackspace/IONOS/GoDaddy/Network Solutions/…) run
+// shared, centralized — and often foreign — datacenters, so the server IP's
+// country is the datacenter's, not the lead's (it reported wrong EU countries
+// for US customers). The generic "Other"/"Unknown" buckets are excluded too: if
+// we could not even identify the provider, the server could be any reseller's
+// datacenter, so its country is not trustworthy as the lead's. In all those
+// cases the server location is still surfaced to the user as a separate
+// "datacenter" badge — it is just never promoted to the lead's country.
+const SELF_HOSTED_BUCKETS = new Set([
+  'Postfix', 'cPanel/Exim', 'Zimbra', 'Microsoft Exchange',
 ]);
 
 /**
  * Whether the mail server's GeoIP country is a meaningful lead-country signal
- * for this provider — true for regional/self-hosted servers, false for global
- * anycast platforms where the IP is just the nearest edge.
+ * for this provider — true only for self-hosted mail software (the server is
+ * likely the customer's own, in their country), false for every SaaS/reseller
+ * platform and for unidentified servers (the IP is just a shared datacenter).
  * @param {string} bucket
  * @returns {boolean}
  */
 export function serverLocationMeaningful(bucket) {
-  return !GLOBAL_EDGE_PROVIDERS.has(bucket);
+  return SELF_HOSTED_BUCKETS.has(bucket);
 }
 
 // MX / host hostname patterns → platform bucket, most specific first. For a

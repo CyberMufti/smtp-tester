@@ -179,8 +179,23 @@ export function classify(s) {
     return { status: allErrored ? 'valid' : 'unknown', reason, perSeed };
   }
 
-  if (resolved.some((seed) => seed.folder === 'spam')) {
-    return { status: 'spam', reason: 'landed in spam on at least one seed', perSeed };
+  // Best placement across seeds: a message that reached the inbox on ANY seed
+  // demonstrably inboxes somewhere, so it is reported "inbox" — reported "spam"
+  // only when EVERY seed that found it filed it as spam. This stops a single
+  // strict receiver (e.g. Gmail spam-filtering an automated test) from masking a
+  // genuine inbox hit on another seed and over-reporting the whole run as spam.
+  // The per-seed breakdown (perSeed) still shows exactly which seeds spammed it.
+  const inboxed = resolved.filter((seed) => seed.folder === 'inbox').length;
+  const spammed = resolved.length - inboxed;
+  if (inboxed > 0) {
+    const reason = spammed === 0
+      ? `landed in inbox on all ${resolved.length} resolved seed${resolved.length === 1 ? '' : 's'}`
+      : `landed in inbox on ${inboxed} of ${resolved.length} seeds (spam on ${spammed})`;
+    return { status: 'inbox', reason, perSeed };
   }
-  return { status: 'inbox', reason: 'landed in inbox on all resolved seeds', perSeed };
+  return {
+    status: 'spam',
+    reason: `landed in spam on all ${resolved.length} resolved seed${resolved.length === 1 ? '' : 's'}`,
+    perSeed,
+  };
 }

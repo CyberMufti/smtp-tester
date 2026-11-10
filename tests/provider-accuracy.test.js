@@ -56,18 +56,20 @@ test('MX still classifies when no host is present', () => {
   assert.equal(classifyProvider({ user: 'a@acme.com', mxHosts: ['mx01.ionos.co.uk'] }), 'IONOS');
 });
 
-// Regression: IONOS and OVH run European datacenters, so their mail server's
-// GeoIP is the datacenter country, NOT the customer's — US customers were
-// wrongly labeled Germany/France. Like Rackspace, their server location is not a
-// meaningful lead-country signal. (Network Solutions / Intermedia use US
-// datacenters and stay meaningful — those correctly reported US.)
-test('IONOS and OVH server GeoIP is the datacenter, NOT the lead country', () => {
-  assert.equal(serverLocationMeaningful('IONOS'), false);
-  assert.equal(serverLocationMeaningful('OVH'), false);
+// The lead country comes from the server GeoIP only for self-hosted mail
+// software (likely the customer's own machine). Every SaaS/reseller platform —
+// IONOS, OVH, Rackspace, and even US-datacenter resellers like Network Solutions
+// / Intermedia / GoDaddy — runs shared datacenters, so the server IP is NOT
+// promoted to the lead country (it stays a separate "datacenter" badge). This
+// stops US creds on foreign-hosted platforms from being labeled Germany/France.
+test('reseller platforms do not use server GeoIP as the lead country', () => {
+  for (const p of ['IONOS', 'OVH', 'Rackspace', 'Network Solutions', 'Intermedia', 'GoDaddy']) {
+    assert.equal(serverLocationMeaningful(p), false, p);
+  }
 });
 
-test('US-datacenter resellers keep server GeoIP as a meaningful signal', () => {
-  assert.equal(serverLocationMeaningful('Network Solutions'), true);
-  assert.equal(serverLocationMeaningful('Intermedia'), true);
-  assert.equal(serverLocationMeaningful('GoDaddy'), true);
+test('self-hosted software still uses server GeoIP as the lead country', () => {
+  for (const p of ['Postfix', 'cPanel/Exim', 'Zimbra', 'Microsoft Exchange']) {
+    assert.equal(serverLocationMeaningful(p), true, p);
+  }
 });
