@@ -46,7 +46,7 @@ function defaultProbe(host, port, { timeout = 5000 } = {}) {
  * @param {{ timeout?:number, ports?:number[], probe?:(host:string,port:number,opts:object)=>Promise<string> }} [opts]
  * @returns {Promise<string>}
  */
-export async function grabBanner(host, { timeout = 5000, ports = [587, 993, 465], probe = defaultProbe } = {}) {
+export async function grabBanner(host, { timeout = 5000, ports = [25, 587, 465, 993], probe = defaultProbe } = {}) {
   if (!host) return '';
   const results = await Promise.all(ports.map((p) => Promise.resolve().then(() => probe(host, p, { timeout })).catch(() => '')));
   return results.filter(Boolean).join('\n');
