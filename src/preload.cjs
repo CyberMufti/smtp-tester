@@ -85,6 +85,7 @@ contextBridge.exposeInMainWorld('api', {
   // Email Verifier (passwordless existence check).
   verifyRun: (emails) => ipcRenderer.invoke('verify:run', { emails }),
   verifyCancel: () => ipcRenderer.invoke('verify:cancel'),
+  exportVerified: (results) => ipcRenderer.invoke('verify:export', { results }),
   onVerifyProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('verify:progress', handler);

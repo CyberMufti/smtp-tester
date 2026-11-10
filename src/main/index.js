@@ -9,7 +9,7 @@ import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress, readResults } from '../core/result-store.js';
-import { resultFolderFiles } from '../core/export.js';
+import { resultFolderFiles, verifiedFolderFiles } from '../core/export.js';
 import { makeGeoResolver, loadCountryLookup } from '../core/geoip.js';
 import { grabBanner } from '../core/banner.js';
 import { probeRealm } from '../core/ms-realm.js';
@@ -792,8 +792,11 @@ async function writeResultFolder(runFile, outDir) {
     const one = resultFolderFiles([r]);
     for (const [name, lines] of Object.entries(one)) (files[name] ||= []).push(...lines);
   }
-  // Clear and recreate so stale providers from a previous run don't linger.
-  try { rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  // Clear only the subtrees this function owns (SMTP result/ and Leads/) so a
+  // separate verified/ folder from the Email Verifier is preserved across runs.
+  for (const sub of ['SMTP result', 'Leads']) {
+    try { rmSync(join(outDir, sub), { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  }
   mkdirSync(outDir, { recursive: true });
   let count = 0;
   for (const [name, arr] of Object.entries(files)) {
@@ -805,6 +808,34 @@ async function writeResultFolder(runFile, outDir) {
   }
   return { count, folder: outDir };
 }
+
+// Write the Email Verifier's VALID addresses to Desktop/result/verified/, one
+// file per provider+country. Clears only result/verified first.
+async function writeVerifiedFolder(results) {
+  const outDir = join(resultFolderPath(), 'verified');
+  const files = verifiedFolderFiles(results || []);
+  try { rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  mkdirSync(outDir, { recursive: true });
+  let count = 0;
+  let emails = 0;
+  for (const [name, arr] of Object.entries(files)) {
+    if (!arr.length) continue;
+    writeFileSync(join(outDir, name), arr.join('\n'));
+    count++;
+    emails += arr.length;
+  }
+  return { count, emails, folder: outDir };
+}
+
+ipcMain.handle('verify:export', async (_e, { results }) => {
+  try {
+    const { count, emails, folder } = await writeVerifiedFolder(results);
+    return { saved: true, count, emails, folder };
+  } catch (err) {
+    recordCrash('verifyExport', err);
+    return { error: err.message };
+  }
+});
 
 ipcMain.handle('results:exportByProtocol', async () => {
   try {

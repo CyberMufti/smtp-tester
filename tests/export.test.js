@@ -157,3 +157,18 @@ test('resultFolderFiles splits into SMTP result (by status/host) and Leads (aliv
   // account-not-found and connect-failure dead leads are excluded entirely.
   assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('h@societe.fr') || l.includes('i@gone.com'))));
 });
+
+test('verifiedFolderFiles groups VALID verified addresses by provider_country', async () => {
+  const { verifiedFolderFiles } = await import('../src/core/export.js');
+  const rows = [
+    { email: 'a@yahoo.com', status: 'valid', provider: 'Yahoo/AOL', country: 'United States' },
+    { email: 'b@yahoo.com', status: 'valid', provider: 'Yahoo/AOL', country: 'United States' },
+    { email: 'c@acme.de', status: 'valid', provider: 'Microsoft 365', country: 'Germany' },
+    { email: 'd@acme.com', status: 'invalid', provider: 'Gmail', country: 'Unknown' },
+    { email: 'e@acme.com', status: 'catch-all', provider: 'Gmail', country: 'Unknown' },
+  ];
+  const files = verifiedFolderFiles(rows);
+  assert.deepEqual(files['Yahoo_AOL_United_States.txt'], ['a@yahoo.com', 'b@yahoo.com']);
+  assert.deepEqual(files['Microsoft_365_Germany.txt'], ['c@acme.de']);
+  assert.ok(!Object.values(files).some((arr) => arr.includes('d@acme.com') || arr.includes('e@acme.com')), 'only valid');
+});

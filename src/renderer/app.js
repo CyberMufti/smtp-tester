@@ -722,14 +722,10 @@ function renderVerifySummary() {
   const order = [['valid', 'Valid'], ['invalid', 'Invalid'], ['catch-all', 'Catch-all'], ['unknown', 'Unknown'], ['no-mx', 'No MX'], ['invalid-syntax', 'Bad syntax']];
   $('#verify-summary').innerHTML = verifyResults.length ? order.filter(([k]) => counts[k]).map(([k, l]) => `<span class="summary-chip status-${k}">${l}: ${counts[k]}</span>`).join('') : '';
 }
-$('#btn-verify-export')?.addEventListener('click', () => {
-  const valid = verifyResults.filter((r) => r.status === 'valid').map((r) => r.email);
-  const blob = new Blob([valid.join('\n') + '\n'], { type: 'text/plain' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'verified-emails.txt';
-  a.click();
-  URL.revokeObjectURL(a.href);
+$('#btn-verify-export')?.addEventListener('click', async () => {
+  const res = await api.exportVerified(verifyResults);
+  if (res?.saved) $('#verify-progress').textContent = `Saved ${res.emails} verified to ${res.folder} (${res.count} files)`;
+  else if (res?.error) $('#verify-progress').textContent = 'Export failed: ' + res.error;
 });
 
 // ---------- Settings ----------

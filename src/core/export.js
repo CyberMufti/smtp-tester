@@ -128,6 +128,26 @@ function isAliveLead(r) {
   return r.status !== 'dead' || r.userExists === true;
 }
 
+/**
+ * Group VALID verified addresses (from the Email Verifier) into one file per
+ * provider + country, for the Desktop result/verified/ folder:
+ *   <Provider>_<Country>.txt   e.g. Yahoo_AOL_United_States.txt
+ * Only status === 'valid' (confirmed-existing) addresses are written. Returns a
+ * map of filename -> email addresses. Pure and unit-tested.
+ *
+ * @param {Array<{email:string,status:string,provider?:string,country?:string}>} results
+ * @returns {Record<string, string[]>}
+ */
+export function verifiedFolderFiles(results) {
+  const files = {};
+  for (const r of results || []) {
+    if (r.status !== 'valid' || !r.email) continue;
+    const name = `${safeName(r.provider || 'Unknown')}_${safeName(r.country || 'Unknown')}.txt`;
+    (files[name] ||= []).push(r.email);
+  }
+  return files;
+}
+
 /** Which "SMTP result" status folder a working result belongs in. */
 function smtpStatusFolder(status) {
   if (status === 'inbox') return 'inbox';
