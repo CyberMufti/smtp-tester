@@ -72,6 +72,25 @@ test('a rejecting task becomes an error marker, not a timeout', async () => {
   assert.ok(!out[0].timeout, 'a rejection is not reported as a timeout');
 });
 
+test('pending tasks receive an aborted signal when the budget trips', async () => {
+  const timers = fakeTimers();
+  let abortedSeen = false;
+  const promise = settleWithBudget(
+    [{
+      label: 'stuck',
+      run: (signal) => new Promise((resolve) => {
+        signal.addEventListener('abort', () => { abortedSeen = true; resolve('done'); });
+      }),
+    }],
+    1000,
+    { setTimer: timers.set, clearTimer: timers.clear },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  timers.fire(); // trip the budget
+  await promise;
+  assert.equal(abortedSeen, true, 'a pending task should see its signal abort so it can release sockets');
+});
+
 test('empty task list resolves to an empty array without arming a timer', async () => {
   const timers = fakeTimers();
   const out = await settleWithBudget([], 1000, { setTimer: timers.set, clearTimer: timers.clear });

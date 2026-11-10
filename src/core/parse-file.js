@@ -54,10 +54,8 @@ export function parsedCredsPathFor(dir, srcPath) {
  */
 export async function* streamCredentialsFromFile(filePath, opts = {}) {
   const { dedupe = true, onError, maxDedupeKeys = DEFAULT_MAX_DEDUPE_KEYS } = opts;
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
+  const input = createReadStream(filePath, { encoding: 'utf8' });
+  const rl = createInterface({ input, crlfDelay: Infinity });
   const seen = dedupe ? new Set() : null;
   let lineNo = 0;
   try {
@@ -80,6 +78,9 @@ export async function* streamCredentialsFromFile(filePath, opts = {}) {
     }
   } finally {
     rl.close();
+    // readline.close() does not close the underlying file stream; destroy it so
+    // an early `break` by the consumer can't leak the fd.
+    input.destroy();
   }
 }
 
@@ -128,11 +129,13 @@ export async function countCredentialsInFile(filePath, opts = {}) {
  */
 export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
   const { onError, maxDedupeKeys = DEFAULT_MAX_DEDUPE_KEYS } = opts;
-  const rl = createInterface({
-    input: createReadStream(srcPath, { encoding: 'utf8' }),
-    crlfDelay: Infinity,
-  });
+  const input = createReadStream(srcPath, { encoding: 'utf8' });
+  const rl = createInterface({ input, crlfDelay: Infinity });
   const out = createWriteStream(destPath, { flags: 'w' });
+  // Capture a write-stream error (e.g. ENOSPC) so it surfaces as a rejection
+  // instead of hanging a pending drain-await or crashing via an unhandled event.
+  let outErr = null;
+  out.on('error', (e) => { outErr = e; });
   const seen = new Set();
   const sample = [];
   let count = 0;
@@ -141,6 +144,7 @@ export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
   let dedupeTruncated = false;
   try {
     for await (const raw of rl) {
+      if (outErr) throw outErr; // disk/write failure — stop rather than spin
       lineNo++;
       const res = parseDelimitedLine(raw);
       if (!res) continue; // blank or comment
@@ -160,11 +164,16 @@ export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
       if (sample.length < 5) sample.push(res.record);
       // Write the trimmed source line verbatim so re-parsing is identical.
       if (!out.write(raw.trim() + '\n')) {
-        await new Promise((resolve) => out.once('drain', resolve));
+        // Race drain against error so a write failure can't hang this await.
+        await new Promise((resolve, reject) => {
+          out.once('drain', resolve);
+          out.once('error', reject);
+        });
       }
     }
   } finally {
     rl.close();
+    input.destroy();
     await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
   }
   return { count, errors, sample, dedupeTruncated };

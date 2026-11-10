@@ -62,7 +62,11 @@ export async function loadSettings() {
 /** Persist a full settings object. @param {Settings} settings */
 export async function saveSettings(settings) {
   const store = await getStore();
-  const merged = mergeSettings(defaultSettings(), settings);
+  // Fold the incoming patch over the CURRENTLY STORED settings (not just
+  // defaults), so keys written by a separate path and not present in the
+  // renderer payload — e.g. `hostMap` via hostmap:save — aren't clobbered.
+  const base = mergeSettings(defaultSettings(), store.get('settings') || {});
+  const merged = mergeSettings(base, settings);
   store.set('settings', merged);
   return merged;
 }

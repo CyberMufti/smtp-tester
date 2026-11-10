@@ -252,7 +252,7 @@ async function bootstrapSidecar() {
     recordCrash('sidecarBootstrap', err);
     sidecarStatus = { state: 'unavailable', reason: 'error', detail: err.message };
   }
-  mainWindow?.webContents.send('auth:status', sidecarStatus);
+  try { mainWindow?.webContents.send('auth:status', sidecarStatus); } catch { /* window gone */ }
 }
 
 // Record unexpected errors to a log file (and keep the app alive) so a stray
@@ -284,6 +284,11 @@ function createWindow() {
   });
   mainWindow.removeMenu?.();
   mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
+  // Null the reference on close so the pervasive `mainWindow?.webContents.send`
+  // guards short-circuit instead of throwing "Object has been destroyed" when a
+  // timer/monitor/batcher fires after the window is gone (notably on macOS,
+  // where closing the window keeps the app alive).
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 function proxyPoolPath() {
@@ -349,6 +354,13 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Stop the background intervals on quit so they can't fire against a torn-down
+// window (notably on macOS, where closing the window keeps the app running).
+app.on('before-quit', () => {
+  if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+  if (proxyDaemonTimer) { clearInterval(proxyDaemonTimer); proxyDaemonTimer = null; }
 });
 
 // --- IPC handlers ---------------------------------------------------------
@@ -507,7 +519,8 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
 async function loadBreachSet(path) {
   if (!path) return null;
   const set = new Set();
-  const rl = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
+  const input = createReadStream(path, { encoding: 'utf8' });
+  const rl = createInterface({ input, crlfDelay: Infinity });
   try {
     for await (const line of rl) {
       const h = line.trim().split(/[:\s,]/)[0].toUpperCase();
@@ -515,6 +528,7 @@ async function loadBreachSet(path) {
     }
   } finally {
     rl.close();
+    input.destroy(); // readline.close() leaves the file stream open on an early throw
   }
   return set;
 }
@@ -608,7 +622,11 @@ function getGeoResolver() {
   if (!geoResolverPromise) {
     geoResolverPromise = (async () => {
       const dbPath = join(process.resourcesPath || app.getAppPath(), 'geoip', 'dbip-country-lite.mmdb');
-      const lookup = await loadCountryLookup(dbPath);
+      // A corrupt/truncated .mmdb makes loadCountryLookup throw; swallow it so
+      // the resolver never rejects (which would be cached forever and poison
+      // every subsequent run/verify). No DB -> null lookup -> country "Unknown".
+      let lookup = null;
+      try { lookup = await loadCountryLookup(dbPath); } catch (err) { recordCrash('geoipLoad', err); }
       return makeGeoResolver({ resolve4: (h) => resolve4(h), lookup });
     })();
   }
@@ -617,35 +635,40 @@ function getGeoResolver() {
 
 async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   currentAbort = new AbortController();
-  const geoResolver = await getGeoResolver();
-  // Resume: keep prior results, append new ones, and skip anything already done.
-  const prior = resume ? await safeReadProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
-  const sink = resume
-    ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
-    : createResultSink(runFilePath());
-  // Coalesce per-credential progress into batched IPC sends. One message per
-  // credential floods the renderer (and this process) at large scale; a batched
-  // array keeps the message rate bounded while delivering every result.
-  const progress = createProgressBatcher({
-    flush: (items) => mainWindow?.webContents.send('batch:progress', items),
-  });
-  const effSource = resume ? skipKnown(source, prior.keys) : source;
-  // Pool rotation happens per credential via proxyProvider; manual proxy is the fallback.
-  const hasPool = proxyPool.size().valid > 0;
-  const proxyOptions = {
-    proxy: proxyUrlFrom(opts.proxyConfig),
-    ...(hasPool ? {
-      proxyProvider: () => proxyPool.getNext(),
-      onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
-    } : {}),
-  };
-  // When the email-auth sidecar is ready, give the batch a real SPF/DMARC
-  // evaluator so deliverability checks (and the valid->unverified gate) use
-  // actual SPF-against-sending-IP and DMARC alignment, not just record presence.
-  const evalAuth = sidecarStatus.state === 'ready'
-    ? (request) => runAuthSidecar(request, { exec: authExec() })
-    : null;
+  // Declared before the try so the catch/finally can clean up even if the
+  // setup below throws — otherwise an early failure strands the renderer in
+  // the "running" state (currentAbort non-null, batch:done never sent).
+  let sink = null;
+  let progress = null;
   try {
+    const geoResolver = await getGeoResolver();
+    // Resume: keep prior results, append new ones, and skip anything already done.
+    const prior = resume ? await safeReadProgress(runFilePath()) : { keys: new Set(), total: 0, counts: {} };
+    sink = resume
+      ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
+      : createResultSink(runFilePath());
+    // Coalesce per-credential progress into batched IPC sends. One message per
+    // credential floods the renderer (and this process) at large scale; a batched
+    // array keeps the message rate bounded while delivering every result.
+    progress = createProgressBatcher({
+      flush: (items) => mainWindow?.webContents.send('batch:progress', items),
+    });
+    const effSource = resume ? skipKnown(source, prior.keys) : source;
+    // Pool rotation happens per credential via proxyProvider; manual proxy is the fallback.
+    const hasPool = proxyPool.size().valid > 0;
+    const proxyOptions = {
+      proxy: proxyUrlFrom(opts.proxyConfig),
+      ...(hasPool ? {
+        proxyProvider: () => proxyPool.getNext(),
+        onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
+      } : {}),
+    };
+    // When the email-auth sidecar is ready, give the batch a real SPF/DMARC
+    // evaluator so deliverability checks (and the valid->unverified gate) use
+    // actual SPF-against-sending-IP and DMARC alignment, not just record presence.
+    const evalAuth = sidecarStatus.state === 'ready'
+      ? (request) => runAuthSidecar(request, { exec: authExec() })
+      : null;
     await runBatch(
       effSource,
       seeds,
@@ -668,18 +691,21 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
               // Budget the whole fan-out: a probe that ignores its own timeout
               // must not hang the worker. Unfinished probes come back as a
               // timeout marker so the credential's result is still delivered.
+              // The budget passes each probe an AbortSignal that fires when it
+              // trips, so a probe outliving the budget can stop and release its
+              // socket instead of leaking it (the probe fns honor opts.signal).
               const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR, cyber, webmin, hestia] = await settleWithBudget([
-                { label: 'cpanel', run: () => safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443], proxy: panelProxy }).then(r => r[0]), 'cpanel') },
-                { label: 'webmail', run: () => safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095], proxy: panelProxy }).then(r => r[0]), 'webmail') },
-                { label: 'whm', run: () => safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443], proxy: panelProxy }).then(r => r[0]), 'whm') },
-                { label: 'ssh', run: () => safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022] }).then(r => r[0]), 'ssh') },
-                { label: 'imap', run: () => safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap') },
-                { label: 'pop3', run: () => safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3') },
-                { label: 'plesk', run: () => safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'plesk') },
-                { label: 'directadmin', run: () => safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'directadmin') },
-                { label: 'cyberpanel', run: () => safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'cyberpanel') },
-                { label: 'webmin', run: () => safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'webmin') },
-                { label: 'hestia', run: () => safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'hestia') },
+                { label: 'cpanel', run: (signal) => safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443], proxy: panelProxy, signal }).then(r => r[0]), 'cpanel') },
+                { label: 'webmail', run: (signal) => safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095], proxy: panelProxy, signal }).then(r => r[0]), 'webmail') },
+                { label: 'whm', run: (signal) => safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443], proxy: panelProxy, signal }).then(r => r[0]), 'whm') },
+                { label: 'ssh', run: (signal) => safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022], signal }).then(r => r[0]), 'ssh') },
+                { label: 'imap', run: (signal) => safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, signal }), 'imap') },
+                { label: 'pop3', run: (signal) => safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, signal }), 'pop3') },
+                { label: 'plesk', run: (signal) => safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy, signal }), 'plesk') },
+                { label: 'directadmin', run: (signal) => safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy, signal }), 'directadmin') },
+                { label: 'cyberpanel', run: (signal) => safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy, signal }), 'cyberpanel') },
+                { label: 'webmin', run: (signal) => safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy, signal }), 'webmin') },
+                { label: 'hestia', run: (signal) => safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy, signal }), 'hestia') },
               ], PANEL_BUDGET_MS);
               if (currentAbort?.signal.aborted) return;
               result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R, plesk: pleskR, directadmin: daR, cyberpanel: cyber, webmin, hestia };
@@ -707,14 +733,14 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     }
     return summary;
   } catch (err) {
-    await sink.close().catch(() => {});
+    if (sink) await sink.close().catch(() => {});
     throw err;
   } finally {
     // Always clear the abort handle and signal completion, even if the batch
-    // throws, so the renderer never gets stuck in the "running" state.
+    // (or its setup) throws, so the renderer never gets stuck in "running".
     currentAbort = null;
-    progress.flush();
-    mainWindow?.webContents.send('batch:done', { done: true });
+    if (progress) progress.flush();
+    try { mainWindow?.webContents.send('batch:done', { done: true }); } catch { /* window gone */ }
   }
 }
 
@@ -750,10 +776,17 @@ ipcMain.handle('creds:countFile', async (_e, filePath) => {
 // into the worker pool, so a multi-million-lead file is never held whole in
 // memory and never crosses IPC as one giant array.
 ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume, preDeduped }) => {
-  // A pre-deduped file (the normalized copy written during the count pass)
-  // streams with dedupe off — no second key Set. A raw path still dedupes.
-  const source = streamCredentialsFromFile(String(filePath), { dedupe: !preDeduped, onError: () => {} });
-  return runBatchToDisk(source, seeds, opts, { resume: !!resume });
+  // Match batch:run's contract — any throw (missing file, runBatch failure)
+  // becomes a readable { error } instead of rejecting the renderer's invoke.
+  try {
+    // A pre-deduped file (the normalized copy written during the count pass)
+    // streams with dedupe off — no second key Set. A raw path still dedupes.
+    const source = streamCredentialsFromFile(String(filePath), { dedupe: !preDeduped, onError: () => {} });
+    return await runBatchToDisk(source, seeds, opts, { resume: !!resume });
+  } catch (err) {
+    recordCrash('batchRunFile', err);
+    return { error: err.message || String(err) };
+  }
 });
 
 // How much of a prior run is on disk, so the UI can offer "resume" and seed its
@@ -928,24 +961,37 @@ ipcMain.handle('results:exportByProtocol', async () => {
   }
 });
 
-ipcMain.handle('results:exportRun', async (_e, { format }) => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: `smtp-results.${format}`,
-    filters: [{ name: format.toUpperCase(), extensions: [format] }],
-  });
-  if (canceled || !filePath) return { saved: false };
-  await exportRun(runFilePath(), filePath, format, { generatedAt: new Date().toISOString() });
-  return { saved: true, path: filePath };
+ipcMain.handle('results:exportRun', async (_e, { format } = {}) => {
+  try {
+    const fmt = String(format || 'csv');
+    if (!existsSync(runFilePath())) return { saved: false, error: 'no run to export yet' };
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: `smtp-results.${fmt}`,
+      filters: [{ name: fmt.toUpperCase(), extensions: [fmt] }],
+    });
+    if (canceled || !filePath) return { saved: false };
+    await exportRun(runFilePath(), filePath, fmt, { generatedAt: new Date().toISOString() });
+    return { saved: true, path: filePath };
+  } catch (err) {
+    recordCrash('exportRun', err);
+    return { saved: false, error: err.message };
+  }
 });
 
 // Confirmed-only export: just the SMTPs whose test message was found in a seed
 // inbox/spam folder, as re-importable host:port:user:pass. Written as a .txt.
 ipcMain.handle('results:exportConfirmed', async () => {
-  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: 'smtp-confirmed.txt',
-    filters: [{ name: 'TXT', extensions: ['txt'] }],
-  });
-  if (canceled || !filePath) return { saved: false };
-  await exportRun(runFilePath(), filePath, 'confirmed', { generatedAt: new Date().toISOString() });
-  return { saved: true, path: filePath };
+  try {
+    if (!existsSync(runFilePath())) return { saved: false, error: 'no run to export yet' };
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: 'smtp-confirmed.txt',
+      filters: [{ name: 'TXT', extensions: ['txt'] }],
+    });
+    if (canceled || !filePath) return { saved: false };
+    await exportRun(runFilePath(), filePath, 'confirmed', { generatedAt: new Date().toISOString() });
+    return { saved: true, path: filePath };
+  } catch (err) {
+    recordCrash('exportConfirmed', err);
+    return { saved: false, error: err.message };
+  }
 });

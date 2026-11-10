@@ -35,11 +35,15 @@ export function settleWithBudget(tasks, budgetMs, {
     let remaining = tasks.length;
     let finished = false;
     let timer = null;
+    // Lets tasks cancel their in-flight work (sockets, requests) once we stop
+    // waiting — otherwise a probe that outlives the budget leaks its connection.
+    const controller = new AbortController();
 
     const finish = () => {
       if (finished) return;
       finished = true;
       if (timer !== null) clearTimer(timer);
+      controller.abort();
       for (let i = 0; i < tasks.length; i++) {
         if (!settled[i]) results[i] = onTimeout(tasks[i].label);
       }
@@ -50,7 +54,7 @@ export function settleWithBudget(tasks, budgetMs, {
 
     tasks.forEach((task, i) => {
       Promise.resolve()
-        .then(() => task.run())
+        .then(() => task.run(controller.signal))
         .then(
           (value) => { results[i] = value; },
           (err) => { results[i] = { error: err?.message || String(err) }; },

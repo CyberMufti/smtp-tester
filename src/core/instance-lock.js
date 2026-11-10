@@ -25,8 +25,12 @@ export function pickInstanceSlot(store, { maxSlots = 16 } = {}) {
   for (let slot = 1; slot <= maxSlots; slot++) {
     const first = store.acquire(slot);
     if (first.ok) return slot;
-    // Occupied. If the holder is gone (crash) or unidentifiable, reclaim it.
-    const holderAlive = first.pid != null && store.isAlive(first.pid);
+    // Occupied. Reclaim ONLY when we can read a pid AND that process is gone
+    // (a crash left the lock behind). An unreadable/empty pid is treated as a
+    // live holder: a sibling may have just created the lock and not yet written
+    // its pid (the create→write window), and reclaiming it there would let two
+    // instances share one slot — so we conservatively move to the next slot.
+    const holderAlive = first.pid == null || store.isAlive(first.pid);
     if (!holderAlive) {
       store.reclaim(slot);
       const second = store.acquire(slot);

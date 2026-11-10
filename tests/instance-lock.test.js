@@ -40,9 +40,13 @@ test('a stale lock from a crashed instance (dead pid) is reclaimed', () => {
   assert.equal(pickInstanceSlot(store), 1, 'dead holder should be reclaimed, not skipped');
 });
 
-test('an unreadable lock (no recorded pid) is treated as stale and reclaimed', () => {
+test('an unreadable lock (no recorded pid) is treated as a LIVE holder, not reclaimed', () => {
+  // A lock file that exists but has no readable pid may be a sibling instance
+  // mid-initialization (it created the file but has not yet written its pid).
+  // Reclaiming it would let two instances share one slot, so we conservatively
+  // skip to the next slot instead.
   const store = fakeStore({ locks: new Map([[1, null]]), live: new Set() });
-  assert.equal(pickInstanceSlot(store), 1);
+  assert.equal(pickInstanceSlot(store), 2);
 });
 
 test('throws when every slot is held by a live instance', () => {
