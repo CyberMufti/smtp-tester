@@ -20,6 +20,7 @@
  */
 import https from 'node:https';
 import { socksHttpsAgent } from './socks-agent.js';
+import { detectPanelBlock } from './panel-signals.js';
 
 export const DEFAULT_WEBMAIL_PORT = 443;
 export const DEFAULT_WEBMAIL_PATH = '/webmail';
@@ -33,6 +34,7 @@ export function classifyWebmailLogin(res) {
     return { reachable: false, valid: false, status: 'unreachable', detail: res?.error || 'no response' };
   }
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
 
   // Roundcube/Horde redirect to ?_task=mail or ?_task=show after success.

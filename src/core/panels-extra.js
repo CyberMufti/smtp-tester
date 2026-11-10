@@ -4,6 +4,7 @@
  */
 import https from 'node:https';
 import { socksHttpsAgent } from './socks-agent.js';
+import { detectPanelBlock } from './panel-signals.js';
 
 function post(host, port, path, body, timeout, contentType = 'application/x-www-form-urlencoded', agent = null) {
   return new Promise((resolve) => {
@@ -34,6 +35,7 @@ function post(host, port, path, body, timeout, contentType = 'application/x-www-
 export function classifyPleskLogin(res) {
   if (!res || res.error) return { reachable: false, valid: false, status: 'unreachable', detail: res?.error || 'no response' };
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
 
   // Success: 302 redirect away from login, or body has a redirect script
@@ -92,6 +94,7 @@ export async function runPleskChecks(targets, opts = {}, onResult) {
 export function classifyDirectAdminLogin(res) {
   if (!res || res.error) return { reachable: false, valid: false, status: 'unreachable', detail: res?.error || 'no response' };
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
   const setCookie = headers['set-cookie'] || [];
 
@@ -154,6 +157,7 @@ function cookieString(headers = {}) {
 export function classifyCyberPanelLogin(res) {
   if (!res || res.error) return unreachableRes(res);
   const { statusCode, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   let json = null;
   try { json = JSON.parse(body); } catch { /* not JSON */ }
   if (json && typeof json === 'object') {
@@ -178,6 +182,7 @@ export async function verifyCyberPanel(target, opts = {}) {
 export function classifyWebminLogin(res) {
   if (!res || res.error) return unreachableRes(res);
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
   if (/login failed|password was incorrect|invalid login|incorrect password/i.test(body)) {
     return { reachable: true, valid: false, status: 'invalid', detail: body.slice(0, 100) };
@@ -203,6 +208,7 @@ export async function verifyWebmin(target, opts = {}) {
 export function classifyHestiaLogin(res) {
   if (!res || res.error) return unreachableRes(res);
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
   if (/invalid username or password|incorrect|authentication failed/i.test(body)) {
     return { reachable: true, valid: false, status: 'invalid', detail: body.slice(0, 100) };

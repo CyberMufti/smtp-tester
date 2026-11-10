@@ -18,6 +18,7 @@
 import https from 'node:https';
 import { getRandomUA } from './user-agents.js';
 import { socksHttpsAgent } from './socks-agent.js';
+import { detectPanelBlock } from './panel-signals.js';
 
 export const DEFAULT_CPANEL_PORT = 2083;
 
@@ -46,6 +47,7 @@ export function classifyCpanelLogin(res) {
     return { reachable: false, valid: false, status: 'unreachable', detail: res?.error || 'no response' };
   }
   const { statusCode, headers = {}, body = '' } = res;
+  const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
 
   let json = null;

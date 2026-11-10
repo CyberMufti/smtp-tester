@@ -637,6 +637,7 @@ function rowHtml(r) {
       if (!v) return '';
       if (v.error) return '<span class="dbadge b-bad" title="' + esc(v.error) + '">' + k + '!</span>';
       if (v.valid) return '<span class="dbadge b-ok">' + k + '✓</span>';
+      if (v.status === 'blocked') return '<span class="dbadge b-warn" title="' + esc(v.detail || 'blocked') + ' — rotate proxy and retry">' + k + '⛊</span>';
       if (v.reachable === false) return '<span class="dbadge b-neutral">' + k + '-</span>';
       return '<span class="dbadge b-bad">' + k + '✗</span>';
     };
