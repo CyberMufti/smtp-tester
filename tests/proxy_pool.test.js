@@ -76,6 +76,18 @@ test('validate keeps only proxies the checker approves', async () => {
   assert.deepEqual(pool.size(), { total: 3, valid: 1 });
 });
 
+test('validate({ merge:true }) tops up the pool without dropping existing proxies', async () => {
+  const pool = new ProxyPool({ sources: ['https://x/socks5.txt'] });
+  // Simulate an existing live pool (some proxies already validated earlier).
+  pool.valid = [{ host: '9.9.9.9', port: 1080, type: 5 }];
+  // Scrape a fresh batch that includes a new one and a duplicate of the existing.
+  await pool.scrape({ fetchFn: async () => '2.2.2.2:1080\n9.9.9.9:1080\n' });
+  const res = await pool.validate({ checkFn: async () => true, merge: true });
+  assert.equal(res.added, 1, 'only the new proxy is added');
+  const hosts = pool.valid.map((e) => e.host).sort();
+  assert.deepEqual(hosts, ['2.2.2.2', '9.9.9.9'], 'existing kept, new merged, dup deduped');
+});
+
 test('validate treats checker exceptions as failures', async () => {
   const fetchFn = async () => '1.1.1.1:1080\n';
   const pool = new ProxyPool({ sources: ['https://x/socks5.txt'] });

@@ -229,9 +229,25 @@ export class ProxyPool {
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, input.length) }, worker));
 
-    this.valid = results.filter(Boolean);
+    const fresh = results.filter(Boolean);
+    let added = 0;
+    if (opts.merge) {
+      // Top up: merge newly-valid proxies into the existing pool, deduped.
+      const keyOf = (e) => `${e.type}:${e.host}:${e.port}:${e.user || ''}`;
+      const seen = new Set(this.valid.map(keyOf));
+      for (const e of fresh) {
+        const k = keyOf(e);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        this.valid.push(e);
+        added++;
+      }
+    } else {
+      this.valid = fresh;
+      added = fresh.length;
+    }
     this.index = 0;
-    return { tested: input.length, valid: this.valid.length, skipped };
+    return { tested: input.length, valid: fresh.length, added, total: this.valid.length, skipped };
   }
 
   /**

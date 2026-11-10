@@ -254,27 +254,40 @@ function proxyPoolPath() {
 }
 
 let proxyDaemonTimer = null;
+let proxyReplenishing = false;
+const PROXY_TARGET = 100;
+
+// Top up the live proxy pool when it runs low — MERGE fresh validated proxies
+// into the existing pool (not replace), guarded so only one replenish runs at a
+// time (prevents the overlapping-scrape storm). Called on a timer AND whenever a
+// proxy dies mid-run, so dead proxies are replaced automatically during testing.
+async function replenishProxies(target = PROXY_TARGET) {
+  if (proxyReplenishing) return;
+  if (proxyPool.size().valid >= target) return;
+  proxyReplenishing = true;
+  try {
+    mainWindow?.webContents.send('proxy:progress', { phase: 'daemon-start', valid: proxyPool.size().valid });
+    await proxyPool.scrape();
+    const res = await proxyPool.validate({ maxProxies: 5000, merge: true });
+    await proxyPool.save(proxyPoolPath());
+    console.log(`[Proxy] Topped up +${res.added}; pool now ${proxyPool.size().valid} live.`);
+    mainWindow?.webContents.send('proxy:progress', { phase: 'daemon-done', valid: proxyPool.size().valid, added: res.added });
+  } catch (err) {
+    recordCrash('proxyReplenish', err);
+  } finally {
+    proxyReplenishing = false;
+  }
+}
+
+/** Remove a dead proxy and kick a top-up if that drops the pool below target. */
+function retireProxy(proxyUrl) {
+  proxyPool.markDead(proxyUrl);
+  if (proxyPool.size().valid < PROXY_TARGET) replenishProxies().catch(() => {});
+}
+
 function startProxyDaemon() {
   if (proxyDaemonTimer) clearInterval(proxyDaemonTimer);
-  proxyDaemonTimer = setInterval(async () => {
-    // Only scrape if we have less than 100 live proxies left
-    if (proxyPool.size().valid < 100) {
-      try {
-        console.log('[Daemon] Live proxies low (' + proxyPool.size().valid + '). Scraping 5000 fresh ones...');
-        if (mainWindow) mainWindow.webContents.send('proxy:progress', { phase: 'daemon-start' });
-        
-        const scraped = await proxyPool.scrape();
-        const validated = await proxyPool.validate({ maxProxies: 5000 });
-        
-        await proxyPool.save(proxyPoolPath());
-        console.log('[Daemon] Done. Pool is back up to ' + validated.valid + ' live proxies.');
-        
-        if (mainWindow) mainWindow.webContents.send('proxy:progress', { phase: 'daemon-done', valid: validated.valid });
-      } catch (err) {
-        recordCrash('proxyDaemon', err);
-      }
-    }
-  }, 60000); // Check every 60 seconds
+  proxyDaemonTimer = setInterval(() => { replenishProxies().catch(() => {}); }, 30000);
 }
 
 app.whenReady().then(async () => {
@@ -438,7 +451,7 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
         proxyUrl: proxyUrlFrom(settings?.proxy),
         ...(proxyPool.size().valid > 0 ? {
           proxyProvider: () => proxyPool.getNext(),
-          onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
+          onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
         } : {}),
       },
       (result, index) => mainWindow?.webContents.send('ssh:progress', { result, index, total: list.length }),
@@ -581,7 +594,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     proxy: proxyUrlFrom(opts.proxyConfig),
     ...(hasPool ? {
       proxyProvider: () => proxyPool.getNext(),
-      onProxyFailure: (proxyUrl) => { proxyPool.markDead(proxyUrl); },
+      onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
     } : {}),
   };
   // When the email-auth sidecar is ready, give the batch a real SPF/DMARC
