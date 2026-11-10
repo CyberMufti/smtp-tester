@@ -12,6 +12,7 @@ import { createResultSink, exportRun, readRunProgress, readResults } from '../co
 import { createProgressBatcher } from '../core/progress-batcher.js';
 import { settleWithBudget } from '../core/settle-with-budget.js';
 import { shouldRunPanelChecks } from '../core/panel-gate.js';
+import { pickInstanceSlot, createFileLockStore } from '../core/instance-lock.js';
 
 // Hard ceiling for a single credential's panel fan-out. Above any individual
 // probe's timeout (5s) so normal detection is unaffected; it only caps the
@@ -146,6 +147,28 @@ async function restartMonitorSchedule() {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// --- Per-instance isolation -------------------------------------------------
+// Multiple copies of the app must not share one set of data files (run log,
+// proxy pool, settings, result folder). Concurrent writes corrupt them and, on
+// Windows, the file-lock conflicts cause hangs and crashes. Give each running
+// copy its own slot: slot 1 keeps the default paths (existing data untouched),
+// later slots get isolated userData + result directories. Must run before any
+// userData path is read. The lock fds are held for the process lifetime so the
+// slot stays claimed; the OS frees them on exit (even on crash).
+let instanceLockFds = [];
+const INSTANCE_SLOT = (() => {
+  try {
+    const store = createFileLockStore(join(app.getPath('appData'), 'smtp-tester-instance-locks'));
+    instanceLockFds = store.heldFds;
+    const slot = pickInstanceSlot(store);
+    if (slot > 1) app.setPath('userData', `${app.getPath('userData')}-${slot}`);
+    return slot;
+  } catch {
+    // Never refuse to start — fall back to the default (shared) paths.
+    return 1;
+  }
+})();
+
 let mainWindow;
 let currentAbort = null;
 
@@ -246,7 +269,7 @@ function createWindow() {
     height: 820,
     minWidth: 960,
     minHeight: 600,
-    title: 'ENDPOINT Operator',
+    title: INSTANCE_SLOT > 1 ? `ENDPOINT Operator — Instance ${INSTANCE_SLOT}` : 'ENDPOINT Operator',
     webPreferences: {
       preload: join(__dirname, '..', 'preload.cjs'),
       contextIsolation: true,
@@ -819,7 +842,11 @@ ipcMain.handle('verify:run', async (_e, { emails }) => {
 // bounded in memory.
 // The Desktop folder a run's per-provider files are written to.
 function resultFolderPath() {
-  return join(app.getPath('desktop'), 'result');
+  const base = join(app.getPath('desktop'), 'result');
+  // Keep each instance's auto-exported folder separate — writeResultFolder
+  // clears the folder before writing, so a shared path would have instances
+  // wiping each other's results.
+  return INSTANCE_SLOT > 1 ? `${base}-${INSTANCE_SLOT}` : base;
 }
 
 /**
