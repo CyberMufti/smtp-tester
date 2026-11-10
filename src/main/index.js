@@ -13,6 +13,8 @@ import { resultFolderFiles } from '../core/export.js';
 import { makeGeoResolver, loadCountryLookup } from '../core/geoip.js';
 import { grabBanner } from '../core/banner.js';
 import { probeRealm } from '../core/ms-realm.js';
+import { enumerateUser } from '../core/smtp-enum.js';
+import { verifyEmail } from '../core/verify.js';
 import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
@@ -725,6 +727,47 @@ ipcMain.handle('monitor:checkNow', async () => runMonitorCheck());
 ipcMain.handle('batch:cancel', async () => {
   currentAbort?.abort();
   return true;
+});
+
+// Passwordless email verification (the Verify screen). Streams one result per
+// address back to the renderer. Uses RCPT-TO on port 25 for existence (needs
+// outbound 25), Microsoft IfExistsResult for M365, plus catch-all/disposable/
+// role flags and provider/country.
+let verifyAbort = null;
+ipcMain.handle('verify:cancel', async () => { verifyAbort?.abort(); return true; });
+ipcMain.handle('verify:run', async (_e, { emails }) => {
+  verifyAbort = new AbortController();
+  const signal = verifyAbort.signal;
+  const list = (emails || []).map((s) => String(s).trim()).filter(Boolean);
+  const geoResolver = await getGeoResolver();
+  const deps = {
+    resolveMx: async (domain) => {
+      try { return (await resolveMx(domain)).sort((a, b) => a.priority - b.priority).map((m) => m.exchange); }
+      catch { return []; }
+    },
+    enumerate: (email, { host, port }) => enumerateUser({ user: email }, { host, port, timeout: 8000 }),
+    msRealm: (email) => probeRealm(email),
+    geoResolver,
+  };
+  const counts = {};
+  let done = 0;
+  const concurrency = 8;
+  let idx = 0;
+  async function worker() {
+    while (idx < list.length) {
+      if (signal.aborted) return;
+      const email = list[idx++];
+      let result;
+      try { result = await verifyEmail(email, deps); }
+      catch (err) { result = { email, status: 'unknown', error: err.message }; }
+      counts[result.status] = (counts[result.status] || 0) + 1;
+      done++;
+      mainWindow?.webContents.send('verify:progress', { result, done, total: list.length });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
+  mainWindow?.webContents.send('verify:done', { done, total: list.length, counts });
+  return { total: list.length, counts };
 });
 
 // Export the last run by streaming its JSONL file to the chosen format — the

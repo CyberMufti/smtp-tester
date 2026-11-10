@@ -657,6 +657,81 @@ async function doExport(format) {
   if (res.saved) $('#progress-label').textContent = `Saved to ${res.path}`;
 }
 
+// ---------- Email Verifier ----------
+let verifyResults = [];
+let verifyActiveFilter = 'all';
+function verifyEmailsFromInput() {
+  return ($('#verify-input')?.value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+$('#verify-input')?.addEventListener('input', () => {
+  const n = verifyEmailsFromInput().length;
+  $('#verify-count').textContent = n ? `${n} address${n === 1 ? '' : 'es'}` : '';
+});
+$('#btn-verify-run')?.addEventListener('click', async () => {
+  const emails = verifyEmailsFromInput();
+  if (!emails.length) return;
+  verifyResults = [];
+  $('#verify-body').innerHTML = '';
+  renderVerify();
+  $('#btn-verify-run').disabled = true;
+  $('#btn-verify-cancel').disabled = false;
+  $('#verify-progress').textContent = `0 / ${emails.length}`;
+  try { await api.verifyRun(emails); }
+  finally { $('#btn-verify-run').disabled = false; $('#btn-verify-cancel').disabled = true; }
+});
+$('#btn-verify-cancel')?.addEventListener('click', () => api.verifyCancel());
+api.onVerifyProgress(({ result, done, total }) => {
+  verifyResults.push(result);
+  $('#verify-progress').textContent = `${done} / ${total}`;
+  renderVerifySummary();
+  appendVerifyRow(result);
+  $('#btn-verify-export').disabled = !verifyResults.some((r) => r.status === 'valid');
+});
+api.onVerifyDone(({ done }) => { $('#verify-progress').textContent = `${done} verified`; });
+$('#verify-filters')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.chip-filter');
+  if (!btn) return;
+  verifyActiveFilter = btn.dataset.vfilter;
+  $$('#verify-filters .chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
+  renderVerify();
+});
+function verifyRowMatches(r) { return verifyActiveFilter === 'all' || r.status === verifyActiveFilter; }
+function verifyRowHtml(r) {
+  const cls = { valid: 'b-ok', invalid: 'b-bad', 'catch-all': 'b-warn', unknown: 'b-neutral', 'no-mx': 'b-bad', 'invalid-syntax': 'b-bad' }[r.status] || 'b-neutral';
+  const flags = [];
+  if (r.disposable) flags.push('disposable');
+  if (r.roleBased) flags.push('role');
+  return `<tr><td class="mono">${esc(r.email)}</td><td><span class="dbadge ${cls}">${esc(r.status)}</span></td><td>${esc(r.provider || '')}</td><td>${esc(r.country || '')}</td><td>${flags.map((f) => `<span class="dbadge b-neutral">${f}</span>`).join(' ')}</td></tr>`;
+}
+function appendVerifyRow(r) {
+  if (!verifyRowMatches(r)) return;
+  const body = $('#verify-body');
+  const empty = body.querySelector('.empty-row');
+  if (empty) empty.remove();
+  body.insertAdjacentHTML('beforeend', verifyRowHtml(r));
+}
+function renderVerify() {
+  const body = $('#verify-body');
+  const rows = verifyResults.filter(verifyRowMatches);
+  body.innerHTML = rows.length ? rows.map(verifyRowHtml).join('') : `<tr class="empty-row"><td colspan="5">${verifyResults.length ? 'No results match this filter.' : 'No results yet. Paste addresses and click <b>Verify All</b>.'}</td></tr>`;
+  renderVerifySummary();
+}
+function renderVerifySummary() {
+  const counts = {};
+  for (const r of verifyResults) counts[r.status] = (counts[r.status] || 0) + 1;
+  const order = [['valid', 'Valid'], ['invalid', 'Invalid'], ['catch-all', 'Catch-all'], ['unknown', 'Unknown'], ['no-mx', 'No MX'], ['invalid-syntax', 'Bad syntax']];
+  $('#verify-summary').innerHTML = verifyResults.length ? order.filter(([k]) => counts[k]).map(([k, l]) => `<span class="summary-chip status-${k}">${l}: ${counts[k]}</span>`).join('') : '';
+}
+$('#btn-verify-export')?.addEventListener('click', () => {
+  const valid = verifyResults.filter((r) => r.status === 'valid').map((r) => r.email);
+  const blob = new Blob([valid.join('\n') + '\n'], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'verified-emails.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
 // ---------- Settings ----------
 const seedsList = $('#seeds-list');
 $('#btn-add-seed').addEventListener('click', () => addSeedRow({}));

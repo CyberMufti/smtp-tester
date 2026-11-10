@@ -32,7 +32,7 @@ function hostOf(url) {
 export async function probeRealm(login, opts = {}) {
   const fetchFn = opts.fetchFn || ((u, o) => fetch(u, o));
   const timeoutMs = opts.timeoutMs || 8000;
-  const out = { nameSpaceType: 'Unknown', authUrl: null, authUrlHost: null, federationBrand: null, desktopSso: false };
+  const out = { nameSpaceType: 'Unknown', authUrl: null, authUrlHost: null, federationBrand: null, desktopSso: false, ifExists: 'unknown' };
   const signal = (() => { try { return AbortSignal.timeout(timeoutMs); } catch { return undefined; } })();
   try {
     const realmUrl = `https://login.microsoftonline.com/getuserrealm.srf?login=${encodeURIComponent(login)}&xml=1`;
@@ -53,6 +53,12 @@ export async function probeRealm(login, opts = {}) {
     if (res?.ok) {
       const j = await res.json();
       out.desktopSso = !!j?.EstsProperties?.DesktopSsoEnabled;
+      // IfExistsResult: 0 = mailbox exists, 1 = does not exist; other codes
+      // (redirect/throttle) are inconclusive. A throttled response is unreliable.
+      if (j?.ThrottleStatus && j.ThrottleStatus !== 0) out.ifExists = 'unknown';
+      else if (j?.IfExistsResult === 0) out.ifExists = 'yes';
+      else if (j?.IfExistsResult === 1) out.ifExists = 'no';
+      else out.ifExists = 'unknown';
     }
   } catch { /* keep desktopSso false */ }
   return out;

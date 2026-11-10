@@ -53,6 +53,7 @@
         <nav class="nav">
           <button class="nav-item active" data-tab="dashboard"><span class="nav-ico">▣</span> Dashboard</button>
           <button class="nav-item" data-tab="test"><span class="nav-ico">▷</span> Test <span class="nav-sub">SMTP</span></button>
+          <button class="nav-item" data-tab="verify"><span class="nav-ico">✓</span> Verify <span class="nav-sub">EMAIL</span></button>
           <button class="nav-item" data-tab="monitor"><span class="nav-ico">◉</span> Monitor</button>
 
           <div class="nav-group">Checks</div>
@@ -239,6 +240,48 @@
                     <td colspan="5">No results yet. Paste credentials and click <b>Test All</b>.</td>
                   </tr>
                 </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+
+        <!-- ===== VERIFY (passwordless email verification) ===== -->
+        <main id="screen-verify" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Verify <span class="pane-slash">/ Email</span></h1>
+              <p class="pane-sub">Check whether addresses exist — no password needed (uses port 25 + Microsoft)</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-verify-run" class="btn primary">Verify All</button>
+              <button id="btn-verify-cancel" class="btn danger" disabled>Cancel</button>
+            </div>
+          </header>
+          <section class="panel">
+            <div class="panel-head"><h2>Email addresses <span id="verify-count" class="muted"></span></h2></div>
+            <textarea id="verify-input" rows="7" placeholder="One email address per line (no passwords):&#10;john@acme.com&#10;info@example.co.uk"></textarea>
+            <p class="muted" style="margin-top:8px">Existence uses an SMTP RCPT probe (needs outbound port 25) and Microsoft's check for Office 365. Catch-all domains are flagged because individual addresses can't be confirmed there.</p>
+          </section>
+          <section class="panel results-panel">
+            <div class="panel-head">
+              <h2>Results <span id="verify-progress" class="muted"></span></h2>
+              <div class="panel-actions">
+                <div class="filters" id="verify-filters">
+                  <button class="chip-filter active" data-vfilter="all">All</button>
+                  <button class="chip-filter" data-vfilter="valid">Valid</button>
+                  <button class="chip-filter" data-vfilter="invalid">Invalid</button>
+                  <button class="chip-filter" data-vfilter="catch-all">Catch-all</button>
+                  <button class="chip-filter" data-vfilter="unknown">Unknown</button>
+                  <button class="chip-filter" data-vfilter="no-mx">No MX</button>
+                </div>
+                <button id="btn-verify-export" class="btn primary" disabled>Export valid (.txt)</button>
+              </div>
+            </div>
+            <div id="verify-summary" class="summary"></div>
+            <div class="table-wrap">
+              <table class="results">
+                <thead><tr><th>Email</th><th>Status</th><th>Provider</th><th>Country</th><th>Flags</th></tr></thead>
+                <tbody id="verify-body"><tr class="empty-row"><td colspan="5">No results yet. Paste addresses and click <b>Verify All</b>.</td></tr></tbody>
               </table>
             </div>
           </section>

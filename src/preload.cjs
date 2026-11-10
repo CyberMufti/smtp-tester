@@ -82,4 +82,17 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('batch:done', handler);
     return () => ipcRenderer.removeListener('batch:done', handler);
   },
+  // Email Verifier (passwordless existence check).
+  verifyRun: (emails) => ipcRenderer.invoke('verify:run', { emails }),
+  verifyCancel: () => ipcRenderer.invoke('verify:cancel'),
+  onVerifyProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('verify:progress', handler);
+    return () => ipcRenderer.removeListener('verify:progress', handler);
+  },
+  onVerifyDone: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('verify:done', handler);
+    return () => ipcRenderer.removeListener('verify:done', handler);
+  },
 });
