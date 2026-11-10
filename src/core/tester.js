@@ -654,19 +654,20 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         }
       }
       // Dead-proxy fallback: a connect failure through a pool proxy is retried
-      // DIRECT, UNCONDITIONALLY. deadReason==='connect' already rules out auth/
-      // send rejections, so we can't tell whether the proxy or the target failed
-      // — and retrying direct is the accurate choice either way: if the target
-      // is genuinely down, the direct attempt is still dead; if only the proxy
-      // was bad, the credential is correctly found valid. (Matching the proxy
-      // error text was unreliable — SOCKS errors vary and false-deaded live creds.)
+      // DIRECT, unconditionally — deadReason==='connect' already rules out auth/
+      // send rejections, so retrying direct is accurate either way (a down target
+      // stays dead; a bad proxy no longer hides a live credential). The proxy is
+      // only RETIRED when the direct attempt got further than the proxied one —
+      // i.e. the target was reachable, so the proxy was the culprit. If the
+      // direct attempt also fails to connect, the target is down and the proxy is
+      // kept (otherwise a dead-heavy list would wrongly burn down the pool).
       if (usedPoolProxy && result.deadReason === 'connect' && !signal?.aborted) {
         const reasonText = String(result.reason || '');
-        if (typeof opts.onProxyFailure === 'function') {
-          try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
-        }
         const directOpts = { ...opts, proxy: null, proxyProvider: undefined };
         const retried = await testOne(cred, index, seeds, directOpts, smtp, imap, ctx);
+        if (retried.deadReason !== 'connect' && typeof opts.onProxyFailure === 'function') {
+          try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
+        }
         retried.proxyFallback = true;
         retried.proxyFallbackReason = 'dead proxy — retried direct';
         retried.proxyThatDied = proxyForCred;

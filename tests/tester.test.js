@@ -632,3 +632,20 @@ test('a pool-proxy connect failure always retries DIRECT, even for an unusual er
   assert.equal(results[0].status, 'valid', 'retried direct and succeeded');
   assert.equal(results[0].proxyFallback, true);
 });
+
+test('a down TARGET (direct also fails) does NOT retire the proxy', async () => {
+  // Both proxied and direct fail to connect -> target is down, proxy is fine.
+  const smtp = {
+    async verify() { return { connected: false, authenticated: false, error: 'connect ETIMEDOUT' }; },
+    async send() { return { accepted: [] }; },
+  };
+  const imap = { async findToken() { return { found: false, folder: null }; } };
+  let retired = 0;
+  const creds = [{ host: 'down.x.com', port: 587, user: 'u@x.com', pass: 'p' }];
+  const results = await runBatch(creds, [], {
+    concurrency: 1, deps: { smtp, imap },
+    proxyProvider: () => 'socks5://1.2.3.4:1080', onProxyFailure: () => { retired++; },
+  });
+  assert.equal(results[0].status, 'dead');
+  assert.equal(retired, 0, 'good proxy must not be retired when the target is down');
+});
