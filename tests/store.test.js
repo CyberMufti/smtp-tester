@@ -12,6 +12,15 @@ test('defaultSettings returns documented defaults', () => {
   assert.ok(typeof d.bodyTemplate === 'string' && d.bodyTemplate.includes('{token}'));
 });
 
+test('defaultSettings ships the default SOCKS5 proxy, enabled', () => {
+  const d = defaultSettings();
+  assert.equal(d.proxy.enabled, true);
+  assert.equal(d.proxy.host, '23.142.16.35');
+  assert.equal(d.proxy.port, 65280);
+  assert.equal(d.proxy.user, 'tom');
+  assert.equal(d.proxy.pass, 'f3v7q2m9x5nk');
+});
+
 test('mergeSettings overlays a patch without dropping unspecified keys', () => {
   const base = defaultSettings();
   const merged = mergeSettings(base, { concurrency: 10 });

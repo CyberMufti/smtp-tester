@@ -655,70 +655,104 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       
       await gate();
       if (signal?.aborted) return;
-      // Per-credential proxy rotation via opts.proxyProvider (falls back to opts.proxy).
-      let proxyForCred = opts.proxy;
-      if (opts.proxyProvider) {
-        try { proxyForCred = opts.proxyProvider() ?? opts.proxy; } catch { proxyForCred = opts.proxy; }
-      }
-      const usedPoolProxy = !!proxyForCred && proxyForCred !== opts.proxy;
-      const attemptOpts = usedPoolProxy ? { ...opts, proxy: proxyForCred } : opts;
-      // Watchdog: cap total wall-clock time per credential. If testOne hangs
-      // (TCP accept but no banner, TLS handshake loop, etc.), abandon it and
-      // move to the next credential. Prevents silent worker starvation.
+      // Per-credential proxy fallback chain: manual proxy (opts.proxy) →
+      // scraped pool (opts.proxyProvider) → direct. Each tier is tried in
+      // order; a connect-level failure advances to the next LIVE tier, so a
+      // dead proxy can never hide a live credential. deadReason==='connect'
+      // rules out auth/send rejections, so advancing is accurate either way (a
+      // down target stays dead at every tier). A pool proxy is RETIRED only
+      // when a later tier gets further than it did — i.e. the target was
+      // reachable, so that proxy was the culprit; if every tier connect-fails
+      // the target is down and no proxy is blamed (a dead-heavy list must not
+      // burn down the pool). The manual proxy is never retired — it's the
+      // operator's fixed egress, reported but not discarded.
+      const tiers = [];
+      if (opts.proxy) tiers.push('manual');
+      if (opts.proxyProvider) tiers.push('pool');
+      tiers.push('direct');
+
+      // Watchdog: cap total wall-clock time on the FIRST tier that actually
+      // runs. If testOne hangs (TCP accept but no banner, TLS handshake loop,
+      // etc.), abandon it and move on. Prevents silent worker starvation.
       //
       // The budget MUST cover the placement-polling phase too: testOne, when a
       // seed is configured, legitimately waits up to placementTimeoutMs (default
       // 90s) for the tagged mail to appear over IMAP. A flat 25s watchdog shorter
       // than that aborts every slow-but-valid placement as a "watchdog timeout",
       // so valid SMTPs never get classified inbox/spam. Budget = network phase +
-      // placement phase.
+      // placement phase. Later fallback tiers only ever run after a fast connect
+      // failure, so a plain await is enough for them.
       const networkBudgetMs = Number(opts.credentialTimeoutMs) || 25000;
       const watchdogMs = networkBudgetMs + (Number(opts.placementTimeoutMs) || 0);
+
       let result;
-      let watchdogTimer;
-      try {
-        result = await Promise.race([
-          testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx),
-          // Cleared in finally so the timer never outlives the credential — on a
-          // long run these would otherwise pile up (each living up to watchdogMs),
-          // leaking closures and churning the event loop.
-          new Promise((_, reject) => { watchdogTimer = setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs); }),
-        ]);
-      } catch (err) {
-        if (err.message === 'watchdog_timeout') {
-          result = { cred, status: 'dead', reason: 'watchdog timeout (' + watchdogMs + 'ms)', deadReason: 'connect', latencyMs: watchdogMs };
+      let primaryOpts = opts;        // first-run opts, reused by the retry loop below
+      let ranPrimary = false;
+      let proxyFell = false;         // did we fall through ≥1 proxied tier?
+      let lastDeadProxy = null;      // URL of the last proxied tier that connect-failed
+      let lastDeadWasPool = false;   // was that dead tier a (retirable) pool proxy?
+
+      for (const kind of tiers) {
+        if (signal?.aborted) return;
+        let tierProxy;
+        if (kind === 'manual') tierProxy = opts.proxy;
+        else if (kind === 'pool') { try { tierProxy = opts.proxyProvider() ?? null; } catch { tierProxy = null; } }
+        else tierProxy = null;
+        // A pool tier that yields nothing (empty pool) or just re-hands the
+        // manual proxy adds no new egress — skip straight to the next tier.
+        if (kind === 'pool' && (!tierProxy || tierProxy === opts.proxy)) continue;
+
+        const attemptOpts = (tierProxy === opts.proxy && !opts.proxyProvider)
+          ? opts
+          : { ...opts, proxy: tierProxy, proxyProvider: undefined };
+
+        if (!ranPrimary) {
+          ranPrimary = true;
+          primaryOpts = attemptOpts;
+          let watchdogTimer;
+          try {
+            result = await Promise.race([
+              testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx),
+              // Cleared in finally so the timer never outlives the credential — on
+              // a long run these would otherwise pile up (each living up to
+              // watchdogMs), leaking closures and churning the event loop.
+              new Promise((_, reject) => { watchdogTimer = setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs); }),
+            ]);
+          } catch (err) {
+            result = err.message === 'watchdog_timeout'
+              ? { cred, status: 'dead', reason: 'watchdog timeout (' + watchdogMs + 'ms)', deadReason: 'connect', latencyMs: watchdogMs }
+              : { cred, status: 'dead', reason: err.message, deadReason: 'connect' };
+          } finally {
+            clearTimeout(watchdogTimer);
+          }
         } else {
-          result = { cred, status: 'dead', reason: err.message, deadReason: 'connect' };
+          result = await testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx);
         }
-      } finally {
-        clearTimeout(watchdogTimer);
+
+        // Got past the connect phase (success, or an auth/send verdict no proxy
+        // change would fix): stop here.
+        if (result.deadReason !== 'connect') break;
+        // This tier connect-failed. Record it (if proxied) and advance.
+        if (tierProxy) { proxyFell = true; lastDeadProxy = tierProxy; lastDeadWasPool = kind === 'pool'; }
       }
-      // Dead-proxy fallback: a connect failure through a pool proxy is retried
-      // DIRECT, unconditionally — deadReason==='connect' already rules out auth/
-      // send rejections, so retrying direct is accurate either way (a down target
-      // stays dead; a bad proxy no longer hides a live credential). The proxy is
-      // only RETIRED when the direct attempt got further than the proxied one —
-      // i.e. the target was reachable, so the proxy was the culprit. If the
-      // direct attempt also fails to connect, the target is down and the proxy is
-      // kept (otherwise a dead-heavy list would wrongly burn down the pool).
-      if (usedPoolProxy && result.deadReason === 'connect' && !signal?.aborted) {
-        const reasonText = String(result.reason || '');
-        const directOpts = { ...opts, proxy: null, proxyProvider: undefined };
-        const retried = await testOne(cred, index, seeds, directOpts, smtp, imap, ctx);
-        if (retried.deadReason !== 'connect' && typeof opts.onProxyFailure === 'function') {
-          try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
+
+      // A proxied tier failed before we got a verdict: flag the fallback for the
+      // renderer, and retire the dead proxy only if it was a pool proxy AND a
+      // later tier actually reached the server.
+      if (proxyFell) {
+        result.proxyFallback = true;
+        result.proxyFallbackReason = 'dead proxy — retried without it';
+        result.proxyThatDied = lastDeadProxy;
+        if (result.deadReason !== 'connect' && lastDeadWasPool && typeof opts.onProxyFailure === 'function') {
+          try { opts.onProxyFailure(lastDeadProxy, String(result.reason || '')); } catch {}
         }
-        retried.proxyFallback = true;
-        retried.proxyFallbackReason = 'dead proxy — retried direct';
-        retried.proxyThatDied = proxyForCred;
-        result = retried;
       }
       // Retry transient connection failures (not auth/send rejections) with backoff.
       const maxRetries = opts.retries ?? 0;
       for (let attempt = 0; attempt < maxRetries && result.deadReason === 'connect' && !signal?.aborted; attempt++) {
         await new Promise((r) => setTimeout(r, opts.retryBackoffMs ?? 2000));
         if (signal?.aborted) break;
-        const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : attemptOpts;
+        const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : primaryOpts;
         result = await testOne(cred, index, seeds, retryOpts, smtp, imap, ctx);
       }
       // Catch-all detection: before testing this domain, run a probe against

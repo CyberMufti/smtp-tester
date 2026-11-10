@@ -181,6 +181,44 @@ $('#btn-cancel').addEventListener('click', () => {
   api.cancel();
 });
 
+// Per-run proxy choice, set by confirmProxyChoice() before each run and reused
+// by resumes. true = route through the configured proxy (manual → pool → direct
+// fallback); false = go direct.
+let runUseProxy = true;
+
+/**
+ * Ask whether to route this run through the configured SOCKS proxy. Resolves
+ * true (use proxy) or false (go direct). When no proxy is configured there's
+ * nothing to route through, so it resolves false without prompting.
+ * @returns {Promise<boolean>}
+ */
+function confirmProxyChoice() {
+  const px = settings?.proxy;
+  if (!px || !px.enabled || !px.host) return Promise.resolve(false);
+  const label = `socks5://${px.user ? px.user + '@' : ''}${px.host}:${px.port || 1080}`;
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'run-modal';
+    overlay.innerHTML =
+      '<div class="run-modal-card" role="dialog" aria-modal="true">' +
+      '<h2>Use proxy for this run?</h2>' +
+      '<p>Route every connection in this run through your SOCKS5 proxy. If it turns out to be dead, the app falls back to the scraped pool, then to a direct connection automatically.</p>' +
+      '<div class="run-modal-proxy"></div>' +
+      '<div class="run-modal-actions">' +
+      '<button class="btn ghost" data-choice="direct">Go direct</button>' +
+      '<button class="btn primary" data-choice="proxy">Use proxy</button>' +
+      '</div></div>';
+    overlay.querySelector('.run-modal-proxy').textContent = label;
+    const finish = (useProxy) => { overlay.remove(); resolve(useProxy); };
+    overlay.addEventListener('click', (e) => {
+      const choice = e.target.closest('[data-choice]')?.dataset.choice;
+      if (choice) finish(choice === 'proxy');
+    });
+    document.body.appendChild(overlay);
+    overlay.querySelector('[data-choice="proxy"]').focus();
+  });
+}
+
 function buildRunOpts() {
   const manualRecipients = $('#manual-recipients').value
     .split(/[\n,;]+/)
@@ -202,6 +240,7 @@ function buildRunOpts() {
     bodyTemplate: settings?.bodyTemplate,
     htmlTemplate: settings?.htmlTemplate,
     manualRecipients,
+    useProxy: runUseProxy,
     checks: $('#opt-checks').checked
       ? { authRecords: true, dnsbl: true, spamScore: true }
       : null,
@@ -234,6 +273,7 @@ async function runBatch() {
     $('#parse-errors').textContent = 'Nothing to test — add at least one valid credential.';
     return;
   }
+  runUseProxy = await confirmProxyChoice();
   startRunUI();
 
   const { records: creds, removed } = dedupeCredentials(parsed.records);
@@ -261,6 +301,8 @@ async function runBatch() {
 
 async function runFileBatch(isResume = false) {
   if (loadedFiles.length === 0) return;
+  // Ask once per fresh run; a resume keeps the original run's choice.
+  if (!isResume) runUseProxy = await confirmProxyChoice();
   startRunUI();
   
   runTotal = loadedFiles.reduce((sum, f) => sum + f.count, 0);
@@ -866,6 +908,15 @@ $('#btn-save-proxy').addEventListener('click', async () => {
   settings = await api.saveSettings(collectSettings());
   $('#proxy-save-status').textContent = settings.proxy?.enabled ? 'Saved ✓ (proxy on)' : 'Saved ✓ (proxy off)';
   setTimeout(() => ($('#proxy-save-status').textContent = ''), 2500);
+});
+
+// Surface the per-run proxy preflight result (manual proxy dead → pool/direct)
+// in the run status line, so a silent fallback is visible to the operator.
+api.onProxyProgress?.((p) => {
+  if (p?.phase === 'preflight' && p.notice) {
+    const el = $('#parse-errors');
+    if (el) el.textContent = p.notice;
+  }
 });
 
 // ---------- Proxy pool scraper ----------

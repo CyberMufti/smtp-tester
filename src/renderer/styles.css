@@ -331,6 +331,26 @@ label.btn { display: inline-flex; align-items: center; }
 .hwid-row input { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04em; }
 .license-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 
+/* ---------- Run prompt modal ---------- */
+.run-modal {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.run-modal[hidden] { display: none; }
+.run-modal-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 24px; max-width: 460px; width: 100%;
+}
+.run-modal-card h2 { font-size: 17px; margin: 0 0 8px; color: var(--text-strong); }
+.run-modal-card p { font-size: 13px; color: var(--muted); margin: 0 0 6px; line-height: 1.5; }
+.run-modal-proxy {
+  font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text-strong);
+  background: var(--inset); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; margin: 10px 0 18px; word-break: break-all;
+}
+.run-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
 /* ---------- Results table ---------- */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
 table { width: 100%; border-collapse: collapse; }

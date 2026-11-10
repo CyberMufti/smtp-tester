@@ -38,7 +38,9 @@ import { verifyWebmail } from '../core/webmail.js';
 import { verifyWhm } from '../core/whm.js';
 import { verifyImap, verifyPop3 } from '../core/mail-extra.js';
 import { verifyPlesk, verifyDirectAdmin, verifyCyberPanel, verifyWebmin, verifyHestia } from '../core/panels-extra.js';
-import { ProxyPool } from '../core/proxy_pool.js';
+import { ProxyPool, DEFAULT_VALIDATE_TARGET } from '../core/proxy_pool.js';
+import { selectProxyTier, proxyTierNotice } from '../core/proxy-select.js';
+import { SocksClient } from 'socks';
 import { LockoutRegistry } from '../core/lockout.js';
 import { rateLimiter } from '../core/jitter.js';
 import { checkEmailAuth } from '../core/authcheck.js';
@@ -70,6 +72,60 @@ const TELEGRAM = '@splean_tool';
 /** Build a SOCKS proxy URL from a saved proxy config, or null when disabled/empty. */
 function proxyUrlFrom(cfg) {
   return cfg && cfg.enabled ? buildProxyUrl(cfg) : null;
+}
+
+/**
+ * Liveness probe for a single SOCKS proxy: open a tunnel to the same target the
+ * pool validates against (smtp.gmail.com:587). Resolves true if the tunnel
+ * opens within `timeout`, false on any error/timeout. Never throws.
+ */
+async function proxyAlive(proxyUrl, timeout = 2500) {
+  try {
+    const u = new URL(proxyUrl);
+    const type = u.protocol.toLowerCase().startsWith('socks4') ? 4 : 5;
+    const { socket } = await SocksClient.createConnection({
+      proxy: {
+        host: u.hostname,
+        port: Number(u.port) || 1080,
+        type,
+        userId: u.username ? decodeURIComponent(u.username) : undefined,
+        password: u.password ? decodeURIComponent(u.password) : undefined,
+      },
+      command: 'connect',
+      destination: { ...DEFAULT_VALIDATE_TARGET },
+      timeout,
+    });
+    try { socket.destroy(); } catch { /* already gone */ }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Preflight the proxy for a batch and build the runBatch proxy options.
+ * Honors a per-run choice (`opts.useProxy === false` → fully direct), probes
+ * the manual proxy, and falls through manual → scraped pool → direct, notifying
+ * the renderer when the manual proxy is dead. Pool rotation/retirement
+ * callbacks are wired in whenever the pool is an available tier.
+ */
+async function buildProxyOptions(opts) {
+  if (opts?.useProxy === false) return { proxy: null }; // user chose "Go direct"
+  const manualUrl = proxyUrlFrom(opts?.proxyConfig);
+  const hasPool = proxyPool.size().valid > 0;
+  const manualAlive = manualUrl ? await proxyAlive(manualUrl) : false;
+  const sel = selectProxyTier({ manualUrl, manualAlive, hasPool });
+  const notice = proxyTierNotice(sel, manualUrl);
+  if (notice) {
+    try { mainWindow?.webContents.send('proxy:progress', { phase: 'preflight', tier: sel.tier, notice }); } catch { /* window gone */ }
+    console.log(`[Proxy] ${notice}`);
+  }
+  const out = { proxy: sel.proxy };
+  if (sel.usePool) {
+    out.proxyProvider = () => proxyPool.getNext();
+    out.onProxyFailure = (proxyUrl) => retireProxy(proxyUrl);
+  }
+  return out;
 }
 
 // --- Health monitor -------------------------------------------------------
@@ -654,15 +710,11 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       flush: (items) => mainWindow?.webContents.send('batch:progress', items),
     });
     const effSource = resume ? skipKnown(source, prior.keys) : source;
-    // Pool rotation happens per credential via proxyProvider; manual proxy is the fallback.
-    const hasPool = proxyPool.size().valid > 0;
-    const proxyOptions = {
-      proxy: proxyUrlFrom(opts.proxyConfig),
-      ...(hasPool ? {
-        proxyProvider: () => proxyPool.getNext(),
-        onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
-      } : {}),
-    };
+    // Preflight the proxy and pick the starting tier: manual (if alive) →
+    // scraped pool → direct. Per credential, tester.js then falls through the
+    // same tiers on connect failures. `opts.useProxy === false` means the user
+    // chose "Go direct" in the per-run prompt.
+    const proxyOptions = await buildProxyOptions(opts);
     // When the email-auth sidecar is ready, give the batch a real SPF/DMARC
     // evaluator so deliverability checks (and the valid->unverified gate) use
     // actual SPF-against-sending-IP and DMARC alignment, not just record presence.
@@ -686,8 +738,9 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
               };
               // Route the HTTPS control-panel checks through the proxy pool (a
               // fresh SOCKS proxy per credential) so they don't hit panels from
-              // the operator's IP. Falls back to the manual proxy, then direct.
-              const panelProxy = (hasPool && proxyPool.getNext()) || proxyUrlFrom(opts.proxyConfig) || undefined;
+              // the operator's IP. Falls back to the batch's chosen proxy
+              // (manual/pool/direct from preflight), honoring a "Go direct" run.
+              const panelProxy = (proxyOptions.proxyProvider && proxyPool.getNext()) || proxyOptions.proxy || undefined;
               // Budget the whole fan-out: a probe that ignores its own timeout
               // must not hang the worker. Unfinished probes come back as a
               // timeout marker so the credential's result is still delivered.

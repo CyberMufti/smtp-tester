@@ -82,6 +82,74 @@ test('runBatch: no proxyProvider uses opts.proxy unchanged', async () => {
   assert.equal(results[0].proxyFallback, undefined);
 });
 
+// testOne probes several candidate ports per tier, so verify() fires more than
+// once per proxy. Collapse consecutive repeats to assert the tier *sequence*.
+const tierSeq = (arr) => arr.filter((v, i) => v !== arr[i - 1]);
+
+test('runBatch: tiered fallback manual → pool, manual dead', async () => {
+  // manual proxy connect-fails, pool proxy connects → pool is used, manual is
+  // reported as the dead proxy, and the (live) pool proxy is NOT retired.
+  const proxied = [];
+  const mockSmtp = {
+    verify: async (_c, o) => {
+      proxied.push(o.proxy || 'direct');
+      if (o.proxy === 'socks5://manual:1080') return { connected: false, authenticated: false, error: 'connect ETIMEDOUT' };
+      return { connected: true, authenticated: true };
+    },
+    send: async () => ({ accepted: [], messageId: 'x' }),
+  };
+  const failures = [];
+  const results = await runBatch(
+    [{ user: 'a@t.com', pass: 'p', host: 'h', port: 587 }], [],
+    { concurrency: 1, proxy: 'socks5://manual:1080', proxyProvider: () => 'socks5://pool:1080',
+      onProxyFailure: (p) => failures.push(p), deps: { smtp: mockSmtp } },
+  );
+  assert.deepEqual(tierSeq(proxied), ['socks5://manual:1080', 'socks5://pool:1080']);
+  assert.equal(results[0].proxyFallback, true);
+  assert.equal(results[0].proxyThatDied, 'socks5://manual:1080');
+  assert.deepEqual(failures, [], 'a live pool proxy is not retired');
+});
+
+test('runBatch: tiered fallback manual → pool → direct, both proxies dead', async () => {
+  // manual and pool both connect-fail; direct connects → pool proxy is retired.
+  const proxied = [];
+  const mockSmtp = {
+    verify: async (_c, o) => {
+      proxied.push(o.proxy || 'direct');
+      if (o.proxy) return { connected: false, authenticated: false, error: 'connect ETIMEDOUT' };
+      return { connected: true, authenticated: true };
+    },
+    send: async () => ({ accepted: [], messageId: 'x' }),
+  };
+  const failures = [];
+  const results = await runBatch(
+    [{ user: 'a@t.com', pass: 'p', host: 'h', port: 587 }], [],
+    { concurrency: 1, proxy: 'socks5://manual:1080', proxyProvider: () => 'socks5://pool:1080',
+      onProxyFailure: (p) => failures.push(p), deps: { smtp: mockSmtp } },
+  );
+  assert.deepEqual(tierSeq(proxied), ['socks5://manual:1080', 'socks5://pool:1080', 'direct']);
+  assert.equal(results[0].proxyFallback, true);
+  assert.equal(results[0].proxyThatDied, 'socks5://pool:1080');
+  assert.deepEqual(failures, ['socks5://pool:1080'], 'the dead pool proxy is retired');
+});
+
+test('runBatch: live manual proxy succeeds, pool never consulted', async () => {
+  const proxied = [];
+  let providerCalls = 0;
+  const mockSmtp = {
+    verify: async (_c, o) => { proxied.push(o.proxy || 'direct'); return { connected: true, authenticated: true }; },
+    send: async () => ({ accepted: [], messageId: 'x' }),
+  };
+  const results = await runBatch(
+    [{ user: 'a@t.com', pass: 'p', host: 'h', port: 587 }], [],
+    { concurrency: 1, proxy: 'socks5://manual:1080',
+      proxyProvider: () => { providerCalls++; return 'socks5://pool:1080'; }, deps: { smtp: mockSmtp } },
+  );
+  assert.deepEqual(proxied, ['socks5://manual:1080']);
+  assert.equal(providerCalls, 0, 'pool is not rotated when the manual proxy works');
+  assert.equal(results[0].proxyFallback, undefined);
+});
+
 test('runSSHChecks: proxyProvider called once per target', async () => {
   const used = []; let counter = 0;
   const connect = async (o) => { used.push(o.proxyUrl); return null; };

