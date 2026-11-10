@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRdapCountry, rdapCountry } from '../src/core/rdap.js';
+import { parseRdapCountry, rdapCountry, registrarRdapUrl } from '../src/core/rdap.js';
 
 const registrant = (props) => ({
   entities: [{ roles: ['registrant'], vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ...props]] }],
@@ -51,4 +51,47 @@ test('rdapCountry is best-effort: network error / non-ok / bad JSON -> null', as
   assert.equal(await rdapCountry('a.com', { fetchFn: async () => ({ ok: false, status: 404 }) }), null);
   assert.equal(await rdapCountry('a.com', { fetchFn: async () => ({ ok: true, json: async () => { throw new Error('bad json'); } }) }), null);
   assert.equal(await rdapCountry('a.com', { fetchFn: null }), null);
+});
+
+// Two-hop: .com/.net registries are THIN (registrar only, no registrant). The
+// registrant country lives at the registrar's RDAP, linked via rel="related".
+const thinRegistry = {
+  entities: [{ roles: ['registrar'], vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ['fn', {}, 'text', 'GoDaddy.com, LLC']]] }],
+  links: [
+    { rel: 'self', href: 'https://rdap.verisign.com/com/v1/domain/acme.com' },
+    { rel: 'related', href: 'https://rdap.godaddy.com/v1/domain/ACME.COM' },
+  ],
+};
+const registrarReg = (props) => ({ entities: [{ roles: ['registrant'], vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ...props]] }] });
+
+test('registrarRdapUrl extracts the related registrar RDAP link', () => {
+  assert.equal(registrarRdapUrl(thinRegistry), 'https://rdap.godaddy.com/v1/domain/ACME.COM');
+  assert.equal(registrarRdapUrl({ links: [] }), null);
+  assert.equal(registrarRdapUrl({}), null);
+});
+
+test('rdapCountry follows the registrar hop when the registry is thin (skip-proxy: real registrant)', async () => {
+  const calls = [];
+  const fetchFn = async (url) => {
+    calls.push(url);
+    if (url.includes('rdap.org')) return { ok: true, json: async () => thinRegistry };
+    return { ok: true, json: async () => registrarReg([['fn', {}, 'text', 'Amy Gorsline'], ['adr', { cc: 'US' }, 'text', ['', '', '', '', '', '', 'United States']]]) };
+  };
+  assert.equal(await rdapCountry('acme.com', { fetchFn }), 'US');
+  assert.equal(calls.length, 2, 'one registry hop + one registrar hop');
+});
+
+test('two-hop still skips a privacy-proxy registrant at the registrar (-> null)', async () => {
+  const fetchFn = async (url) =>
+    url.includes('rdap.org')
+      ? { ok: true, json: async () => thinRegistry }
+      : { ok: true, json: async () => registrarReg([['fn', {}, 'text', 'Registration Private'], ['org', {}, 'text', 'Domains By Proxy, LLC'], ['adr', { cc: 'US' }, 'text', ['', '', '', '', '', '', 'United States']]]) };
+  assert.equal(await rdapCountry('acme.com', { fetchFn }), null);
+});
+
+test('rdapCountry does not make a second hop when the first response already has a country', async () => {
+  let calls = 0;
+  const fetchFn = async () => { calls++; return { ok: true, json: async () => registrarReg([['adr', { cc: 'DE' }, 'text', ['', '', '', '', '', '', 'Germany']]]) }; };
+  assert.equal(await rdapCountry('acme.de', { fetchFn }), 'DE');
+  assert.equal(calls, 1);
 });
