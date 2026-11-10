@@ -317,8 +317,20 @@ export class ProxyPool {
   /** Remove a proxy from the valid pool. Idempotent. Returns number removed. */
   markDead(proxyUrl) {
     const before = this.valid.length;
-    this.valid = this.valid.filter((e) => proxyEntryToUrl(e) !== proxyUrl);
-    this.index = this.valid.length > 0 ? this.index % this.valid.length : 0;
+    // Count removals that sit BEFORE the rotation cursor so the cursor shifts
+    // with them — otherwise every entry after a removed one slides left by one
+    // and the next getNext() skips a live proxy.
+    let removedBeforeIndex = 0;
+    const kept = [];
+    for (let i = 0; i < this.valid.length; i++) {
+      if (proxyEntryToUrl(this.valid[i]) === proxyUrl) {
+        if (i < this.index) removedBeforeIndex += 1;
+      } else {
+        kept.push(this.valid[i]);
+      }
+    }
+    this.valid = kept;
+    this.index = kept.length > 0 ? ((this.index - removedBeforeIndex) % kept.length + kept.length) % kept.length : 0;
     return before - this.valid.length;
   }
 

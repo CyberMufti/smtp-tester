@@ -55,7 +55,10 @@ export function credKey(r) {
   // Host/port/user are case-insensitive, but the PASSWORD is not: lowercasing it
   // would collapse "Secret" and "secret" into one key, silently dropping a
   // distinct credential (and, on resume, skipping it as already-tested).
-  return `${(r.host || '').toLowerCase()}|${r.port || ''}|${String(r.user ?? '').toLowerCase()}|${r.pass ?? ''}`;
+  // OAuth2 creds carry no password — distinguish them by their token so two
+  // different tokens for the same mailbox aren't deduped into one.
+  const oauthKey = r.oauth ? (r.oauth.refreshToken || r.oauth.accessToken || '') : '';
+  return `${(r.host || '').toLowerCase()}|${r.port || ''}|${String(r.user ?? '').toLowerCase()}|${r.pass ?? ''}|${oauthKey}`;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -13,6 +13,7 @@ import { createProgressBatcher } from '../core/progress-batcher.js';
 import { settleWithBudget } from '../core/settle-with-budget.js';
 import { shouldRunPanelChecks } from '../core/panel-gate.js';
 import { pickInstanceSlot, createFileLockStore } from '../core/instance-lock.js';
+import { countHostMapEntries } from '../core/hostmap.js';
 
 // Hard ceiling for a single credential's panel fan-out. Above any individual
 // probe's timeout (5s) so normal detection is unaffected; it only caps the
@@ -374,9 +375,8 @@ ipcMain.handle('settings:get', async () => loadSettings());
 
 ipcMain.handle('settings:save', async (_e, settings) => saveSettings(settings));
 ipcMain.handle('hostmap:save', async (_e, text) => {
-  hostMap.parse(text);
   await saveSettings({ ...(await loadSettings()), hostMap: text });
-  return { size: hostMap.size() };
+  return { size: countHostMapEntries(text) };
 });
 ipcMain.handle('hostmap:get', async () => {
   const s = await loadSettings();
@@ -684,7 +684,11 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
         } catch (panelErr) {
           result.panelError = panelErr.message || String(panelErr);
         }
-        sink.write(result);
+        // Await drain on backpressure so results can't buffer unboundedly in
+        // memory when they arrive faster than the disk flushes (e.g. a run of
+        // instant connection-refused failures) — this throttles the worker that
+        // awaits this callback, keeping the streaming sink bounded as intended.
+        if (!sink.write(result)) await sink.drain();
         progress.push({ result, index });
       },
     );

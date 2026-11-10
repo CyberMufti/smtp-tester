@@ -13,6 +13,7 @@ import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
 import { scoreContent } from './spamscore.js';
+import { createKeyedLimiter } from './limiter.js';
 
 // Candidate sources whose auth failure is definitive — the host is certainly
 // right (it's the provider/SRV/autoconfig/MX server), so there's no point
@@ -222,10 +223,13 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
       if (step.sent && activeSeeds.length > 0) {
         step.seeds = await Promise.all(
           activeSeeds.map(async (seed) => {
-            const found = await imap.findToken(seed, token, {
+            const lookup = () => imap.findToken(seed, token, {
               timeoutMs: opts.placementTimeoutMs,
               pollIntervalMs: opts.pollIntervalMs,
             });
+            // Bound concurrent connections to this seed account (see seedLimiter).
+            const seedKey = `${seed.imapUser || seed.address || seed.label}@${seed.imapHost || ''}`;
+            const found = ctx?.seedLimiter ? await ctx.seedLimiter.run(seedKey, lookup) : await lookup();
             const entry = { label: seed.label, folder: found.folder, error: found.error };
             if (found.authResults) entry.auth = parseAuthResults(found.authResults);
             return entry;
@@ -609,7 +613,14 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
 
   // Shared per-batch context: the content spam score (same for every message)
   // is computed once; DNS lookups are cached by domain and host.
-  const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map() };
+  // Cap simultaneous IMAP connections PER SEED mailbox, independent of send
+  // concurrency. Without this, N send workers each open their own placement
+  // connection to the same seed account; past the provider's limit (Gmail ~15)
+  // the extra connections are rejected, the placement errors, and a delivered
+  // message is misclassified as "valid". Keyed per seed so distinct seeds still
+  // run in parallel. `opts.seedConcurrency` can override; 0 disables the cap.
+  const seedLimiter = opts.seedConcurrency === 0 ? null : createKeyedLimiter(opts.seedConcurrency ?? 4);
+  const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map(), seedLimiter };
   if (opts.checks?.spamScore) {
     const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();
     ctx.spamScore = scoreContent({

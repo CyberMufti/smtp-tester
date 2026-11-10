@@ -78,6 +78,16 @@ function makeClient(seed) {
     secure: (seed.imapPort || 993) === 993,
     auth: { user: seed.imapUser, pass: seed.imapPassword },
     logger: false,
+    // Bound every phase so a stalled seed connection can't hang indefinitely.
+    // This matters because placement runs under a per-seed concurrency cap
+    // (see tester.js): a connection that never resolves would hold its slot and
+    // block all further placement for that seed. ImapFlow's default
+    // socketTimeout is 5 minutes — far longer than the placement window — so we
+    // tighten it, while staying well above the 5s poll interval so an idle
+    // connection between polls is never killed.
+    connectionTimeout: 20000,
+    greetingTimeout: 15000,
+    socketTimeout: 60000,
     // Seed mailboxes are well-known providers with valid certificates; keep
     // certificate verification ON so the user's app-password can't be captured
     // by a man-in-the-middle on the IMAP connection.
@@ -141,13 +151,24 @@ export async function findToken(seed, token, opts = {}) {
     ];
 
     do {
+      let anyOk = false;
+      let roundErr = null;
       for (const target of targets) {
-        const uid = await searchFolder(client, target.path, token);
-        if (uid) {
-          const authResults = await fetchAuthResults(client, target.path, uid);
-          return { found: true, folder: /** @type {'inbox'|'spam'} */ (target.result), authResults };
+        try {
+          const uid = await searchFolder(client, target.path, token);
+          anyOk = true;
+          if (uid) {
+            const authResults = await fetchAuthResults(client, target.path, uid);
+            return { found: true, folder: /** @type {'inbox'|'spam'} */ (target.result), authResults };
+          }
+        } catch (err) {
+          // A single folder failing (e.g. junk can't be opened) shouldn't abort
+          // the inbox check; remember the error and keep going. Only if EVERY
+          // folder fails this round do we treat the connection as dead (below).
+          roundErr = err;
         }
       }
+      if (!anyOk && roundErr) return { found: false, folder: null, error: roundErr.message };
       if (Date.now() + pollIntervalMs < deadline) await sleep(pollIntervalMs);
       else break;
     } while (Date.now() < deadline);

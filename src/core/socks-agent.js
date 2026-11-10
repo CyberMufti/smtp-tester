@@ -45,7 +45,14 @@ export function socksHttpsAgent(proxyUrl) {
         { socket, servername: host, rejectUnauthorized: false },
         () => callback(null, tlsSocket),
       );
-      tlsSocket.once('error', (err) => callback(err));
+      tlsSocket.once('error', (err) => {
+        // Tear down both the TLS wrapper and the underlying SOCKS tunnel so a
+        // failed handshake (common with dead/half-open free proxies) can't leak
+        // an open socket/FD — at the per-credential panel scale that exhausts FDs.
+        try { tlsSocket.destroy(); } catch { /* already gone */ }
+        try { socket.destroy(); } catch { /* already gone */ }
+        callback(err);
+      });
     }).catch((err) => callback(err));
   };
   return agent;
