@@ -3,6 +3,7 @@ import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName } from '../core/country-names.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
+import { warmupRecommendation } from '../core/warmup.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -573,6 +574,13 @@ function rowHtml(r) {
     const cls = { A: 'b-ok', B: 'b-ok', C: 'b-neutral', D: 'b-warn', F: 'b-bad' }[dg.grade] || 'b-neutral';
     const tip = dg.factors.map((f) => `${f.delta > 0 ? '+' : ''}${f.delta} ${f.label}`).join(' · ');
     parts.push(`<span class="dbadge ${cls}" title="Deliverability ${dg.score}/100 — ${esc(tip)}">★ ${dg.grade} · ${dg.score}</span>`);
+  }
+
+  // Warm-up advisory: recommended safe daily send volume (guidance only).
+  const wu = warmupRecommendation(r);
+  if (wu) {
+    const ramp = wu.ramp.join(' → ');
+    parts.push(`<span class="dbadge b-neutral" title="Advisory safe daily volume. ${esc(wu.note)}. Ramp: ${esc(ramp)}/day">⚡ ~${wu.dailyCap}/day</span>`);
   }
 
   if (seedDetail) parts.push(seedDetail);

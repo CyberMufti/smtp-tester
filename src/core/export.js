@@ -8,6 +8,7 @@
  */
 import { classifyProvider } from './provider-class.js';
 import { deliverabilityScore } from './deliverability.js';
+import { warmupRecommendation } from './warmup.js';
 
 export const WORKING_GROUPS = [
   ['inbox', 'INBOX'],
@@ -271,7 +272,7 @@ export function toConfirmedTxt(results, { generatedAt = '' } = {}) {
   return lines.join('\n') + '\n';
 }
 
-const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'grade', 'score', 'provider', 'country', 'userExists', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
+const CSV_COLUMNS = ['host', 'port', 'user', 'status', 'grade', 'score', 'warmupDaily', 'provider', 'country', 'userExists', 'usedHost', 'usedPort', 'reason', 'latencyMs', 'placement', 'token'];
 
 /** 'yes'/'no' when the account-existence probe had a verdict, else blank. */
 function userExistsCell(r) {
@@ -291,6 +292,7 @@ export function csvRowLine(r) {
     .map((s) => `${s.label}=${s.error ? 'error' : s.folder || 'not found'}`)
     .join('; ');
   const dg = deliverabilityScore(r);
+  const wu = warmupRecommendation(r);
   return [
     r.cred.host || '(auto)',
     r.cred.port || '',
@@ -298,6 +300,7 @@ export function csvRowLine(r) {
     r.status,
     dg ? dg.grade : '',
     dg ? dg.score : '',
+    wu ? wu.dailyCap : '',
     r.provider || '',
     r.domainCountry || '',
     userExistsCell(r),
