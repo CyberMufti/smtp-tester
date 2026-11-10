@@ -45,7 +45,51 @@ export class LockoutRegistry {
     this.maxFailures = opts.maxFailures ?? 3;
     this.lockoutMs = opts.lockoutMs ?? 60000;
     this.hardLockFailures = opts.hardLockFailures ?? 10;
+    // Cap the map so a run over millions of distinct emails can't grow it
+    // without bound. Far above any single email's password set; only evicts
+    // entries that are no longer protecting anything (see _pruneIfNeeded).
+    this.maxEntries = opts.maxEntries ?? 200000;
     this.entries = new Map();
+  }
+
+  /** True if this entry is actively blocking attempts right now. */
+  _isProtecting(e, now) {
+    return e.lockedUntil === Infinity || (e.lockedUntil !== null && now < e.lockedUntil);
+  }
+
+  /**
+   * Keep the map bounded. Only runs when over the cap. Evicts entries that are
+   * BOTH not currently locked AND untouched for a full lockout window — so an
+   * in-flight email (locked, or just attempted) is never dropped mid-sequence,
+   * which would re-enable the hammering this registry exists to prevent. A
+   * final insertion-order backstop guarantees the size ceiling even in the
+   * pathological case where everything is locked and recent.
+   */
+  _pruneIfNeeded(now) {
+    if (this.entries.size <= this.maxEntries) return;
+    // Pass 1: not protecting AND stale (untouched for a full lockout window) —
+    // always safe; no in-flight sequence depends on it.
+    const staleBefore = now - this.lockoutMs;
+    for (const [k, e] of this.entries) {
+      if (!this._isProtecting(e, now) && e.lastAttempt < staleBefore) {
+        this.entries.delete(k);
+        if (this.entries.size <= this.maxEntries) return;
+      }
+    }
+    // Pass 2: any not-protecting entry, oldest first. Under sustained pressure
+    // this discards not-yet-locked failure counts, never a locked account.
+    for (const [k, e] of this.entries) {
+      if (!this._isProtecting(e, now)) {
+        this.entries.delete(k);
+        if (this.entries.size <= this.maxEntries) return;
+      }
+    }
+    // Pass 3: last resort — everything left is locked. Evict oldest so memory
+    // stays bounded (may re-enable a locked account; a crash is worse).
+    for (const k of this.entries.keys()) {
+      if (this.entries.size <= this.maxEntries) return;
+      this.entries.delete(k);
+    }
   }
 
   _key(email, protocol) {
@@ -77,6 +121,7 @@ export class LockoutRegistry {
       e.reason = 'cooldown after ' + e.failures + ' failures';
     }
     this.entries.set(k, e);
+    this._pruneIfNeeded(now);
     return e;
   }
 
@@ -92,6 +137,7 @@ export class LockoutRegistry {
     e.lastAttempt = now;
     e.reason = reason || 'server lockout signal';
     this.entries.set(k, e);
+    this._pruneIfNeeded(now);
     return e;
   }
 

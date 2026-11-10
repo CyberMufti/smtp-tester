@@ -344,22 +344,33 @@ function displayCap() {
 
 $('#opt-rowcap').addEventListener('change', renderResults);
 
-api.onProgress(({ result }) => {
-  testedCount++;
-  counts[result.status] = (counts[result.status] || 0) + 1;
-  if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
-  // Track distinct provider/country values for the leads-filter dropdowns.
-  const pBefore = seenProviders.size, cBefore = seenCountries.size;
-  if (result.provider) { seenProviders.add(result.provider); dashProviders[result.provider] = (dashProviders[result.provider] || 0) + 1; }
-  if (result.domainCountry && result.domainCountry !== 'Unknown') dashCountries[result.domainCountry] = (dashCountries[result.domainCountry] || 0) + 1;
-  { const g = deliverabilityScore(result); if (g) dashGrades[g.grade] = (dashGrades[g.grade] || 0) + 1; }
-  // The country filter targets the accurate lead country (domain TLD).
-  if (result.domainCountry) seenCountries.add(result.domainCountry);
-  if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) refreshLeadFilters();
+// Progress arrives as a coalesced batch (an array of { result, index }). The
+// per-result bookkeeping runs for each item, but the expensive renders fire
+// ONCE per batch — at scale a per-result render freezes/crashes the window.
+api.onProgress((batch) => {
+  if (!Array.isArray(batch) || batch.length === 0) return;
+  let filtersDirty = false;
+  for (const { result } of batch) {
+    testedCount++;
+    counts[result.status] = (counts[result.status] || 0) + 1;
+    if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
+    // Track distinct provider/country values for the leads-filter dropdowns.
+    const pBefore = seenProviders.size, cBefore = seenCountries.size;
+    if (result.provider) { seenProviders.add(result.provider); dashProviders[result.provider] = (dashProviders[result.provider] || 0) + 1; }
+    if (result.domainCountry && result.domainCountry !== 'Unknown') dashCountries[result.domainCountry] = (dashCountries[result.domainCountry] || 0) + 1;
+    { const g = deliverabilityScore(result); if (g) dashGrades[g.grade] = (dashGrades[g.grade] || 0) + 1; }
+    // The country filter targets the accurate lead country (domain TLD).
+    if (result.domainCountry) seenCountries.add(result.domainCountry);
+    if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) filtersDirty = true;
+    recent.push(result);
+    // Append just this row instead of rebuilding the whole table — rebuilding on
+    // every result is O(n^2) and freezes/crashes the window on large batches.
+    appendResultRow(result);
+  }
   // Retain only the newest window for the table; trim in bulk so this stays
   // amortized O(1) even across millions of results.
-  recent.push(result);
   if (recent.length > MAX_RECENT * 1.2) recent = recent.slice(-MAX_RECENT);
+  if (filtersDirty) refreshLeadFilters();
 
   $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
   const fill = $('#progress-fill');
@@ -367,9 +378,6 @@ api.onProgress(({ result }) => {
   renderSummary();
   renderContentScoreBanner();
   renderRowsNote();
-  // Append just this row instead of rebuilding the whole table — rebuilding on
-  // every result is O(n^2) and freezes/crashes the window on large batches.
-  appendResultRow(result);
 });
 
 // Does a result pass all three active filters (status + provider + country)?
@@ -635,6 +643,7 @@ function rowHtml(r) {
     const p = r.panels;
     const b = (k, v) => {
       if (!v) return '';
+      if (v.timeout) return '<span class="dbadge b-neutral" title="panel check timed out">' + k + '⏱</span>';
       if (v.error) return '<span class="dbadge b-bad" title="' + esc(v.error) + '">' + k + '!</span>';
       if (v.valid) return '<span class="dbadge b-ok">' + k + '✓</span>';
       if (v.status === 'blocked') return '<span class="dbadge b-warn" title="' + esc(v.detail || 'blocked') + ' — rotate proxy and retry">' + k + '⛊</span>';
