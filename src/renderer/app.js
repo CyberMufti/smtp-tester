@@ -107,13 +107,12 @@ $('#file-input').addEventListener('change', async (e) => {
       errors.push(file.name + ' exceeds 10GB limit');
       continue;
     }
-    const path = api.getFilePath?.(file);
-    if (!path) {
-      errors.push(file.name + ': path unavailable');
-      continue;
-    }
-    
     try {
+      const path = api.getFilePath?.(file);
+      if (!path) {
+        errors.push(file.name + ': path unavailable');
+        continue;
+      }
       const res = await api.countFile(path);
       if (!res.count) {
         errors.push(file.name + ': no valid credentials');
@@ -307,7 +306,7 @@ async function refreshResumeButton() {
 }
 
 $('#btn-resume').addEventListener('click', () => {
-  if (running || !loadedFile) return;
+  if (running || !loadedFiles.length) return;
   runFileBatch(true);
 });
 
@@ -350,7 +349,9 @@ $('#opt-rowcap').addEventListener('change', renderResults);
 api.onProgress((batch) => {
   if (!Array.isArray(batch) || batch.length === 0) return;
   let filtersDirty = false;
-  for (const { result } of batch) {
+  for (const item of batch) {
+    const result = item && item.result;
+    if (!result) continue; // defensive: never let one malformed item drop the rest
     testedCount++;
     counts[result.status] = (counts[result.status] || 0) + 1;
     if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
@@ -574,7 +575,7 @@ function rowHtml(r) {
   const parts = [];
 
   const seedDetail = (r.perSeed || [])
-    .map((s) => `<span class="seed-tag">${esc(s.label)}: <b>${s.error ? 'error' : s.folder || 'not found'}</b></span>`)
+    .map((s) => `<span class="seed-tag">${esc(s.label)}: <b>${s.error ? 'error' : esc(s.folder || 'not found')}</b></span>`)
     .join('');
   // Deliverability grade (fuses placement + SPF/DMARC + blacklist + content).
   const dg = deliverabilityScore(r);
@@ -611,7 +612,7 @@ function rowHtml(r) {
 
   if (r.mutationUsed) parts.push('<span class="dbadge b-ok" style="background:#d97706">mutated: ' + esc(r.mutationUsed) + '</span>');
     if (r.proxyFallback) {
-    const dying = r.proxyThatDied ? ' (' + String(r.proxyThatDied).replace(/^socks[45]:\/\//, '').split('@').pop() + ')' : '';
+    const dying = r.proxyThatDied ? ' (' + esc(String(r.proxyThatDied).replace(/^socks[45]:\/\//, '').split('@').pop()) + ')' : '';
     parts.push('<span class="dbadge b-neutral">dead proxy — retried direct' + dying + '</span>');
   }
 
@@ -673,7 +674,7 @@ function rowHtml(r) {
     <td class="mono">${esc(host)}${ep.port ? ':' + esc(ep.port) : ''}</td>
     <td class="mono">${esc(r.cred.user)}</td>
     <td><span class="status-chip status-${r.status}">${statusLabel(r.status)}</span></td>
-    <td>${r.latencyMs} ms</td>
+    <td>${r.latencyMs != null ? r.latencyMs + ' ms' : '—'}</td>
     <td class="detail">${parts.join('<br>')}</td>
   </tr>`;
 }
@@ -731,7 +732,7 @@ function deliverabilityBadges(r) {
 function authBadges(a) {
   return ['spf', 'dkim', 'dmarc']
     .filter((k) => a[k])
-    .map((k) => `${k}=${a[k]}`)
+    .map((k) => `${k}=${esc(String(a[k]))}`)
     .join(' ');
 }
 
@@ -759,6 +760,13 @@ async function doExport(format) {
 // ---------- Email Verifier ----------
 let verifyResults = [];
 let verifyActiveFilter = 'all';
+// Running counts + a valid-seen flag, updated per result, so the summary and
+// export-button state are O(1) instead of rescanning the whole array on every
+// verify:progress event (which is per-email and unbatched). DOM rows are capped
+// too, mirroring the Test screen, so a huge list can't freeze the window.
+let verifyCounts = {};
+let verifyHasValid = false;
+const VERIFY_DOM_CAP = 2000;
 function verifyEmailsFromInput() {
   return ($('#verify-input')?.value || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
@@ -770,6 +778,8 @@ $('#btn-verify-run')?.addEventListener('click', async () => {
   const emails = verifyEmailsFromInput();
   if (!emails.length) return;
   verifyResults = [];
+  verifyCounts = {};
+  verifyHasValid = false;
   $('#verify-body').innerHTML = '';
   renderVerify();
   $('#btn-verify-run').disabled = true;
@@ -780,11 +790,14 @@ $('#btn-verify-run')?.addEventListener('click', async () => {
 });
 $('#btn-verify-cancel')?.addEventListener('click', () => api.verifyCancel());
 api.onVerifyProgress(({ result, done, total }) => {
+  if (!result) return;
   verifyResults.push(result);
+  verifyCounts[result.status] = (verifyCounts[result.status] || 0) + 1;
+  if (result.status === 'valid') verifyHasValid = true;
   $('#verify-progress').textContent = `${done} / ${total}`;
   renderVerifySummary();
   appendVerifyRow(result);
-  $('#btn-verify-export').disabled = !verifyResults.some((r) => r.status === 'valid');
+  $('#btn-verify-export').disabled = !verifyHasValid;
 });
 api.onVerifyDone(({ done }) => { $('#verify-progress').textContent = `${done} verified`; });
 $('#verify-filters')?.addEventListener('click', (e) => {
@@ -808,18 +821,19 @@ function appendVerifyRow(r) {
   const empty = body.querySelector('.empty-row');
   if (empty) empty.remove();
   body.insertAdjacentHTML('beforeend', verifyRowHtml(r));
+  // Keep only the newest N rows in the DOM so a huge list stays responsive.
+  while (body.children.length > VERIFY_DOM_CAP) body.removeChild(body.firstElementChild);
 }
 function renderVerify() {
   const body = $('#verify-body');
-  const rows = verifyResults.filter(verifyRowMatches);
+  // Only render the newest capped window to keep the DOM light on huge lists.
+  const rows = verifyResults.filter(verifyRowMatches).slice(-VERIFY_DOM_CAP);
   body.innerHTML = rows.length ? rows.map(verifyRowHtml).join('') : `<tr class="empty-row"><td colspan="5">${verifyResults.length ? 'No results match this filter.' : 'No results yet. Paste addresses and click <b>Verify All</b>.'}</td></tr>`;
   renderVerifySummary();
 }
 function renderVerifySummary() {
-  const counts = {};
-  for (const r of verifyResults) counts[r.status] = (counts[r.status] || 0) + 1;
   const order = [['valid', 'Valid'], ['invalid', 'Invalid'], ['catch-all', 'Catch-all'], ['unknown', 'Unknown'], ['no-mx', 'No MX'], ['invalid-syntax', 'Bad syntax']];
-  $('#verify-summary').innerHTML = verifyResults.length ? order.filter(([k]) => counts[k]).map(([k, l]) => `<span class="summary-chip status-${k}">${l}: ${counts[k]}</span>`).join('') : '';
+  $('#verify-summary').innerHTML = verifyResults.length ? order.filter(([k]) => verifyCounts[k]).map(([k, l]) => `<span class="summary-chip status-${k}">${l}: ${verifyCounts[k]}</span>`).join('') : '';
 }
 $('#btn-verify-export')?.addEventListener('click', async () => {
   const res = await api.exportVerified(verifyResults);
@@ -1595,7 +1609,11 @@ async function startApp() {
 api.getHostMap?.().then(text => { if (text) $('#hostmap-input').value = text; }).catch(()=>{});
 $('#btn-save-hostmap')?.addEventListener('click', async () => {
   const text = $('#hostmap-input').value;
-  const res = await api.saveHostMap(text);
-  $('#hostmap-status').textContent = 'Saved ' + res.size + ' mappings ✓';
+  try {
+    const res = await api.saveHostMap(text);
+    $('#hostmap-status').textContent = 'Saved ' + (res?.size ?? 0) + ' mappings ✓';
+  } catch (err) {
+    $('#hostmap-status').textContent = 'Save failed: ' + (err?.message || err);
+  }
   setTimeout(() => $('#hostmap-status').textContent = '', 2000);
 });
