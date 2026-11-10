@@ -653,20 +653,24 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
           result = { cred, status: 'dead', reason: err.message, deadReason: 'connect' };
         }
       }
-      // Dead-proxy fallback: retry once DIRECT if the pool proxy clearly failed.
+      // Dead-proxy fallback: a connect failure through a pool proxy is retried
+      // DIRECT, UNCONDITIONALLY. deadReason==='connect' already rules out auth/
+      // send rejections, so we can't tell whether the proxy or the target failed
+      // — and retrying direct is the accurate choice either way: if the target
+      // is genuinely down, the direct attempt is still dead; if only the proxy
+      // was bad, the credential is correctly found valid. (Matching the proxy
+      // error text was unreliable — SOCKS errors vary and false-deaded live creds.)
       if (usedPoolProxy && result.deadReason === 'connect' && !signal?.aborted) {
         const reasonText = String(result.reason || '');
-        if (/timeout|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|socket|tunnel|proxy/i.test(reasonText)) {
-          if (typeof opts.onProxyFailure === 'function') {
-            try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
-          }
-          const directOpts = { ...opts, proxy: null, proxyProvider: undefined };
-          const retried = await testOne(cred, index, seeds, directOpts, smtp, imap, ctx);
-          retried.proxyFallback = true;
-          retried.proxyFallbackReason = 'dead proxy — retried direct';
-          retried.proxyThatDied = proxyForCred;
-          result = retried;
+        if (typeof opts.onProxyFailure === 'function') {
+          try { opts.onProxyFailure(proxyForCred, reasonText); } catch {}
         }
+        const directOpts = { ...opts, proxy: null, proxyProvider: undefined };
+        const retried = await testOne(cred, index, seeds, directOpts, smtp, imap, ctx);
+        retried.proxyFallback = true;
+        retried.proxyFallbackReason = 'dead proxy — retried direct';
+        retried.proxyThatDied = proxyForCred;
+        result = retried;
       }
       // Retry transient connection failures (not auth/send rejections) with backoff.
       const maxRetries = opts.retries ?? 0;

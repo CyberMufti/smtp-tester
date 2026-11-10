@@ -613,3 +613,22 @@ test('a port-25 auth failure does not skip the submission ports (587/465 still t
   assert.equal(results[0].status, 'valid', 'valid on 587 despite port-25 auth failure');
   assert.equal(results[0].usedPort, 587);
 });
+
+test('a pool-proxy connect failure always retries DIRECT, even for an unusual error', async () => {
+  // Proxy present -> fails with a message the old regex would NOT match; no proxy -> works.
+  const smtp = {
+    async verify(cred, opts) {
+      if (opts && opts.proxy) return { connected: false, authenticated: false, error: 'Socks5 Authentication failed' };
+      return { connected: true, authenticated: true };
+    },
+    async send() { return { accepted: ['u@x.com'], response: '250 OK' }; },
+  };
+  const imap = { async findToken() { return { found: false, folder: null }; } };
+  const creds = [{ host: 'smtp.x.com', port: 587, user: 'u@x.com', pass: 'p' }];
+  const results = await runBatch(creds, [], {
+    concurrency: 1, deps: { smtp, imap },
+    proxyProvider: () => 'socks5://1.2.3.4:1080', onProxyFailure: () => {},
+  });
+  assert.equal(results[0].status, 'valid', 'retried direct and succeeded');
+  assert.equal(results[0].proxyFallback, true);
+});

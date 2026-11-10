@@ -16,8 +16,10 @@
  * @typedef {{reachable:boolean, valid:boolean, status:'valid'|'invalid'|'unknown'|'not-cpanel'|'unreachable', detail?:string}} CpanelResult
  */
 import https from 'node:https';
+import http from 'node:http';
 import { getRandomUA } from './user-agents.js';
 import { socksHttpsAgent } from './socks-agent.js';
+import { panelScheme } from './panel-ports.js';
 import { detectPanelBlock } from './panel-signals.js';
 
 export const DEFAULT_CPANEL_PORT = 2083;
@@ -92,7 +94,8 @@ function defaultRequest(url, { headers, body, timeout, agent }) {
   return new Promise((resolve) => {
     let req;
     try {
-      req = https.request(
+      const mod = String(url).startsWith('https:') ? https : http;
+      req = mod.request(
         url,
         { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined },
         (res) => {
@@ -137,7 +140,8 @@ export async function verifyCpanel(target, opts = {}) {
   const base = { host, user, port };
   if (!host) return { ...base, reachable: false, valid: false, status: 'unreachable', detail: 'no host' };
 
-  const url = `https://${host}:${port}/login/?login_only=1`;
+  const scheme = panelScheme(port);
+  const url = `${scheme}://${host}:${port}/login/?login_only=1`;
   const body = `user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
   const headers = {
     'Content-Type': 'application/x-www-form-urlencoded',
@@ -147,7 +151,7 @@ export async function verifyCpanel(target, opts = {}) {
 
   let res;
   try {
-    res = await request(url, { headers, body, timeout, agent: socksHttpsAgent(opts.proxy) });
+    res = await request(url, { headers, body, timeout, agent: scheme === 'https' ? socksHttpsAgent(opts.proxy) : undefined });
   } catch (err) {
     res = { error: err.message };
   }
@@ -158,7 +162,7 @@ export async function verifyCpanel(target, opts = {}) {
     try {
       const sessMatch = result._cpsess.match(/(cpsess[0-9]+)/);
       const sess = sessMatch ? sessMatch[0] : '';
-      const domainUrl = `https://${host}:${port}/${sess}/execute/DomainInfo/list_domains`;
+      const domainUrl = `${scheme}://${host}:${port}/${sess}/execute/DomainInfo/list_domains`;
       const dRes = await request(domainUrl, { headers: { 'User-Agent': getRandomUA() }, body: '', timeout });
       if (dRes && dRes.body) {
         const dJson = JSON.parse(dRes.body);

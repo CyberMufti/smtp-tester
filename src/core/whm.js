@@ -14,6 +14,8 @@
  * @typedef {{reachable:boolean, valid:boolean, status:'valid'|'invalid'|'not-whm'|'unreachable', detail?:string}} WhmResult
  */
 import https from 'node:https';
+import http from 'node:http';
+import { panelScheme } from './panel-ports.js';
 import { socksHttpsAgent } from './socks-agent.js';
 import { detectPanelBlock } from './panel-signals.js';
 
@@ -62,7 +64,7 @@ function defaultRequest(url, { headers, body, timeout, agent }) {
   return new Promise((resolve) => {
     let req;
     try {
-      req = https.request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined }, (res) => {
+      req = (String(url).startsWith('https:') ? https : http).request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined }, (res) => {
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (c) => { if (data.length < 65536) data += c; });
@@ -83,11 +85,12 @@ export async function verifyWhm(target, opts = {}) {
   const pass = String(target.pass || '');
   const base = { host, user, port };
   if (!host) return { ...base, reachable: false, valid: false, status: 'unreachable', detail: 'no host' };
-  const url = `https://${host}:${port}/login/?login_only=1`;
+  const scheme = panelScheme(port);
+  const url = `${scheme}://${host}:${port}/login/?login_only=1`;
   const body = `user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) };
   let res;
-  try { res = await request(url, { headers, body, timeout, agent: socksHttpsAgent(opts.proxy) }); } catch (err) { res = { error: err.message }; }
+  try { res = await request(url, { headers, body, timeout, agent: scheme === 'https' ? socksHttpsAgent(opts.proxy) : undefined }); } catch (err) { res = { error: err.message }; }
   return { ...base, ...classifyWhmLogin(res) };
 }
 
