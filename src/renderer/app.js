@@ -2,6 +2,7 @@ import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName } from '../core/country-names.js';
 import { deliverabilityScore } from '../core/deliverability.js';
+import { summarizeRun } from '../core/run-history.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -64,6 +65,7 @@ function navTo(tab) {
   target.classList.add('active');
   const scroller = $('.content');
   if (scroller) scroller.scrollTop = 0;
+  if (tab === 'history') loadHistory();
 }
 $$('.nav-item').forEach((item) => {
   item.addEventListener('click', () => navTo(item.dataset.tab));
@@ -416,7 +418,41 @@ function renderRowsNote() {
 api.onDone(() => {
   $('#progress-label').textContent = `${testedCount} tested`;
   $('#progress-fill').style.width = '100%';
+  // Persist a compact summary of this run to History.
+  if (testedCount > 0) {
+    const summary = summarizeRun({
+      at: new Date().toISOString(), total: testedCount, source: 'test',
+      counts: { ...counts }, providers: { ...dashProviders }, countries: { ...dashCountries }, grades: { ...dashGrades },
+    });
+    api.saveRunHistory(summary).catch(() => {});
+  }
 });
+
+// ---------- Run history ----------
+function renderHistory(runs) {
+  const el = $('#history-list');
+  if (!el) return;
+  if (!runs || !runs.length) {
+    el.innerHTML = '<p class="muted">No runs recorded yet. Run a test and it\'ll be saved here automatically.</p>';
+    return;
+  }
+  el.innerHTML = runs.map((r) => {
+    const when = r.at ? new Date(r.at).toLocaleString() : '';
+    const c = r.counts || {};
+    const chips = [['inbox', 'Inbox'], ['spam', 'Spam'], ['valid', 'Valid'], ['unverified', 'Unverified'], ['dead', 'Dead']]
+      .filter(([k]) => c[k]).map(([k, l]) => `<span class="summary-chip status-${k}">${l}: ${c[k]}</span>`).join('');
+    const prov = (r.topProviders || []).slice(0, 4).map((p) => `${esc(p.name)} (${p.count})`).join(', ');
+    const grades = ['A', 'B', 'C', 'D', 'F'].filter((g) => r.grades?.[g]).map((g) => `${g}:${r.grades[g]}`).join(' ');
+    return `<div class="history-card">
+      <div class="history-head"><b>${esc(when)}</b><span class="muted">${r.total} tested${grades ? ' · grades ' + esc(grades) : ''}</span></div>
+      <div class="history-chips">${chips}</div>
+      ${prov ? `<div class="muted" style="margin-top:6px">Top: ${esc(prov)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+async function loadHistory() { renderHistory(await api.getRunHistory()); }
+$('#btn-history-refresh')?.addEventListener('click', loadHistory);
+$('#btn-history-clear')?.addEventListener('click', async () => { await api.clearRunHistory(); loadHistory(); });
 
 // ---------- Results table ----------
 $('#filters').addEventListener('click', (e) => {

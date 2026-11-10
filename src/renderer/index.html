@@ -55,6 +55,7 @@
           <button class="nav-item" data-tab="test"><span class="nav-ico">▷</span> Test <span class="nav-sub">SMTP</span></button>
           <button class="nav-item" data-tab="verify"><span class="nav-ico">✓</span> Verify <span class="nav-sub">EMAIL</span></button>
           <button class="nav-item" data-tab="monitor"><span class="nav-ico">◉</span> Monitor</button>
+          <button class="nav-item" data-tab="history"><span class="nav-ico">⧗</span> History</button>
 
           <div class="nav-group">Checks</div>
           <button class="nav-item" data-tab="cpanel"><span class="nav-ico">▧</span> cPanel</button>
@@ -299,6 +300,23 @@
                 <tbody id="verify-body"><tr class="empty-row"><td colspan="5">No results yet. Paste addresses and click <b>Verify All</b>.</td></tr></tbody>
               </table>
             </div>
+          </section>
+        </main>
+
+        <!-- ===== HISTORY ===== -->
+        <main id="screen-history" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">History</h1>
+              <p class="pane-sub">Past runs — compare outcomes and provider/country mix over time</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-history-refresh" class="btn ghost">Refresh</button>
+              <button id="btn-history-clear" class="btn danger-ghost">Clear</button>
+            </div>
+          </header>
+          <section class="panel">
+            <div id="history-list"><p class="muted">No runs recorded yet. Run a test and it'll be saved here automatically.</p></div>
           </section>
         </main>
 

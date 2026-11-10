@@ -42,7 +42,7 @@ import { getHwid } from '../core/hwid.js';
 import { monitorDiff } from '../core/monitor.js';
 import { verifyLicense } from '../core/license.js';
 import { PUBLIC_KEY_PEM } from '../core/license-public-key.js';
-import { loadSettings, saveSettings, getLicenseKey, setLicenseKey, getMonitor, saveMonitor } from './store.js';
+import { loadSettings, saveSettings, getLicenseKey, setLicenseKey, getMonitor, saveMonitor, getRunHistory, saveRunSummary, clearRunHistory } from './store.js';
 
 async function safeReadProgress(filePath) {
   try {
@@ -728,6 +728,11 @@ ipcMain.handle('batch:cancel', async () => {
   currentAbort?.abort();
   return true;
 });
+
+// Run history (compact per-run summaries, persisted locally).
+ipcMain.handle('history:save', async (_e, { summary }) => saveRunSummary(summary).catch(() => []));
+ipcMain.handle('history:list', async () => getRunHistory().catch(() => []));
+ipcMain.handle('history:clear', async () => clearRunHistory().catch(() => []));
 
 // Passwordless email verification (the Verify screen). Streams one result per
 // address back to the renderer. Uses RCPT-TO on port 25 for existence (needs

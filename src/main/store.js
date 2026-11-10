@@ -67,6 +67,29 @@ export async function saveSettings(settings) {
   return merged;
 }
 
+/** Return the stored run-history summaries (newest first). */
+export async function getRunHistory() {
+  const store = await getStore();
+  const h = store.get('runHistory');
+  return Array.isArray(h) ? h : [];
+}
+
+/** Prepend a run summary and cap the history. Returns the new list. */
+export async function saveRunSummary(summary, cap = 50) {
+  const store = await getStore();
+  const { pushHistory } = await import('../core/run-history.js');
+  const next = pushHistory(await getRunHistory(), summary, cap);
+  store.set('runHistory', next);
+  return next;
+}
+
+/** Clear all stored run history. */
+export async function clearRunHistory() {
+  const store = await getStore();
+  store.set('runHistory', []);
+  return [];
+}
+
 /** Default health-monitor state (stored separately from settings). */
 export function defaultMonitor() {
   return {

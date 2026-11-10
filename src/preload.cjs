@@ -86,6 +86,9 @@ contextBridge.exposeInMainWorld('api', {
   verifyRun: (emails) => ipcRenderer.invoke('verify:run', { emails }),
   verifyCancel: () => ipcRenderer.invoke('verify:cancel'),
   exportVerified: (results) => ipcRenderer.invoke('verify:export', { results }),
+  saveRunHistory: (summary) => ipcRenderer.invoke('history:save', { summary }),
+  getRunHistory: () => ipcRenderer.invoke('history:list'),
+  clearRunHistory: () => ipcRenderer.invoke('history:clear'),
   onVerifyProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('verify:progress', handler);

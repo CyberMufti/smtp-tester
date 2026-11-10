@@ -211,6 +211,10 @@ label.btn { display: inline-flex; align-items: center; }
 .bar-fill { display: block; height: 100%; border-radius: inherit; transition: width 0.3s ease; }
 .bar-val { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 
+.history-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 10px; background: var(--panel-2); }
+.history-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.history-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
 .field-label { display: block; margin: 16px 2px 6px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 /* ---------- Summary chips (stat row on Test pane) ---------- */
