@@ -56,7 +56,15 @@ export function detectLimited(result) {
   if (!result || result.status === 'limited') return null;
   const authed = result.status !== 'dead' || result.deadReason === 'send';
   if (!authed) return null;
-  const texts = [result.reason, result.sendResponse, ...(result.attempts || []).map((a) => a && a.outcome)];
+  // Only the ACTUAL send path can prove a rate/quota limit: the final send error
+  // (result.reason on a send failure) and the server's send response line.
+  // Deliberately NOT result.attempts — the working endpoint's outcome is always
+  // 'ok', so every other attempt is a FAILED probe on a different port/host. A
+  // port-25 greylist ("try again later"), a 421 deferral, or a "temporarily
+  // unavailable" connect error on a fallback port says nothing about the port
+  // that actually authenticated and sent. Scanning them only produced false
+  // positives — downgrading genuinely valid/inbox credentials to "limited".
+  const texts = [result.reason, result.sendResponse];
   const hit = texts.find((t) => t && LIMIT_RE.test(String(t)));
   if (!hit) return null;
   const detail = String(result.reason || hit).trim().slice(0, 180);

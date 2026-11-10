@@ -240,6 +240,22 @@ test('detectLimited: clean accepted send is NOT limited', () => {
   assert.equal(detectLimited({ status: 'valid', reason: 'sent', sendResponse: '250 2.0.0 OK  1699 - gsmtp' }), null);
 });
 
+test('detectLimited: a failed probe on another port does NOT downgrade a working credential', () => {
+  // Authenticated + sent + landed in inbox on port 465, but the earlier port-25
+  // probe was greylisted. The throttle text lives only in a FAILED attempt, so
+  // the credential must stay inbox — not be mislabeled "limited".
+  const r = {
+    status: 'inbox',
+    reason: 'landed in inbox on all resolved seeds',
+    sendResponse: '250 2.0.0 OK message accepted',
+    attempts: [
+      { host: 'mail.example.com', port: 25, outcome: 'auth rejected (421 4.7.0 too many connections, try again later)' },
+      { host: 'mail.example.com', port: 465, outcome: 'ok' },
+    ],
+  };
+  assert.equal(detectLimited(r), null);
+});
+
 test('detectLimited: a connect/auth failure is never limited (login does not work)', () => {
   assert.equal(detectLimited({ status: 'dead', deadReason: 'auth', reason: '535 too many bad auth attempts' }), null);
   assert.equal(detectLimited({ status: 'dead', deadReason: 'connect', reason: 'connect ETIMEDOUT' }), null);
