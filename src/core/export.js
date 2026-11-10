@@ -111,10 +111,12 @@ export function hostGroupedExportFiles(results) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';
       const pLine = `${host}:${user}:${pass}`;
-      if (r.panels.cpanel?.valid) add('cpanel_valid.txt', pLine);
-      if (r.panels.webmail?.valid) add('webmail_valid.txt', pLine);
-      if (r.panels.whm?.valid) add('whm_valid.txt', pLine);
-      if (r.panels.ssh?.valid) add('ssh_valid.txt', pLine);
+      // Every control-panel / mail-protocol login that worked, grouped under
+      // panels/<type>_valid.txt (cpanel, whm, webmail, ssh, plesk, directadmin,
+      // cyberpanel, webmin, hestia, imap, pop3).
+      for (const [type, hit] of Object.entries(r.panels)) {
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, pLine);
+      }
     }
   }
   return files;
@@ -208,10 +210,12 @@ export function resultFolderFiles(results) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';
       const pLine = `${host}:${user}:${pass}`;
-      if (r.panels.cpanel?.valid) add('cpanel_valid.txt', pLine);
-      if (r.panels.webmail?.valid) add('webmail_valid.txt', pLine);
-      if (r.panels.whm?.valid) add('whm_valid.txt', pLine);
-      if (r.panels.ssh?.valid) add('ssh_valid.txt', pLine);
+      // Every control-panel / mail-protocol login that worked, grouped under
+      // panels/<type>_valid.txt (cpanel, whm, webmail, ssh, plesk, directadmin,
+      // cyberpanel, webmin, hestia, imap, pop3).
+      for (const [type, hit] of Object.entries(r.panels)) {
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, pLine);
+      }
     }
   }
   return files;

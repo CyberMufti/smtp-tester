@@ -57,3 +57,23 @@ test('verifyDirectAdmin uses port 2222 by default', async () => {
   assert.equal(r.status, 'unreachable');
   assert.equal(r.port, 2222);
 });
+
+// --- CyberPanel / Webmin / Hestia -------------------------------------------
+import { classifyCyberPanelLogin, classifyWebminLogin, classifyHestiaLogin } from '../src/core/panels-extra.js';
+
+test('CyberPanel: loginStatus 1 is valid, 0 is invalid', () => {
+  assert.equal(classifyCyberPanelLogin({ statusCode: 200, body: '{"loginStatus": 1}' }).status, 'valid');
+  assert.equal(classifyCyberPanelLogin({ statusCode: 200, body: '{"loginStatus": 0, "error_message": "Invalid"}' }).status, 'invalid');
+  assert.equal(classifyCyberPanelLogin({ error: 'timeout' }).status, 'unreachable');
+});
+
+test('Webmin: session cookie + redirect is valid; "Login failed" is invalid', () => {
+  assert.equal(classifyWebminLogin({ statusCode: 302, headers: { location: '/', 'set-cookie': ['sid=abc; path=/'] }, body: '' }).status, 'valid');
+  assert.equal(classifyWebminLogin({ statusCode: 200, body: 'Login failed. Please try again.' }).status, 'invalid');
+  assert.equal(classifyWebminLogin({ statusCode: 200, body: 'The password was incorrect' }).status, 'invalid');
+});
+
+test('Hestia/Vesta: redirect+cookie is valid; invalid-credentials message is invalid', () => {
+  assert.equal(classifyHestiaLogin({ statusCode: 302, headers: { location: '/', 'set-cookie': ['HESTIASID=x; path=/'] }, body: '' }).status, 'valid');
+  assert.equal(classifyHestiaLogin({ statusCode: 200, body: 'Invalid username or password' }).status, 'invalid');
+});
