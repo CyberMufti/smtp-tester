@@ -163,6 +163,12 @@ const GLOBAL_EDGE_PROVIDERS = new Set([
   'Zoho', 'iCloud', 'Proton Mail', 'Fastmail', 'Yandex', 'Mail.ru', 'GMX/Web.de',
   'NetEase', 'Tencent Exmail', 'Alibaba Mail', 'Amazon WorkMail',
   'Mimecast', 'Proofpoint', 'Barracuda',
+  // Rackspace Email is a large shared multi-tenant platform whose *.emailsrvr.com
+  // mail hosts rotate across US and UK datacenters, so the server IP's country
+  // is not the lead's — it reported wrong/EU countries for US customers. Other
+  // hosting resellers are left as location-meaningful (the author's call); revisit
+  // per-provider if they show the same wrong-country behavior.
+  'Rackspace',
 ]);
 
 /**

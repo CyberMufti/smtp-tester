@@ -94,20 +94,29 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     let mxHosts = [];
     let discovered = [];
     const dns = opts.deps?.dns;
-    if (!cred.host && !detectProvider(cred.user) && dns) {
+    // Resolve MX for any custom domain (even when the user supplied a host) so
+    // provider classification always has the authoritative platform signal —
+    // e.g. a vanity host like mail.<domain> carries no emailsrvr token, but the
+    // MX does, so Rackspace isn't lost and mislabeled by the banner fallback.
+    // The heavier SRV/autoconfig discovery is only needed to FIND a connect
+    // endpoint, so it still runs only when no host was supplied.
+    if (!detectProvider(cred.user) && dns) {
       const domain = domainOf(cred.user);
-      // Discover once per domain, not per credential (a bulk list often has
-      // many accounts on the same domain).
-      if (ctx && !ctx.discoverCache.has(domain)) {
-        const fetchFn =
-          opts.deps.fetch || ((url) => globalThis.fetch(url, { signal: AbortSignal.timeout(5000) }));
-        const [mx, disc] = await Promise.all([
-          dns.resolveMx ? resolveMxHosts(domain, dns) : [],
-          dns.resolveSrv ? discoverHosts(domain, { dns, fetchFn }).catch(() => []) : [],
-        ]);
-        ctx.discoverCache.set(domain, { mxHosts: mx, discovered: disc });
+      if (domain) {
+        // Discover once per domain, not per credential (a bulk list often has
+        // many accounts on the same domain).
+        if (ctx && !ctx.discoverCache.has(domain)) {
+          const fetchFn =
+            opts.deps.fetch || ((url) => globalThis.fetch(url, { signal: AbortSignal.timeout(5000) }));
+          const needDiscovery = !cred.host && dns.resolveSrv;
+          const [mx, disc] = await Promise.all([
+            dns.resolveMx ? resolveMxHosts(domain, dns) : [],
+            needDiscovery ? discoverHosts(domain, { dns, fetchFn }).catch(() => []) : [],
+          ]);
+          ctx.discoverCache.set(domain, { mxHosts: mx, discovered: disc });
+        }
+        ({ mxHosts, discovered } = ctx?.discoverCache.get(domain) || { mxHosts: [], discovered: [] });
       }
-      ({ mxHosts, discovered } = ctx?.discoverCache.get(domain) || { mxHosts: [], discovered: [] });
     }
     mxForClass = mxHosts;
 

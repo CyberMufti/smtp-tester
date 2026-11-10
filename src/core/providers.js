@@ -67,6 +67,10 @@ const MX_PLATFORMS = [
   { re: /(aspmx|google|googlemail)\./i, host: 'smtp.gmail.com', ports: [587, 465] },
   { re: /(protection\.outlook|office365|outlook)\./i, host: 'smtp.office365.com', ports: [587] },
   { re: /secureserver\.net/i, host: 'smtpout.secureserver.net', ports: [587, 465] },
+  // Rackspace Email: the MX is *.emailsrvr.com but submission (AUTH + send) is
+  // secure.emailsrvr.com — logging in against the MX host is rejected, which
+  // made valid Rackspace credentials read as "dead".
+  { re: /emailsrvr\.com/i, host: 'secure.emailsrvr.com', ports: [587, 465] },
   { re: /(mimecast)\./i, host: 'smtp.mailhop.net', ports: [587] },
 ];
 
