@@ -20,6 +20,21 @@ test('global providers have NO home country (their users are everywhere)', () =>
   }
 });
 
+test('national ISP / webmail providers are recognized with home countries', () => {
+  assert.equal(classifyProvider({ user: 'a@naver.com' }), 'Naver');
+  assert.equal(providerHomeCountry('Naver'), 'South Korea');
+  assert.equal(classifyProvider({ user: 'a@daum.net' }), 'Daum');
+  assert.equal(classifyProvider({ user: 'a@uol.com.br' }), 'UOL');
+  assert.equal(providerHomeCountry('UOL'), 'Brazil');
+  assert.equal(classifyProvider({ user: 'a@comcast.net' }), 'Comcast');
+  assert.equal(providerHomeCountry('Comcast'), 'United States');
+  assert.equal(classifyProvider({ user: 'a@orange.fr' }), 'Orange');
+  assert.equal(providerHomeCountry('Orange'), 'France');
+  assert.equal(classifyProvider({ user: 'a@btinternet.com' }), 'BT');
+  assert.equal(classifyProvider({ user: 'a@libero.it' }), 'Libero');
+  assert.equal(classifyProvider({ user: 'a@seznam.cz' }), 'Seznam');
+});
+
 test('new US ISP / ESP providers are recognized', () => {
   assert.equal(classifyProvider({ user: 'a@optimum.net' }), 'Optimum');
   assert.equal(classifyProvider({ user: 'a@optonline.net' }), 'Optimum');

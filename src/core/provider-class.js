@@ -47,6 +47,18 @@ export const PROVIDER_BUCKETS = [
   'Mailjet',
   'Brevo',
   'Intermedia',
+  'Naver',
+  'Daum',
+  'UOL',
+  'Terra',
+  'Comcast',
+  'AT&T',
+  'Verizon',
+  'Orange',
+  'Free',
+  'BT',
+  'Libero',
+  'Seznam',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
   'Proofpoint',
@@ -103,6 +115,16 @@ const CONSUMER_DOMAINS = new Map([
   ['optimum.net', 'Optimum'], ['optonline.net', 'Optimum'],
   ['rr.com', 'Spectrum/RR'], ['roadrunner.com', 'Spectrum/RR'], ['twc.com', 'Spectrum/RR'],
   ['charter.net', 'Spectrum/RR'], ['spectrum.net', 'Spectrum/RR'], ['cfl.rr.com', 'Spectrum/RR'],
+  ['naver.com', 'Naver'], ['daum.net', 'Daum'], ['hanmail.net', 'Daum'],
+  ['uol.com.br', 'UOL'], ['bol.com.br', 'UOL'], ['terra.com.br', 'Terra'],
+  ['comcast.net', 'Comcast'],
+  ['att.net', 'AT&T'], ['sbcglobal.net', 'AT&T'], ['bellsouth.net', 'AT&T'], ['ameritech.net', 'AT&T'],
+  ['verizon.net', 'Verizon'],
+  ['orange.fr', 'Orange'], ['wanadoo.fr', 'Orange'], ['laposte.net', 'Orange'],
+  ['free.fr', 'Free'],
+  ['btinternet.com', 'BT'], ['bt.com', 'BT'],
+  ['libero.it', 'Libero'], ['virgilio.it', 'Libero'], ['tiscali.it', 'Libero'],
+  ['seznam.cz', 'Seznam'],
 ]);
 
 // Providers whose users are strongly concentrated in one country, used as a
@@ -115,6 +137,11 @@ const PROVIDER_HOME_COUNTRY = {
   'Optimum': 'United States', 'Spectrum/RR': 'United States', 'Mailgun': 'United States',
   'Mailjet': 'France', 'Brevo': 'France',
   'GMX/Web.de': 'Germany',
+  'Naver': 'South Korea', 'Daum': 'South Korea',
+  'UOL': 'Brazil', 'Terra': 'Brazil',
+  'Comcast': 'United States', 'AT&T': 'United States', 'Verizon': 'United States',
+  'Orange': 'France', 'Free': 'France',
+  'BT': 'United Kingdom', 'Libero': 'Italy', 'Seznam': 'Czechia',
 };
 
 /**
