@@ -17,6 +17,16 @@ import { join } from 'node:path';
 import { parseDelimitedLine, credKey } from './parser.js';
 
 /**
+ * Hard cap on how many distinct keys the in-memory dedupe Set may hold. Each
+ * key is ~130 bytes with Set overhead, so ~12M keys ≈ 1.5 GB — safe within the
+ * raised main-process heap. Past the cap, dedup degrades gracefully: already-seen
+ * keys are still dropped, but new keys are no longer tracked (their later
+ * duplicates pass through) so a 100M-row file loads instead of OOM-crashing. A
+ * unique credential is NEVER dropped. Override via `maxDedupeKeys`.
+ */
+export const DEFAULT_MAX_DEDUPE_KEYS = 12_000_000;
+
+/**
  * Deterministic on-disk path for a source file's deduped copy, unique PER
  * SOURCE. A single fixed name would collide: loading several files would make
  * every file's deduped copy overwrite the same path, so the run would stream
@@ -43,7 +53,7 @@ export function parsedCredsPathFor(dir, srcPath) {
  * @returns {AsyncGenerator<import('./parser.js').Credential>}
  */
 export async function* streamCredentialsFromFile(filePath, opts = {}) {
-  const { dedupe = true, onError } = opts;
+  const { dedupe = true, onError, maxDedupeKeys = DEFAULT_MAX_DEDUPE_KEYS } = opts;
   const rl = createInterface({
     input: createReadStream(filePath, { encoding: 'utf8' }),
     crlfDelay: Infinity,
@@ -62,7 +72,9 @@ export async function* streamCredentialsFromFile(filePath, opts = {}) {
       if (seen) {
         const key = credKey(res.record);
         if (seen.has(key)) continue;
-        seen.add(key);
+        // Stop growing the Set at the cap — never drop an unseen credential,
+        // just stop tracking new keys so memory stays bounded on huge files.
+        if (seen.size < maxDedupeKeys) seen.add(key);
       }
       yield res.record;
     }
@@ -115,7 +127,7 @@ export async function countCredentialsInFile(filePath, opts = {}) {
  * @returns {Promise<{count:number, errors:number, sample:import('./parser.js').Credential[]}>}
  */
 export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
-  const { onError } = opts;
+  const { onError, maxDedupeKeys = DEFAULT_MAX_DEDUPE_KEYS } = opts;
   const rl = createInterface({
     input: createReadStream(srcPath, { encoding: 'utf8' }),
     crlfDelay: Infinity,
@@ -126,6 +138,7 @@ export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
   let count = 0;
   let errors = 0;
   let lineNo = 0;
+  let dedupeTruncated = false;
   try {
     for await (const raw of rl) {
       lineNo++;
@@ -138,7 +151,11 @@ export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
       }
       const key = credKey(res.record);
       if (seen.has(key)) continue;
-      seen.add(key);
+      // Bound the Set so a 100M-row file can't OOM. Past the cap we stop
+      // tracking new keys (never dropping an unseen credential); exact dedup
+      // then only holds for the first `maxDedupeKeys` distinct credentials.
+      if (seen.size < maxDedupeKeys) seen.add(key);
+      else dedupeTruncated = true;
       count++;
       if (sample.length < 5) sample.push(res.record);
       // Write the trimmed source line verbatim so re-parsing is identical.
@@ -150,5 +167,5 @@ export async function dedupeFileToDisk(srcPath, destPath, opts = {}) {
     rl.close();
     await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
   }
-  return { count, errors, sample };
+  return { count, errors, sample, dedupeTruncated };
 }

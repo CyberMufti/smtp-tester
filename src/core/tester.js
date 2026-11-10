@@ -618,8 +618,9 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   // connection to the same seed account; past the provider's limit (Gmail ~15)
   // the extra connections are rejected, the placement errors, and a delivered
   // message is misclassified as "valid". Keyed per seed so distinct seeds still
-  // run in parallel. `opts.seedConcurrency` can override; 0 disables the cap.
-  const seedLimiter = opts.seedConcurrency === 0 ? null : createKeyedLimiter(opts.seedConcurrency ?? 4);
+  // run in parallel. Default 15 — the practical ceiling for Gmail/Outlook IMAP.
+  // `opts.seedConcurrency` can override; 0 disables the cap.
+  const seedLimiter = opts.seedConcurrency === 0 ? null : createKeyedLimiter(opts.seedConcurrency ?? 15);
   const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map(), seedLimiter };
   if (opts.checks?.spamScore) {
     const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();

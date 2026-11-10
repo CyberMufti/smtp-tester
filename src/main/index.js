@@ -148,6 +148,10 @@ async function restartMonitorSchedule() {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Give the main process a larger V8 heap so counting/deduping very large lead
+// files (tens of millions of rows) has headroom. Must be set before app ready.
+try { app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096'); } catch { /* noop */ }
+
 // --- Per-instance isolation -------------------------------------------------
 // Multiple copies of the app must not share one set of data files (run log,
 // proxy pool, settings, result folder). Concurrent writes corrupt them and, on
@@ -734,8 +738,8 @@ ipcMain.handle('creds:countFile', async (_e, filePath) => {
     // that copy with dedupe off, so the multi-GB key Set is built a single
     // time instead of once now and again at run time.
     const parsedPath = parsedCredsPath(String(filePath));
-    const { count, errors, sample } = await dedupeFileToDisk(String(filePath), parsedPath);
-    return { count, errors, sample, parsedPath };
+    const { count, errors, sample, dedupeTruncated } = await dedupeFileToDisk(String(filePath), parsedPath);
+    return { count, errors, sample, parsedPath, dedupeTruncated };
   } catch (err) {
     recordCrash('countFile', err);
     return { count: 0, errors: 0, sample: [], error: err.message };
