@@ -9,8 +9,12 @@
  * @typedef {{host:string, port:number, source:('input'|'detected')}} Candidate
  */
 
-const STANDARD_PORTS = [587, 465];
-const GUESS_PORTS = [587, 465, 2525];
+// Submission ports first, then 25 as a fallback: a minority of misconfigured
+// relays / open relays accept AUTH and sending on the MTA port, so a credential
+// that only works on 25 isn't missed. Tried last so normal servers still match
+// on 587/465 first.
+const STANDARD_PORTS = [587, 465, 25];
+const GUESS_PORTS = [587, 465, 2525, 25];
 const GUESS_PREFIXES = ['smtp.', 'mail.', 'send.', 'mta.', 'outgoing.'];
 
 /** Email domain -> SMTP endpoint. Ports listed most-likely first. */

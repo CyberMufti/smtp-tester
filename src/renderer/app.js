@@ -197,7 +197,7 @@ function buildRunOpts() {
       : null,
     proxyConfig: settings?.proxy,
     protocols: $('#opt-protocols')?.value || 'smtp',
-    maxCandidates: 2,
+    maxCandidates: 3, // input/587, 465, then 25 fallback for relays that only auth on 25
     limitProbe: $('#opt-limit-probe')?.checked || false,
     limitProbeCount: Math.max(1, Math.min(Number($('#opt-limit-probe-count')?.value) || 3, 10)),
     retries: 0,
