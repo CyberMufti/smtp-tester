@@ -347,7 +347,12 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
   // polite. Any failure returns null and falls through to the server GeoIP step.
   const userDomain = domainOf(cred.user) || '';
   let rdapCode = '';
-  if (opts.rdapEnabled && userDomain) {
+  // RDAP is a network lookup, so spend it only on LIVE leads — the ones that
+  // actually appear in the Leads export (the SMTP worked, or the server confirmed
+  // the account exists). Dead/unknown connects aren't exported as leads, so a
+  // lookup for them would be wasted latency.
+  const worthRdap = status !== 'dead' || userExists === true;
+  if (opts.rdapEnabled && userDomain && worthRdap) {
     const pre = resolveLeadCountry({ userDomain, provider, batchCountry: opts.batchCountry });
     if (pre === 'Unknown') {
       const cache = ctx?.rdapCache || (ctx ? (ctx.rdapCache = new Map()) : null);
@@ -650,7 +655,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   // RDAP registrant-country lookups (opt-in): cache one result per domain, and
   // cap total concurrency (constant key) so a bulk run never floods the RDAP
   // bootstrap service. Default 4 simultaneous; `opts.rdapConcurrency` overrides.
-  const rdapLimiter = createKeyedLimiter(Math.max(1, opts.rdapConcurrency ?? 4));
+  const rdapLimiter = createKeyedLimiter(Math.max(1, opts.rdapConcurrency ?? 8));
   const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map(), seedLimiter, rdapCache: new Map(), rdapLimiter };
   if (opts.checks?.spamScore) {
     const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();

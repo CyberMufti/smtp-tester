@@ -212,13 +212,13 @@
                   <option value="all">All</option>
                 </select>
               </label>
-              <label title="Tag this upload with the country you know the list is from. Applied as the lead country for domains with no country-code TLD (a .co.uk in the list still shows UK).">Lead country for this list
+              <label title="Optional: force a country for this whole upload (used only for domains with no country-code TLD; a .co.uk in the list still shows UK). Leave on Auto-detect to let the app work it out.">Lead country (optional override)
                 <select id="opt-country">
                   <option value="" selected>Auto-detect</option>
                 </select>
               </label>
               <label class="checkbox"><input id="opt-checks" type="checkbox" checked /> Deliverability checks (SPF/DMARC, blacklist, spam score)</label>
-              <label class="checkbox" title="Best-effort registrant-country lookup via RDAP (the structured successor to WHOIS) for domains with no other country signal. Most .com are redacted, so this fills only a minority; adds a network lookup per domain."><input id="opt-rdap" type="checkbox" /> Look up registrant country (RDAP) <span class="muted">(best-effort, slower)</span></label>
+              <label class="checkbox" title="Automatically detect each lead's country: domain ccTLD, region-locked provider, then a registrant-country lookup (RDAP, the structured successor to WHOIS) for the rest. Runs only for live leads. Turn off for maximum speed (country then comes from the ccTLD/override only)."><input id="opt-rdap" type="checkbox" checked /> Auto-detect lead country <span class="muted">(registrant lookup; slower)</span></label>
               <label class="checkbox" title="Sends extra self-addressed messages through each working SMTP to detect accounts that accept the first message but are near their sending cap. Uses the account's own quota and is slower."><input id="opt-limit-probe" type="checkbox" /> Deep limit check <span class="muted">(extra probe sends)</span></label>
               <label>Probe sends <input id="opt-limit-probe-count" type="number" min="1" max="10" value="3" /></label>
               <span id="seed-note" class="muted"></span>

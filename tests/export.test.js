@@ -166,11 +166,12 @@ test('resultFolderFiles splits into SMTP result (by status/host) and Leads (aliv
   const smtpLines = Object.entries(files).filter(([k]) => k.startsWith('SMTP result/')).flatMap(([, v]) => v);
   assert.ok(!smtpLines.some((l) => /g@societe|h@societe|i@gone/.test(l)), 'no dead creds under SMTP result');
 
-  // Leads/: ALIVE leads only, sorted by DOMAIN country (ccTLD), not server GeoIP.
-  assert.deepEqual(files['Leads/hosts/Google_Workspace/Google_Workspace_United_Kingdom.txt'], ['smtp.gmail.com:587:a@acme.co.uk:p1', 'smtp.gmail.com:587:e@firm.co.uk:p5']);
-  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_France.txt'], ['smtp.mail.yahoo.com:587:g@societe.fr:p7']); // dead-but-account-exists kept
-  assert.deepEqual(files['Leads/countries/Germany/Yahoo_AOL.txt'], ['smtp.mail.yahoo.com:465:b@firma.de:p2']);
-  assert.deepEqual(files['Leads/countries/Unknown/IONOS.txt'], ['smtp.ionos.com:587:c@shop.com:p3']); // generic .com -> Unknown country
+  // Leads/: ALIVE leads only, EMAIL ONLY (an address list), sorted by DOMAIN
+  // country (ccTLD), not server GeoIP.
+  assert.deepEqual(files['Leads/hosts/Google_Workspace/Google_Workspace_United_Kingdom.txt'], ['a@acme.co.uk', 'e@firm.co.uk']);
+  assert.deepEqual(files['Leads/hosts/Yahoo_AOL/Yahoo_AOL_France.txt'], ['g@societe.fr']); // dead-but-account-exists kept
+  assert.deepEqual(files['Leads/countries/Germany/Yahoo_AOL.txt'], ['b@firma.de']);
+  assert.deepEqual(files['Leads/countries/Unknown/IONOS.txt'], ['c@shop.com']); // generic .com -> Unknown country
   // account-not-found and connect-failure dead leads are excluded entirely.
   assert.ok(!Object.values(files).some((arr) => arr.some((l) => l.includes('h@societe.fr') || l.includes('i@gone.com'))));
 });
@@ -188,4 +189,33 @@ test('verifiedFolderFiles groups VALID verified addresses by provider_country', 
   assert.deepEqual(files['Yahoo_AOL_United_States.txt'], ['a@yahoo.com', 'b@yahoo.com']);
   assert.deepEqual(files['Microsoft_365_Germany.txt'], ['c@acme.de']);
   assert.ok(!Object.values(files).some((arr) => arr.includes('d@acme.com') || arr.includes('e@acme.com')), 'only valid');
+});
+
+test('control-panel exports are host:port:user:pass using the port that logged in; leads stay email-only', async () => {
+  const { resultFolderFiles, hostGroupedExportFiles } = await import('../src/core/export.js');
+  const rows = [{
+    status: 'valid',
+    cred: { host: null, port: null, user: 'admin@site.com', pass: 's3cr3t' },
+    usedHost: 'smtp.site.com',
+    usedPort: 587,
+    provider: 'Other',
+    domainCountry: 'Unknown',
+    panels: {
+      cpanel: { valid: true, port: 2083, host: 'site.com', user: 'admin' },
+      whm: { valid: true, port: 2087, host: 'site.com', user: 'admin' },
+      webmail: { valid: true, port: 2096, host: 'site.com', user: 'admin' },
+      ssh: { valid: false, port: 22 },
+    },
+  }];
+
+  for (const files of [resultFolderFiles(rows), hostGroupedExportFiles(rows)]) {
+    assert.deepEqual(files['panels/cpanel_valid.txt'], ['site.com:2083:admin@site.com:s3cr3t']);
+    assert.deepEqual(files['panels/whm_valid.txt'], ['site.com:2087:admin@site.com:s3cr3t']);
+    assert.deepEqual(files['panels/webmail_valid.txt'], ['site.com:2096:admin@site.com:s3cr3t']);
+    assert.ok(!files['panels/ssh_valid.txt'], 'a non-valid panel is not exported');
+  }
+
+  // Leads remain email-only.
+  const rf = resultFolderFiles(rows);
+  assert.deepEqual(rf['Leads/hosts/Other/Other_Unknown.txt'], ['admin@site.com']);
 });

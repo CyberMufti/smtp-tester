@@ -110,16 +110,21 @@ export function hostGroupedExportFiles(results) {
     if (r.panels) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';
-      const pLine = `${host}:${user}:${pass}`;
       // Every control-panel / mail-protocol login that worked, grouped under
       // panels/<type>_valid.txt (cpanel, whm, webmail, ssh, plesk, directadmin,
-      // cyberpanel, webmin, hestia, imap, pop3).
+      // cyberpanel, webmin, hestia, imap, pop3). Format: host:port:user:pass,
+      // using the port that actually accepted the login when the probe reports it.
       for (const [type, hit] of Object.entries(r.panels)) {
-        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, pLine);
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(hit.host || host, hit.port, user, pass));
       }
     }
   }
   return files;
+}
+
+/** A control-panel login line: host:port:user:pass, or host:user:pass if no port. */
+function panelLine(host, port, user, pass) {
+  return port ? `${host}:${port}:${user}:${pass}` : `${host}:${user}:${pass}`;
 }
 
 /**
@@ -202,19 +207,23 @@ export function resultFolderFiles(results) {
       // Lead country = the domain's ccTLD country (accurate), NOT the mail
       // server's GeoIP location (which, for cloud providers, is just a datacenter).
       const country = safeName(r.domainCountry || 'Unknown');
-      add(`Leads/hosts/${provider}/${provider}_${country}.txt`, line);
-      add(`Leads/countries/${country}/${provider}.txt`, line);
+      // Leads are an address list — the EMAIL only, nothing attached. (The
+      // re-importable host:port:user:pass lives under SMTP result/ and panels/.)
+      const email = r.cred?.user || '';
+      if (email) {
+        add(`Leads/hosts/${provider}/${provider}_${country}.txt`, email);
+        add(`Leads/countries/${country}/${provider}.txt`, email);
+      }
     }
 
     if (r.panels) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';
-      const pLine = `${host}:${user}:${pass}`;
       // Every control-panel / mail-protocol login that worked, grouped under
       // panels/<type>_valid.txt (cpanel, whm, webmail, ssh, plesk, directadmin,
-      // cyberpanel, webmin, hestia, imap, pop3).
+      // cyberpanel, webmin, hestia, imap, pop3). Format: host:port:user:pass.
       for (const [type, hit] of Object.entries(r.panels)) {
-        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, pLine);
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(hit.host || host, hit.port, user, pass));
       }
     }
   }
