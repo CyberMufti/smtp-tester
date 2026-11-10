@@ -201,6 +201,16 @@ label.btn { display: inline-flex; align-items: center; }
 .chip-filter.active { background: rgba(59, 130, 246, 0.16); color: #93c5fd; }
 .lead-filter { width: auto; min-width: 120px; padding: 5px 9px; font-size: 12px; border-radius: var(--radius-sm); }
 
+.dash-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.dash-charts[hidden] { display: none; }
+.chart-panel { margin: 0; }
+.barchart { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.bar-row { display: grid; grid-template-columns: 120px 1fr 36px; align-items: center; gap: 9px; font-size: 12px; }
+.bar-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 10px; background: var(--inset); border-radius: var(--radius-pill); overflow: hidden; border: 1px solid var(--border-soft); }
+.bar-fill { display: block; height: 100%; border-radius: inherit; transition: width 0.3s ease; }
+.bar-val { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
 .field-label { display: block; margin: 16px 2px 6px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 /* ---------- Summary chips (stat row on Test pane) ---------- */

@@ -17,6 +17,10 @@ let activeCountry = 'all';
 // retained window), so the filter dropdowns stay complete even after trimming.
 const seenProviders = new Set();
 const seenCountries = new Set();
+// Full-run tallies for the dashboard charts (not just the retained window).
+let dashProviders = {};
+let dashCountries = {};
+let dashGrades = {};
 let running = false;
 
 // Results are streamed to disk in the main process (bounded memory), so the
@@ -43,6 +47,9 @@ function resetRunState() {
   firstSpamScore = null;
   seenProviders.clear();
   seenCountries.clear();
+  dashProviders = {};
+  dashCountries = {};
+  dashGrades = {};
   activeProvider = 'all';
   activeCountry = 'all';
   refreshLeadFilters();
@@ -340,7 +347,9 @@ api.onProgress(({ result }) => {
   if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
   // Track distinct provider/country values for the leads-filter dropdowns.
   const pBefore = seenProviders.size, cBefore = seenCountries.size;
-  if (result.provider) seenProviders.add(result.provider);
+  if (result.provider) { seenProviders.add(result.provider); dashProviders[result.provider] = (dashProviders[result.provider] || 0) + 1; }
+  if (result.domainCountry && result.domainCountry !== 'Unknown') dashCountries[result.domainCountry] = (dashCountries[result.domainCountry] || 0) + 1;
+  { const g = deliverabilityScore(result); if (g) dashGrades[g.grade] = (dashGrades[g.grade] || 0) + 1; }
   // The country filter targets the accurate lead country (domain TLD).
   if (result.domainCountry) seenCountries.add(result.domainCountry);
   if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) refreshLeadFilters();
@@ -475,6 +484,33 @@ function updateDashboardTiles() {
   set('#dash-limited', counts.limited || 0);
   set('#dash-dead', counts.dead || 0);
   set('#dash-unknown', counts.unknown || 0);
+  renderDashCharts();
+}
+
+function barRows(map, { top = 10, color, sort = true } = {}) {
+  let entries = Object.entries(map);
+  if (sort) entries.sort((a, b) => b[1] - a[1]);
+  entries = entries.slice(0, top);
+  if (!entries.length) return '<p class="muted">No data yet.</p>';
+  const max = Math.max(...entries.map((e) => e[1]), 1);
+  return entries.map(([label, n]) => {
+    const pct = Math.max(2, Math.round((n / max) * 100));
+    const c = color ? color(label) : 'var(--accent)';
+    return `<div class="bar-row"><span class="bar-label" title="${esc(label)}">${esc(label)}</span><span class="bar-track"><span class="bar-fill" style="width:${pct}%;background:${c}"></span></span><span class="bar-val">${n}</span></div>`;
+  }).join('');
+}
+
+function renderDashCharts() {
+  const wrap = $('#dash-charts');
+  if (!wrap) return;
+  if (!testedCount) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const gradeColor = (g) => ({ A: '#34d399', B: '#34d399', C: '#9ca3af', D: '#fbbf24', F: '#f87171' }[g] || '#9ca3af');
+  const gradeMap = {};
+  for (const g of ['A', 'B', 'C', 'D', 'F']) if (dashGrades[g]) gradeMap[g] = dashGrades[g];
+  $('#chart-grades').innerHTML = barRows(gradeMap, { color: gradeColor, sort: false, top: 5 });
+  $('#chart-providers').innerHTML = barRows(dashProviders, { top: 10 });
+  $('#chart-countries').innerHTML = barRows(dashCountries, { top: 10 });
 }
 
 function renderContentScoreBanner() {
