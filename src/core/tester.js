@@ -641,10 +641,14 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       const networkBudgetMs = Number(opts.credentialTimeoutMs) || 25000;
       const watchdogMs = networkBudgetMs + (Number(opts.placementTimeoutMs) || 0);
       let result;
+      let watchdogTimer;
       try {
         result = await Promise.race([
           testOne(cred, index, seeds, attemptOpts, smtp, imap, ctx),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs))
+          // Cleared in finally so the timer never outlives the credential — on a
+          // long run these would otherwise pile up (each living up to watchdogMs),
+          // leaking closures and churning the event loop.
+          new Promise((_, reject) => { watchdogTimer = setTimeout(() => reject(new Error('watchdog_timeout')), watchdogMs); }),
         ]);
       } catch (err) {
         if (err.message === 'watchdog_timeout') {
@@ -652,6 +656,8 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         } else {
           result = { cred, status: 'dead', reason: err.message, deadReason: 'connect' };
         }
+      } finally {
+        clearTimeout(watchdogTimer);
       }
       // Dead-proxy fallback: a connect failure through a pool proxy is retried
       // DIRECT, unconditionally — deadReason==='connect' already rules out auth/
