@@ -1,6 +1,6 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
-import { countryName } from '../core/country-names.js';
+import { countryName, countryList } from '../core/country-names.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
 import { warmupRecommendation } from '../core/warmup.js';
@@ -8,6 +8,20 @@ import { warmupRecommendation } from '../core/warmup.js';
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+// Populate the per-upload "lead country" override dropdown (keeps the leading
+// "Auto-detect" option). Runs once at load; the module defers until the DOM is
+// parsed, so the <select> is present.
+(function populateCountryOverride() {
+  const sel = $('#opt-country');
+  if (!sel) return;
+  for (const { code, name } of countryList()) {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+})();
 
 let settings = null;
 let parsed = { records: [], errors: [] };
@@ -246,6 +260,10 @@ function buildRunOpts() {
       : null,
     proxyConfig: settings?.proxy,
     protocols: $('#opt-protocols')?.value || 'smtp',
+    // Per-upload lead-country override (ISO-2, '' = auto-detect) and the opt-in
+    // RDAP registrant-country fill-in. See resolveLeadCountry in provider-class.js.
+    batchCountry: $('#opt-country')?.value || '',
+    rdapEnabled: $('#opt-rdap')?.checked || false,
     maxCandidates: 3, // input/587, 465, then 25 fallback for relays that only auth on 25
     limitProbe: $('#opt-limit-probe')?.checked || false,
     limitProbeCount: Math.max(1, Math.min(Number($('#opt-limit-probe-count')?.value) || 3, 10)),

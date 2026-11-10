@@ -649,3 +649,54 @@ test('a down TARGET (direct also fails) does NOT retire the proxy', async () => 
   assert.equal(results[0].status, 'dead');
   assert.equal(retired, 0, 'good proxy must not be retired when the target is down');
 });
+
+test('RDAP fills the lead country when enabled and nothing cheaper resolves it (cached per domain)', async () => {
+  const deps = okDeps();
+  let fetchCalls = 0;
+  deps.fetch = async () => {
+    fetchCalls++;
+    return {
+      ok: true,
+      json: async () => ({
+        entities: [{
+          roles: ['registrant'],
+          vcardArray: ['vcard', [['version', {}, 'text', '4.0'], ['adr', { cc: 'US' }, 'text', ['', '', '', '', '', '', 'United States']]]],
+        }],
+      }),
+    };
+  };
+  const creds = [
+    { host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' },
+    { host: 'h.com', port: 587, user: 'b@acme.com', pass: 'y' }, // same domain -> single lookup
+  ];
+  const results = await runBatch(creds, [], { concurrency: 1, deps, rdapEnabled: true });
+  assert.equal(results.length, 2);
+  for (const r of results) assert.equal(r.domainCountry, 'United States');
+  assert.equal(fetchCalls, 1, 'RDAP result is cached per domain');
+});
+
+test('RDAP is skipped when the batch override already resolves the country', async () => {
+  const deps = okDeps();
+  let fetchCalls = 0;
+  deps.fetch = async () => { fetchCalls++; return { ok: true, json: async () => ({}) }; };
+  const results = await runBatch(
+    [{ host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' }],
+    [],
+    { concurrency: 1, deps, rdapEnabled: true, batchCountry: 'US' },
+  );
+  assert.equal(results[0].domainCountry, 'United States');
+  assert.equal(fetchCalls, 0, 'override short-circuits the RDAP lookup');
+});
+
+test('RDAP is not called at all when disabled (default)', async () => {
+  const deps = okDeps();
+  let fetchCalls = 0;
+  deps.fetch = async () => { fetchCalls++; return { ok: true, json: async () => ({}) }; };
+  const results = await runBatch(
+    [{ host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' }],
+    [],
+    { concurrency: 1, deps },
+  );
+  assert.equal(results[0].domainCountry, 'Unknown');
+  assert.equal(fetchCalls, 0);
+});

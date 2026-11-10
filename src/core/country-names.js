@@ -59,6 +59,39 @@ export function countryName(code) {
   return NAMES[c] || c;
 }
 
+// Reverse lookup (name -> ISO code), plus a few common aliases/spellings so a
+// WHOIS/RDAP country NAME (when no ISO `cc` parameter is present) still maps.
+const CODE_BY_NAME = new Map(Object.entries(NAMES).map(([code, name]) => [name.toLowerCase(), code]));
+const NAME_ALIASES = {
+  'united states of america': 'US', 'usa': 'US', 'u.s.a.': 'US', 'u.s.': 'US', 'america': 'US',
+  'uk': 'GB', 'u.k.': 'GB', 'great britain': 'GB', 'england': 'GB', 'scotland': 'GB', 'wales': 'GB',
+  'republic of korea': 'KR', 'korea, republic of': 'KR', 'south korea': 'KR',
+  'russian federation': 'RU', 'czech republic': 'CZ', 'viet nam': 'VN',
+  'united arab emirates (the)': 'AE', 'the netherlands': 'NL', 'holland': 'NL',
+};
+
+/**
+ * ISO alpha-2 code for a full country name (any case), or null if unrecognized.
+ * @param {string|null|undefined} name
+ * @returns {string|null}
+ */
+export function countryCodeFromName(name) {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return null;
+  return NAME_ALIASES[n] || CODE_BY_NAME.get(n) || null;
+}
+
+/**
+ * All known countries as {code, name}, sorted by name — for the UI country
+ * dropdown (the per-upload "lead country" override).
+ * @returns {{code:string, name:string}[]}
+ */
+export function countryList() {
+  return Object.entries(NAMES)
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // A few ccTLDs whose ISO code differs from the TLD label.
 const CCTLD_ALIAS = { uk: 'GB', su: 'RU', ac: 'SH', eu: 'Unknown' };
 // ccTLDs sold/used globally as vanity domains — not a reliable country signal.

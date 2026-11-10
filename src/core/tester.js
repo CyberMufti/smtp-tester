@@ -5,10 +5,10 @@ import { generateMutations } from './mutator.js';
 import { enumerateUser } from './smtp-enum.js';
 import { classify, applyAuthGate, detectLimited, LIMIT_RE } from './classify.js';
 import { candidatesFor, detectProvider } from './providers.js';
-import { classifyProvider, classifyFromBanner, providerHomeCountry, serverLocationMeaningful } from './provider-class.js';
+import { classifyProvider, classifyFromBanner, resolveLeadCountry } from './provider-class.js';
 import { grabBanner } from './banner.js';
 import { classifyM365Realm } from './ms-realm.js';
-import { domainCountry, countryName } from './country-names.js';
+import { rdapCountry } from './rdap.js';
 import { discoverHosts } from './discovery.js';
 import { checkDomain, parseAuthResults } from './authrecords.js';
 import { checkIp } from './dnsbl.js';
@@ -339,6 +339,38 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     try { country = geoHost ? await opts.geoResolver(geoHost) : 'Unknown'; } catch { country = 'Unknown'; }
   }
 
+  // Lead country, most-trustworthy signal first (see resolveLeadCountry): domain
+  // ccTLD → region-locked provider → per-upload override → RDAP registrant
+  // country → self-hosted server GeoIP → Unknown. RDAP is a best-effort network
+  // lookup, so it runs ONLY when enabled AND nothing cheaper already resolved the
+  // country — and is cached per domain + concurrency-capped so a bulk run stays
+  // polite. Any failure returns null and falls through to the server GeoIP step.
+  const userDomain = domainOf(cred.user) || '';
+  let rdapCode = '';
+  if (opts.rdapEnabled && userDomain) {
+    const pre = resolveLeadCountry({ userDomain, provider, batchCountry: opts.batchCountry });
+    if (pre === 'Unknown') {
+      const cache = ctx?.rdapCache || (ctx ? (ctx.rdapCache = new Map()) : null);
+      let iso = cache ? cache.get(userDomain) : undefined;
+      if (iso === undefined) {
+        const fetchFn = opts.deps?.fetch || ((u, o) => globalThis.fetch(u, o));
+        const run = () => rdapCountry(userDomain, { fetchFn, timeoutMs: opts.rdapTimeoutMs || 6000 });
+        try {
+          iso = ctx?.rdapLimiter ? await ctx.rdapLimiter.run('rdap', run) : await run();
+        } catch { iso = null; }
+        cache?.set(userDomain, iso || null);
+      }
+      rdapCode = iso || '';
+    }
+  }
+  const leadCountry = resolveLeadCountry({
+    userDomain,
+    provider,
+    batchCountry: opts.batchCountry,
+    rdapCode,
+    serverGeo: country,
+  });
+
   const result = {
     cred,
     status,
@@ -358,22 +390,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     attempts,
     provider,
     country,                                   // server location (GeoIP of the mail server IP)
-    // Lead country, best signal first: the domain's country TLD; else a
-    // region-tied provider's home country (Alibaba/NetEase→China); else, for a
-    // regional/self-hosted mail host, the server's GeoIP country (the mailbox
-    // lives in that datacenter). Global anycast platforms (Gmail/Microsoft/…)
-    // skip the server fallback — their IP is just an edge — and stay Unknown.
-    domainCountry: (() => {
-      // Use the BASE provider bucket (strip any "Microsoft 365 — <subtype>"
-      // realm suffix) for the home-country / server-location decisions, so an
-      // M365 sub-label is still recognized as a global anycast platform and
-      // never leaks its edge-datacenter country.
-      const baseProvider = provider.split(' — ')[0];
-      let c = domainCountry(domainOf(cred.user) || '');
-      if (c === 'Unknown') c = providerHomeCountry(baseProvider);
-      if (c === 'Unknown' && serverLocationMeaningful(baseProvider)) c = countryName(country);
-      return c;
-    })(),
+    domainCountry: leadCountry,                // lead country (see resolveLeadCountry above)
   };
 
   // Post-classify enrichment is all best-effort refinement layered on top of the
@@ -630,7 +647,11 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   // run in parallel. Default 15 — the practical ceiling for Gmail/Outlook IMAP.
   // `opts.seedConcurrency` can override; 0 disables the cap.
   const seedLimiter = opts.seedConcurrency === 0 ? null : createKeyedLimiter(opts.seedConcurrency ?? 15);
-  const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map(), seedLimiter };
+  // RDAP registrant-country lookups (opt-in): cache one result per domain, and
+  // cap total concurrency (constant key) so a bulk run never floods the RDAP
+  // bootstrap service. Default 4 simultaneous; `opts.rdapConcurrency` overrides.
+  const rdapLimiter = createKeyedLimiter(Math.max(1, opts.rdapConcurrency ?? 4));
+  const ctx = { domainCache: new Map(), dnsblCache: new Map(), discoverCache: new Map(), seedLimiter, rdapCache: new Map(), rdapLimiter };
   if (opts.checks?.spamScore) {
     const stripToken = (s) => String(s || '').replace(/\{token\}/g, '').trim();
     ctx.spamScore = scoreContent({

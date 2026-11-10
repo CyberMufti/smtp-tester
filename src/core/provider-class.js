@@ -12,6 +12,7 @@
  * Pure and unit-tested — the MX/host data is resolved elsewhere and passed in.
  */
 import { domainOf } from './providers.js';
+import { domainCountry, countryName } from './country-names.js';
 
 export const PROVIDER_BUCKETS = [
   'Gmail',
@@ -182,6 +183,32 @@ const SELF_HOSTED_BUCKETS = new Set([
  */
 export function serverLocationMeaningful(bucket) {
   return SELF_HOSTED_BUCKETS.has(bucket);
+}
+
+/**
+ * Resolve a lead's country from all available signals, most-trustworthy first:
+ *   1. the domain's country-code TLD (.de/.co.uk — authoritative; beats a bulk tag)
+ *   2. a region-locked provider's home country (a 163.com user is in China)
+ *   3. the per-upload batch override (the user's assertion for this list)
+ *   4. the RDAP registrant country (best-effort, already looked up by the caller)
+ *   5. the mail server's GeoIP — ONLY for self-hosted software (likely the
+ *      customer's own machine); never for SaaS/reseller or unidentified servers
+ *   6. "Unknown"
+ *
+ * Pure and synchronous: the async RDAP fetch happens in the caller, which passes
+ * the resolved ISO code in as `rdapCode`. All code inputs are ISO alpha-2.
+ *
+ * @param {{userDomain?:string, provider?:string, batchCountry?:string, rdapCode?:string, serverGeo?:string}} input
+ * @returns {string} full country name or "Unknown"
+ */
+export function resolveLeadCountry({ userDomain = '', provider = 'Unknown', batchCountry = '', rdapCode = '', serverGeo = '' } = {}) {
+  const base = String(provider).split(' — ')[0];
+  let c = domainCountry(userDomain);                                      // 1
+  if (c === 'Unknown') c = providerHomeCountry(base);                     // 2
+  if (c === 'Unknown' && batchCountry) c = countryName(batchCountry);     // 3
+  if (c === 'Unknown' && rdapCode) c = countryName(rdapCode);             // 4
+  if (c === 'Unknown' && serverLocationMeaningful(base)) c = countryName(serverGeo); // 5
+  return c;                                                               // 6
 }
 
 // MX / host hostname patterns → platform bucket, most specific first. For a
