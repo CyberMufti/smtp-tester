@@ -35,7 +35,10 @@ export const LIMIT_RE = new RegExp(
     'sending (limit|rate)',
     'daily (user )?(sending )?(quota|limit)',
     'limit (exceeded|reached)',
-    'maximum .{0,20}(exceeded|reached)',
+    // "maximum ... exceeded/reached" is a rate/quota signal — but NOT when it is
+    // a message-SIZE rejection (552 "maximum message size exceeded"), which is a
+    // permanent per-message failure, not throttling.
+    'maximum (?!.{0,30}\\bsize\\b).{0,20}(exceeded|reached)',
     'out of .{0,10}quota',
     '\\b421\\b',
     '4\\.7\\.0',
@@ -95,8 +98,9 @@ export function applyAuthGate(status, deliverability) {
   if (status !== 'valid' || !deliverability) return null;
   const { spf, dmarc } = deliverability;
   // Only gate when the SPF/DMARC lookup actually ran (records were resolved);
-  // with deliverability checks off there is nothing to judge.
-  if (spf === undefined || dmarc === undefined) return null;
+  // with deliverability checks off there is nothing to judge. Guard null too, so
+  // a partial deliverability object can never throw on the `.found` reads below.
+  if (!spf || !dmarc) return null;
 
   const reasons = [];
   // SPF. `found` comes from either the JS record read or the sidecar. `result`

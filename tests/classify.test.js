@@ -236,6 +236,13 @@ test('detectLimited: unusual activity / suspicious -> limited', () => {
   assert.equal(detectLimited(r).status, 'limited');
 });
 
+test('detectLimited: a message-SIZE rejection is NOT a rate limit', () => {
+  // "552 maximum message size exceeded" is a permanent per-message failure.
+  assert.equal(detectLimited({ status: 'dead', deadReason: 'send', reason: '552 5.3.4 maximum message size exceeded' }), null);
+  // But a genuine sending-quota "maximum ... exceeded" still counts as limited.
+  assert.equal(detectLimited({ status: 'dead', deadReason: 'send', reason: '552 maximum daily sending limit exceeded' }).status, 'limited');
+});
+
 test('detectLimited: clean accepted send is NOT limited', () => {
   assert.equal(detectLimited({ status: 'valid', reason: 'sent', sendResponse: '250 2.0.0 OK  1699 - gsmtp' }), null);
 });

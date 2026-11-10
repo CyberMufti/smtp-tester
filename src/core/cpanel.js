@@ -157,21 +157,26 @@ export async function verifyCpanel(target, opts = {}) {
   }
   const result = classifyCpanelLogin(res);
 
-  // If login succeeded, fetch domains to prove account is active
-  if (result.valid && result._cpsess) {
+  // If login succeeded, fetch the account's domains to prove it's active (and
+  // surface the count in the UI). The cpsess session lives in result.detail —
+  // the security_token or redirect location returned by classifyCpanelLogin.
+  const sess = result.valid ? (String(result.detail || '').match(/cpsess\d+/i)?.[0] || '') : '';
+  if (sess) {
     try {
-      const sessMatch = result._cpsess.match(/(cpsess[0-9]+)/);
-      const sess = sessMatch ? sessMatch[0] : '';
       const domainUrl = `${scheme}://${host}:${port}/${sess}/execute/DomainInfo/list_domains`;
-      const dRes = await request(domainUrl, { headers: { 'User-Agent': getRandomUA() }, body: '', timeout });
+      const dRes = await request(domainUrl, {
+        headers: { 'User-Agent': getRandomUA() },
+        body: '',
+        timeout,
+        agent: scheme === 'https' ? socksHttpsAgent(opts.proxy) : undefined,
+      });
       if (dRes && dRes.body) {
         const dJson = JSON.parse(dRes.body);
-        if (dJson.data && Array.isArray(dJson.data)) {
-          result.domains = dJson.data.map(d => d.domain).filter(Boolean);
+        if (dJson?.data && Array.isArray(dJson.data)) {
+          result.domains = dJson.data.map((d) => d.domain).filter(Boolean);
         }
       }
-    } catch { /* ignore domain fetch errors */ }
-    delete result._cpsess;
+    } catch { /* domain fetch is best-effort */ }
   }
 
   return { ...base, ...result };

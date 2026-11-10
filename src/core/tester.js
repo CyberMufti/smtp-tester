@@ -142,7 +142,11 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         break;
       }
       if (v.connected) {
-        step.userExists = v.userExists;   // <-- ADD THIS LINE
+        // Keep the FIRST auth-rejection's user-existence signal: the loop may go
+        // on to probe other (guessed) hosts, and a later host's answer must not
+        // overwrite the authoritative one — otherwise the "account not found"
+        // note can reflect the wrong server.
+        if (step.userExists === undefined) step.userExists = v.userExists;
         record.outcome = `auth rejected${v.error ? ` (${v.error})` : ''}`;
         attempts.push(record);
         anyConnected = true;
@@ -359,38 +363,47 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     })(),
   };
 
-  const deliverability = await runChecks(cred, usedHost, opts, ctx);
-  if (deliverability) result.deliverability = deliverability;
-  if (ctx?.spamScore) result.spamScore = ctx.spamScore;
+  // Post-classify enrichment is all best-effort refinement layered on top of the
+  // core connect/auth/send/placement verdict already in `result`. Guard it as a
+  // whole: a throw from any deliverability lookup or gate must never propagate
+  // out of testOne (which the orchestrator would turn into a bogus "dead"), so
+  // on failure we keep the verdict classify() already produced.
+  try {
+    const deliverability = await runChecks(cred, usedHost, opts, ctx);
+    if (deliverability) result.deliverability = deliverability;
+    if (ctx?.spamScore) result.spamScore = ctx.spamScore;
 
-  // A login that works but whose sends are rate/quota-limited is reported
-  // "limited" — not "valid" (it won't actually deliver) and not a bare "dead"
-  // (the credentials are good). Runs before the auth gate so a limited result
-  // is never also relabeled "unverified".
-  const lim = detectLimited(result);
-  if (lim) {
-    result.status = lim.status;
-    result.reason = lim.reason;
-    result.limited = true;
-  }
+    // A login that works but whose sends are rate/quota-limited is reported
+    // "limited" — not "valid" (it won't actually deliver) and not a bare "dead"
+    // (the credentials are good). Runs before the auth gate so a limited result
+    // is never also relabeled "unverified".
+    const lim = detectLimited(result);
+    if (lim) {
+      result.status = lim.status;
+      result.reason = lim.reason;
+      result.limited = true;
+    }
 
-  // Deep-probe override: if the multi-send probe tripped a limit, the account
-  // is 'limited' even though its first send was accepted.
-  if (step.limitProbe?.tripped && result.status !== 'dead') {
-    result.status = 'limited';
-    result.reason = `sending limit reached after ${step.limitProbe.at} extra message(s) — ${step.limitProbe.detail}`.slice(0, 200);
-    result.limited = true;
-    result.limitProbe = step.limitProbe;
-  }
+    // Deep-probe override: if the multi-send probe tripped a limit, the account
+    // is 'limited' even though its first send was accepted.
+    if (step.limitProbe?.tripped && result.status !== 'dead') {
+      result.status = 'limited';
+      result.reason = `sending limit reached after ${step.limitProbe.at} extra message(s) — ${step.limitProbe.detail}`.slice(0, 200);
+      result.limited = true;
+      result.limitProbe = step.limitProbe;
+    }
 
-  // Gate "valid" on sending-domain auth: a domain missing SPF or DMARC will
-  // have its mail dropped by major providers, so it is reported "unverified"
-  // rather than "valid". Runs only when deliverability checks supplied records.
-  const gate = applyAuthGate(result.status, result.deliverability);
-  if (gate) {
-    result.status = gate.status;
-    result.reason = gate.reason;
-    result.authGated = true;
+    // Gate "valid" on sending-domain auth: a domain missing SPF or DMARC will
+    // have its mail dropped by major providers, so it is reported "unverified"
+    // rather than "valid". Runs only when deliverability checks supplied records.
+    const gate = applyAuthGate(result.status, result.deliverability);
+    if (gate) {
+      result.status = gate.status;
+      result.reason = gate.reason;
+      result.authGated = true;
+    }
+  } catch (err) {
+    result.enrichmentError = err?.message || String(err);
   }
 
   return result;

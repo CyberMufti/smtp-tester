@@ -1,6 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toWorkingTxt, toConfirmedTxt } from '../src/core/export.js';
+import { toWorkingTxt, toConfirmedTxt, csvRowLine } from '../src/core/export.js';
+
+test('csvRowLine neutralizes spreadsheet formula injection in a cell', () => {
+  const row = csvRowLine({
+    cred: { host: 'h', port: 587, user: 'u@x.com' },
+    status: 'dead',
+    reason: '=HYPERLINK("http://evil","x")',
+    latencyMs: 1,
+  });
+  // The dangerous reason must be prefixed with ' so it can't execute as a formula.
+  assert.ok(row.includes("'=HYPERLINK"), `expected neutralized formula, got: ${row}`);
+  assert.ok(!/(^|,)=HYPERLINK/.test(row), 'a raw =formula cell must not survive');
+});
+
+test('csvRowLine does not mangle an ordinary negative number', () => {
+  const row = csvRowLine({ cred: { host: 'h', port: 587, user: 'u@x.com' }, status: 'dead', reason: '-5', latencyMs: 1 });
+  assert.ok(row.includes(',-5,'), `negative number should stay literal, got: ${row}`);
+});
 import { parse } from '../src/core/parser.js';
 
 function result(status, cred, usedHost, usedPort) {

@@ -95,7 +95,10 @@ export async function verify(cred, opts = {}) {
   } catch (err) {
     if (isAuthError(err)) {
       const msg = String(err.message || '').toLowerCase();
-      const userExists = !msg.includes('550') && !msg.includes('user unknown') && !msg.includes('no such user');
+      // Match 550 as a standalone response code, not as a substring — otherwise a
+      // reference/ticket number or a size like "15500" in the error text would
+      // wrongly flag the account as non-existent.
+      const userExists = !/\b550\b/.test(msg) && !msg.includes('user unknown') && !msg.includes('no such user');
       return { connected: true, authenticated: false, userExists, error: err.message };
     }
     return { connected: false, authenticated: false, error: err.message };

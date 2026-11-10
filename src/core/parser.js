@@ -52,7 +52,10 @@ export function dedupeCredentials(records) {
  * @param {Credential} r
  */
 export function credKey(r) {
-  return `${r.host || ''}|${r.port || ''}|${r.user}|${r.pass}`.toLowerCase();
+  // Host/port/user are case-insensitive, but the PASSWORD is not: lowercasing it
+  // would collapse "Secret" and "secret" into one key, silently dropping a
+  // distinct credential (and, on resume, skipping it as already-tested).
+  return `${(r.host || '').toLowerCase()}|${r.port || ''}|${String(r.user ?? '').toLowerCase()}|${r.pass ?? ''}`;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -276,7 +279,12 @@ function parseDelimited(lines) {
  * tab, `;`, `|`, `,`, `:`, then whitespace.
  */
 function splitLine(line) {
-  if (line.includes('"')) return { fields: splitCsv(line), delim: ',' };
+  // Treat as CSV only when it actually looks like CSV (a comma is present).
+  // A bare double-quote with no comma is almost always a character inside a
+  // colon/semicolon/pipe-delimited password — routing it to the CSV splitter
+  // (which only splits on commas) would collapse it to one field and drop the
+  // whole credential as unparseable.
+  if (line.includes('"') && line.includes(',')) return { fields: splitCsv(line), delim: ',' };
 
   const candidates = ['\t', ';', '|', ',', ':'];
   let best = null;
@@ -319,8 +327,14 @@ function buildRecord(fields, delim) {
     return { record: cred(host, isPort(portRaw) ? portRaw : null, user, pass, from) };
   }
 
-  // Reordered input: find the numeric field (port) and a hostname field.
-  const portIdx = fields.findIndex(isPort);
+  // Reordered input: find the numeric field (port) and a hostname field. Prefer
+  // the LAST port-shaped field: common reordered forms end with the port
+  // (user:pass:host:port), and a numeric password earlier in the line must not
+  // be mistaken for the port.
+  let portIdx = -1;
+  for (let idx = fields.length - 1; idx >= 0; idx--) {
+    if (isPort(fields[idx])) { portIdx = idx; break; }
+  }
   if (portIdx === -1) {
     return { error: `no numeric port field found` };
   }

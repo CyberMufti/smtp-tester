@@ -74,6 +74,35 @@ export function classifyPop3Reply(text) {
   return { reachable: true, valid: false, status: 'unknown', detail: s.slice(0, 100) };
 }
 
+/**
+ * POP3 login state machine. Given the current step and the server's reply to the
+ * command we last sent (greeting → USER → PASS), decide the next action. Pure and
+ * unit-tested.
+ *
+ * CRITICAL: `reply` must be ONLY the response to the latest command, never the
+ * whole accumulated transcript. The transcript always starts with the greeting
+ * "+OK", so testing it would see that greeting and pass a login the PASS step
+ * actually rejected (reporting every reachable account as valid).
+ *
+ * @param {0|1|2} step
+ * @param {string} reply
+ * @returns {{send:'USER'|'PASS', next:1|2}|{done:object}|null}
+ */
+export function nextPop3Action(step, reply) {
+  const s = String(reply || '');
+  if (step === 0) return /^\+OK/i.test(s) ? { send: 'USER', next: 1 } : null;
+  if (step === 1) {
+    if (/^\+OK/i.test(s)) return { send: 'PASS', next: 2 };
+    if (/^-ERR/i.test(s)) return { done: { reachable: true, valid: false, status: 'invalid', detail: 'user not found' } };
+    return null;
+  }
+  if (step === 2) {
+    if (/^\+OK/i.test(s)) return { done: { reachable: true, valid: true, status: 'valid' } };
+    if (/^-ERR/i.test(s)) return { done: { reachable: true, valid: false, status: 'invalid', detail: s.slice(0, 100) } };
+  }
+  return null;
+}
+
 function defaultPop3Connect({ host, port, user, pass, timeout }) {
   return new Promise((resolve) => {
     let socket;
@@ -95,18 +124,16 @@ function defaultPop3Connect({ host, port, user, pass, timeout }) {
 
     socket.on('data', (chunk) => {
       buf += chunk.toString('utf8');
-      if (step === 0 && /^\+OK/i.test(buf)) { step = 1; socket.write(`USER ${user}\r\n`); }
-      else if (step === 1 && /^\+OK/i.test(buf)) { step = 2; socket.write(`PASS ${pass}\r\n`); }
-      else if (step === 2 && /^(\+OK|-ERR)/im.test(buf)) {
-        clearTimeout(timer);
-        // +OK after PASS = valid
-        if (/^\+OK/m.test(buf)) finish({ reachable: true, valid: true, status: 'valid' });
-        else finish({ reachable: true, valid: false, status: 'invalid', detail: buf.slice(0, 100) });
-      } else if (/-ERR/i.test(buf) && step === 1) {
-        // -ERR after USER (invalid username)
-        clearTimeout(timer);
-        finish({ reachable: true, valid: false, status: 'invalid', detail: 'user not found' });
-      }
+      // `buf` holds only the reply to the command we last sent — it is reset to
+      // '' on every transition so a step never re-reads the greeting (see
+      // nextPop3Action). A single POP3 reply may still arrive split across
+      // chunks, so we keep accumulating until nextPop3Action recognizes it.
+      const action = nextPop3Action(step, buf);
+      if (!action) return;
+      if (action.done) { clearTimeout(timer); finish(action.done); return; }
+      step = action.next;
+      buf = '';
+      socket.write(action.send === 'USER' ? `USER ${user}\r\n` : `PASS ${pass}\r\n`);
     });
     socket.on('error', (e) => { clearTimeout(timer); finish({ reachable: false, valid: false, status: 'unreachable', detail: e.message }); });
     socket.on('close', () => { if (!done) { clearTimeout(timer); finish({ reachable: false, valid: false, status: 'unreachable', detail: 'closed' }); } });

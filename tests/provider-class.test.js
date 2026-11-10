@@ -2,6 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyProvider, PROVIDER_BUCKETS } from '../src/core/provider-class.js';
 
+test('NetEase/Tencent host patterns do not over-match look-alike domains', () => {
+  // A hyphenated look-alike must NOT be bucketed as the Chinese provider.
+  assert.notEqual(classifyProvider({ user: 'a@my-163.com', host: 'mail.my-163.com', mxHosts: ['mail.my-163.com'] }), 'NetEase');
+  assert.notEqual(classifyProvider({ user: 'a@shop-qq.com', host: 'mail.shop-qq.com', mxHosts: ['mail.shop-qq.com'] }), 'Tencent Exmail');
+  // The real domains still classify.
+  assert.equal(classifyProvider({ user: 'a@163.com', host: 'smtp.163.com', mxHosts: ['smtp.163.com'] }), 'NetEase');
+  assert.equal(classifyProvider({ user: 'a@qq.com', host: 'smtp.qq.com', mxHosts: ['smtp.qq.com'] }), 'Tencent Exmail');
+});
+
 test('consumer domains map to their bucket by email domain alone', () => {
   assert.equal(classifyProvider({ user: 'a@gmail.com' }), 'Gmail');
   assert.equal(classifyProvider({ user: 'a@googlemail.com' }), 'Gmail');

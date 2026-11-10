@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyImapReply, classifyPop3Reply, verifyImap, verifyPop3 } from '../src/core/mail-extra.js';
+import { classifyImapReply, classifyPop3Reply, verifyImap, verifyPop3, nextPop3Action } from '../src/core/mail-extra.js';
 
 test('IMAP: a1 OK = valid', () => {
   const r = classifyImapReply('a1 OK LOGIN completed');
@@ -35,6 +35,28 @@ test('POP3: -ERR = invalid', () => {
   assert.equal(r.reachable, true);
   assert.equal(r.valid, false);
   assert.equal(r.status, 'invalid');
+});
+
+test('POP3 state machine: -ERR to PASS is invalid, not valid (greeting must not leak)', () => {
+  // Greeting accepted, USER accepted, PASS rejected. The step-2 reply is "-ERR",
+  // so the verdict must be invalid even though the full transcript began "+OK".
+  assert.equal(nextPop3Action(0, '+OK POP3 ready').send, 'USER');
+  assert.equal(nextPop3Action(1, '+OK').send, 'PASS');
+  const pass = nextPop3Action(2, '-ERR [AUTH] authentication failed');
+  assert.equal(pass.done.valid, false);
+  assert.equal(pass.done.status, 'invalid');
+});
+
+test('POP3 state machine: +OK to PASS is valid', () => {
+  const r = nextPop3Action(2, '+OK logged in');
+  assert.equal(r.done.valid, true);
+  assert.equal(r.done.status, 'valid');
+});
+
+test('POP3 state machine: -ERR to USER is invalid (unknown user)', () => {
+  const r = nextPop3Action(1, '-ERR no such mailbox');
+  assert.equal(r.done.valid, false);
+  assert.equal(r.done.status, 'invalid');
 });
 
 test('verifyImap: no host is unreachable without connecting', async () => {

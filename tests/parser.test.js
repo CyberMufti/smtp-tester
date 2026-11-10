@@ -1,6 +1,32 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, dedupeCredentials, parseDelimitedLine } from '../src/core/parser.js';
+import { parse, dedupeCredentials, parseDelimitedLine, credKey } from '../src/core/parser.js';
+
+test('credKey keeps the password case-sensitive (case-variant passwords are distinct)', () => {
+  const a = { host: 'h', port: 587, user: 'U@X.com', pass: 'Secret' };
+  const b = { host: 'h', port: 587, user: 'u@x.com', pass: 'secret' };
+  assert.notEqual(credKey(a), credKey(b));
+  // host/user case is still normalized away
+  assert.equal(credKey({ host: 'H', port: 587, user: 'U@X.com', pass: 'p' }), credKey({ host: 'h', port: 587, user: 'u@x.com', pass: 'p' }));
+});
+
+test('dedupeCredentials keeps two creds that differ only in password case', () => {
+  const { records } = parse('smtp.x.com:587:u@x.com:Secret\nsmtp.x.com:587:u@x.com:secret');
+  assert.equal(dedupeCredentials(records).records.length, 2);
+});
+
+test('parseDelimitedLine: a colon line with a quote in the password is not treated as CSV', () => {
+  const r = parseDelimitedLine('smtp.example.com:587:user@x.com:pa"ss');
+  assert.equal(r.record.pass, 'pa"ss');
+  assert.equal(r.record.host, 'smtp.example.com');
+});
+
+test('parseDelimitedLine: reordered input with a numeric password picks the real (last) port', () => {
+  const r = parseDelimitedLine('user@x.com:1234:smtp.x.com:587');
+  assert.equal(r.record.port, 587);
+  assert.equal(r.record.pass, '1234');
+  assert.equal(r.record.host, 'smtp.x.com');
+});
 
 test('parseDelimitedLine: record, blank/comment -> null, bad line -> error', () => {
   assert.deepEqual(parseDelimitedLine('smtp.x.com:587:u@x.com:p'), {

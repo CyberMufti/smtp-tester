@@ -320,6 +320,11 @@ export function csvRowLine(r) {
 }
 
 function csvCell(value) {
-  const s = String(value ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = String(value ?? '');
+  // Neutralize spreadsheet formula injection (CWE-1236): a cell starting with
+  // = + @ (or a tab/CR) is executed as a formula by Excel/Sheets, and these
+  // cells can carry attacker-controlled server text (banners, reject reasons).
+  // A leading '-' is only risky when it starts a formula, not a negative number.
+  if (/^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-\d*\.?\d+$/.test(s))) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
