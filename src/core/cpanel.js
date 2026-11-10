@@ -17,6 +17,7 @@
  */
 import https from 'node:https';
 import { getRandomUA } from './user-agents.js';
+import { socksHttpsAgent } from './socks-agent.js';
 
 export const DEFAULT_CPANEL_PORT = 2083;
 
@@ -85,13 +86,13 @@ export function classifyCpanelLogin(res) {
  * nothing beyond the login form. Redirects are NOT followed (a 302 to a cpsess
  * URL is itself the success signal).
  */
-function defaultRequest(url, { headers, body, timeout }) {
+function defaultRequest(url, { headers, body, timeout, agent }) {
   return new Promise((resolve) => {
     let req;
     try {
       req = https.request(
         url,
-        { method: 'POST', headers, rejectUnauthorized: false, timeout },
+        { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined },
         (res) => {
           let data = '';
           res.setEncoding('utf8');
@@ -144,7 +145,7 @@ export async function verifyCpanel(target, opts = {}) {
 
   let res;
   try {
-    res = await request(url, { headers, body, timeout });
+    res = await request(url, { headers, body, timeout, agent: socksHttpsAgent(opts.proxy) });
   } catch (err) {
     res = { error: err.message };
   }

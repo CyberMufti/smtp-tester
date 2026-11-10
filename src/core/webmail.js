@@ -19,6 +19,7 @@
  * @typedef {{reachable:boolean, valid:boolean, status:'valid'|'invalid'|'unknown'|'not-webmail'|'unreachable', detail?:string}} WebmailResult
  */
 import https from 'node:https';
+import { socksHttpsAgent } from './socks-agent.js';
 
 export const DEFAULT_WEBMAIL_PORT = 443;
 export const DEFAULT_WEBMAIL_PATH = '/webmail';
@@ -58,11 +59,11 @@ export function classifyWebmailLogin(res) {
   return { reachable: true, valid: false, status: 'not-webmail', detail: `HTTP ${statusCode ?? '?'}` };
 }
 
-function defaultRequest(url, { headers, body, timeout }) {
+function defaultRequest(url, { headers, body, timeout, agent }) {
   return new Promise((resolve) => {
     let req;
     try {
-      req = https.request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout }, (res) => {
+      req = https.request(url, { method: 'POST', headers, rejectUnauthorized: false, timeout, agent: agent || undefined }, (res) => {
         let data = '';
         res.setEncoding('utf8');
         res.on('data', (c) => { if (data.length < 65536) data += c; });
@@ -86,7 +87,7 @@ export async function verifyWebmail(target, opts = {}) {
   const body = `_user=${encodeURIComponent(user)}&_pass=${encodeURIComponent(pass)}&_task=login&_action=login`;
   const headers = { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) };
   let res;
-  try { res = await request(url, { headers, body, timeout }); } catch (err) { res = { error: err.message }; }
+  try { res = await request(url, { headers, body, timeout, agent: socksHttpsAgent(opts.proxy) }); } catch (err) { res = { error: err.message }; }
   return { ...base, ...classifyWebmailLogin(res) };
 }
 
