@@ -597,3 +597,19 @@ test('deep limit probe: an account that accepts every probe stays valid', async 
   );
   assert.equal(r.status, 'valid');
 });
+
+test('a port-25 auth failure does not skip the submission ports (587/465 still tried)', async () => {
+  const smtp = {
+    async verify(cred) {
+      if (cred.port === 25) return { connected: true, authenticated: false, error: '535 AUTH not offered on 25' };
+      if (cred.port === 587) return { connected: true, authenticated: true };
+      return { connected: false, authenticated: false, error: 'refused' };
+    },
+    async send() { return { accepted: ['x@x.com'], response: '250 OK' }; },
+  };
+  const imap = { async findToken() { return { found: false, folder: null }; } };
+  const creds = [{ host: 'mail.custom.com', port: 25, user: 'u@custom.com', pass: 'p' }];
+  const results = await runBatch(creds, [], { concurrency: 1, deps: { smtp, imap } });
+  assert.equal(results[0].status, 'valid', 'valid on 587 despite port-25 auth failure');
+  assert.equal(results[0].usedPort, 587);
+});

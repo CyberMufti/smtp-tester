@@ -147,7 +147,12 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
         attempts.push(record);
         anyConnected = true;
         authError = v.error;
-        authFailedHosts.add(cand.host);
+        // A rejected login on a submission port means this host won't accept it
+        // on another port either — skip its other ports. But NOT for port 25:
+        // most servers don't offer AUTH on the MTA port, so a failure there says
+        // nothing about 587/465, and skipping them would mark a valid credential
+        // dead. So a port-25 auth failure never poisons the submission ports.
+        if (cand.port !== 25) authFailedHosts.add(cand.host);
         // An authoritative server rejecting auth is definitive (right host,
         // login refused — wrong password or a provider policy like M365's
         // disabled SMTP AUTH). Stop instead of trying guessed hostnames.
