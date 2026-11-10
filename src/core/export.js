@@ -100,13 +100,17 @@ export function hostGroupedExportFiles(results) {
   const add = (name, line) => { (files[name] ||= []).push(line); };
   for (const r of results || []) {
     const st = r.status;
-    if (st === 'dead') continue;
     const host = r.usedHost || r.cred?.host || (r.cred?.user?.split('@')[1] || '');
     const group = safeName(hostGroupKey(host));
-    const line = workingCredLine(r);
-    if (st === 'unverified') add(`unverified/${group}.txt`, line);
-    else if (st === 'limited') add(`limited/${group}.txt`, line);
-    else add(`valid/${group}.txt`, line); // valid / inbox / spam / unknown-placement
+    // Working SMTP credential lines — never for a dead SMTP.
+    if (st !== 'dead') {
+      const line = workingCredLine(r);
+      if (st === 'unverified') add(`unverified/${group}.txt`, line);
+      else if (st === 'limited') add(`limited/${group}.txt`, line);
+      else add(`valid/${group}.txt`, line); // valid / inbox / spam / unknown-placement
+    }
+    // Panel logins that worked are exported regardless of the SMTP status: a dead
+    // SMTP (wrong mail password) can still have a valid cPanel/WHM/webmail login.
     if (r.panels) {
       const user = r.cred?.user || '?';
       const pass = r.cred?.pass || '?';

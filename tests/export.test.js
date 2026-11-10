@@ -219,3 +219,29 @@ test('control-panel exports are host:port:user:pass using the port that logged i
   const rf = resultFolderFiles(rows);
   assert.deepEqual(rf['Leads/hosts/Other/Other_Unknown.txt'], ['admin@site.com']);
 });
+
+test('a valid panel login on a DEAD SMTP is still exported (both export views)', async () => {
+  const { hostGroupedExportFiles, resultFolderFiles } = await import('../src/core/export.js');
+  const rows = [{
+    status: 'dead',            // SMTP auth failed (wrong mail password)...
+    userExists: true,
+    cred: { host: 'secure.emailsrvr.com', port: 587, user: 'jbearden@reagan.com', pass: 'pw' },
+    usedHost: 'secure.emailsrvr.com',
+    provider: 'Rackspace',
+    domainCountry: 'United States',
+    panels: {
+      cpanel: { valid: true, port: 2083, host: 'reagan.com', user: 'jbearden' }, // ...but cPanel IS valid
+      whm: { valid: false, status: 'blocked' },  // blocked -> not exported
+    },
+  }];
+
+  const byHost = hostGroupedExportFiles(rows);
+  assert.deepEqual(byHost['panels/cpanel_valid.txt'], ['reagan.com:2083:jbearden@reagan.com:pw']);
+  assert.ok(!byHost['panels/whm_valid.txt'], 'a blocked panel is not exported as valid');
+  // The dead SMTP credential itself must NOT land in any valid/ SMTP file.
+  assert.ok(!Object.keys(byHost).some((k) => k.startsWith('valid/')), 'dead SMTP cred is not a working SMTP');
+
+  const rf = resultFolderFiles(rows);
+  assert.deepEqual(rf['panels/cpanel_valid.txt'], ['reagan.com:2083:jbearden@reagan.com:pw']);
+  assert.ok(!Object.keys(rf).some((k) => k.startsWith('SMTP result/')), 'dead SMTP is not under SMTP result/');
+});
