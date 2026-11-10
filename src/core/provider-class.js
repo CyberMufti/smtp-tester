@@ -165,10 +165,17 @@ const GLOBAL_EDGE_PROVIDERS = new Set([
   'Mimecast', 'Proofpoint', 'Barracuda',
   // Rackspace Email is a large shared multi-tenant platform whose *.emailsrvr.com
   // mail hosts rotate across US and UK datacenters, so the server IP's country
-  // is not the lead's — it reported wrong/EU countries for US customers. Other
-  // hosting resellers are left as location-meaningful (the author's call); revisit
-  // per-provider if they show the same wrong-country behavior.
+  // is not the lead's — it reported wrong/EU countries for US customers.
   'Rackspace',
+  // IONOS (1&1) and OVH run their shared mail platforms from European
+  // datacenters (DE / FR), so a US customer's mail server geolocates to Germany
+  // or France — the server country is the datacenter's, not the lead's. Reported
+  // wrong EU countries for US customers, same failure mode as Rackspace. US-based
+  // resellers (Network Solutions, Intermedia/ServerData, GoDaddy) host in US
+  // datacenters and stay location-meaningful — their server GeoIP correctly
+  // reports US for US customers.
+  'IONOS',
+  'OVH',
 ]);
 
 /**
@@ -242,15 +249,23 @@ export function classifyProvider({ user, host, mxHosts = [] } = {}) {
   // 1. Consumer domain is unambiguous.
   if (domain && CONSUMER_DOMAINS.has(domain)) return CONSUMER_DOMAINS.get(domain);
 
-  // 2. MX platform of a custom domain.
-  const viaMx = matchPlatform(mxHosts);
-  if (viaMx) return viaMx;
-
-  // 3. The SMTP host actually used. A Google/Microsoft host on a non-consumer
-  // domain is the business platform.
+  // 2. The SMTP host the credential actually connected and authenticated to is
+  // ground truth for its SENDING provider, so it beats the domain's MX. MX only
+  // describes INBOUND routing, which frequently differs: a company that receives
+  // its mail on Microsoft/Google/Yahoo can still send through a legacy Rackspace
+  // or IONOS SMTP account. Checking MX first mislabeled those live credentials as
+  // the inbound platform — a working Rackspace account showed as "Microsoft 365"
+  // or "Yahoo/AOL". A host the pattern list does NOT recognize (a vanity CNAME
+  // like mail.<domain>) returns null here and falls through to the MX signal
+  // below, so the Rackspace-via-vanity-host case still resolves.
   const viaHost = matchPlatform([host]);
   if (viaHost) return viaHost;
   if (host && /gmail\.com$/i.test(host)) return 'Google Workspace'; // smtp.gmail.com, custom domain
+
+  // 3. MX platform of a custom domain (inbound routing) — the fallback used when
+  // the host is absent (a dead / host-less cred) or an unrecognized vanity host.
+  const viaMx = matchPlatform(mxHosts);
+  if (viaMx) return viaMx;
 
   // Reached a real but unrecognized mail host → generic hosting; otherwise we
   // simply have no signal.
