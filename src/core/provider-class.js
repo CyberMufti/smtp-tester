@@ -181,7 +181,7 @@ export function serverLocationMeaningful(bucket) {
 // gateways (Mimecast/Proofpoint/Barracuda) are labeled by the gateway since the
 // real mailbox is hidden behind them.
 const PLATFORM_PATTERNS = [
-  { re: /(aspmx|googlemail|google)\./i, bucket: 'Google Workspace' },
+  { re: /\b(aspmx|googlemail|google)\./i, bucket: 'Google Workspace' },
   { re: /(serverdata\.net|intermedia\.(net|com))/i, bucket: 'Intermedia' }, // before M365: hostnames contain "o365" branding
   { re: /(protection\.outlook|mail\.protection|office365|outlook\.com)/i, bucket: 'Microsoft 365' },
   { re: /(mimecast)\./i, bucket: 'Mimecast' },
@@ -190,7 +190,7 @@ const PLATFORM_PATTERNS = [
   { re: /zoho\./i, bucket: 'Zoho' },
   { re: /(worldnic|netsol|networksolutions)/i, bucket: 'Network Solutions' },
   { re: /secureserver\.net/i, bucket: 'GoDaddy' },
-  { re: /(\bionos\b|1and1|1und1|kundenserver\.de|perfora\.net|\bonline\.de)/i, bucket: 'IONOS' },
+  { re: /(\bionos\b|1and1|1und1|kundenserver\.de|perfora\.net)/i, bucket: 'IONOS' },
   { re: /\bovh\.(net|com|ca|us|co\.uk)\b/i, bucket: 'OVH' },
   { re: /emailsrvr\.com/i, bucket: 'Rackspace' },
   { re: /(privateemail\.com|registrar-servers\.com)/i, bucket: 'Namecheap' },
@@ -201,8 +201,8 @@ const PLATFORM_PATTERNS = [
   { re: /bluehost/i, bucket: 'Bluehost' },
   { re: /hostinger/i, bucket: 'Hostinger' },
   { re: /siteground/i, bucket: 'SiteGround' },
-  { re: /(amazonaws\.com|awsapps\.com)/i, bucket: 'Amazon WorkMail' },
-  { re: /(netease\.com|mxmail\.netease|qiye163|163mx|\b163\.com|126\.com)/i, bucket: 'NetEase' },
+  { re: /(awsapps\.com|inbound-smtp\.[^ ]*amazonaws|amazonses\.com)/i, bucket: 'Amazon WorkMail' },
+  { re: /(netease\.com|mxmail\.netease|qiye163|163mx|\b163\.com|\b126\.com)/i, bucket: 'NetEase' },
   { re: /(exmail\.qq\.com|mxbiz\d*\.qq\.com|\bqq\.com)/i, bucket: 'Tencent Exmail' },
   { re: /(mxhichina\.com|aliyun|alibaba-inc|alimail)/i, bucket: 'Alibaba Mail' },
   { re: /mailgun\.(org|net|com)/i, bucket: 'Mailgun' },

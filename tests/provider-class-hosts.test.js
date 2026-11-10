@@ -69,3 +69,14 @@ test('every classification result is a declared bucket', () => {
   ];
   for (const s of samples) assert.ok(PROVIDER_BUCKETS.includes(s), s);
 });
+
+test('boundary fixes: no substring misclassification (audit regressions)', () => {
+  assert.notEqual(mx('a@t-online.de', 'mx00.t-online.de'), 'IONOS');       // t-online != IONOS
+  assert.notEqual(mx('a@x.com', 'mx.notgoogle.com'), 'Google Workspace');  // notgoogle != Google
+  assert.notEqual(mx('a@x.com', 'ec2-1-2-3-4.compute-1.amazonaws.com'), 'Amazon WorkMail'); // EC2 rDNS
+  assert.notEqual(mx('a@x.com', 'mail.0126.com'), 'NetEase');              // 0126 != 126.com
+  // real hosts still classify
+  assert.equal(mx('a@x.com', 'aspmx.l.google.com'), 'Google Workspace');
+  assert.equal(mx('a@x.com', 'inbound-smtp.us-east-1.amazonaws.com'), 'Amazon WorkMail');
+  assert.equal(classifyProvider({ user: 'a@126.com' }), 'NetEase');
+});

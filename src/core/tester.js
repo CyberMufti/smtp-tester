@@ -347,9 +347,14 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     // lives in that datacenter). Global anycast platforms (Gmail/Microsoft/…)
     // skip the server fallback — their IP is just an edge — and stay Unknown.
     domainCountry: (() => {
+      // Use the BASE provider bucket (strip any "Microsoft 365 — <subtype>"
+      // realm suffix) for the home-country / server-location decisions, so an
+      // M365 sub-label is still recognized as a global anycast platform and
+      // never leaks its edge-datacenter country.
+      const baseProvider = provider.split(' — ')[0];
       let c = domainCountry(domainOf(cred.user) || '');
-      if (c === 'Unknown') c = providerHomeCountry(provider);
-      if (c === 'Unknown' && serverLocationMeaningful(provider)) c = countryName(country);
+      if (c === 'Unknown') c = providerHomeCountry(baseProvider);
+      if (c === 'Unknown' && serverLocationMeaningful(baseProvider)) c = countryName(country);
       return c;
     })(),
   };

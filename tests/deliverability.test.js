@@ -48,3 +48,13 @@ test('factors explain the score', () => {
   assert.ok(r.factors.some((f) => /inbox/i.test(f.label)));
   assert.ok(r.factors.some((f) => /SPF/i.test(f.label)));
 });
+
+test('an unconfirmed "valid" result is capped at B even with perfect auth', () => {
+  const r = deliverabilityScore({
+    status: 'valid',
+    deliverability: { spf: { found: true, result: 'pass' }, dmarc: { found: true, policy: 'reject' }, dnsbl: { ip: '1.2.3.4', listed: false, lists: [] } },
+    spamScore: { score: 0, max: 13 },
+  });
+  assert.notEqual(r.grade, 'A', 'only confirmed inbox earns A');
+  assert.ok(r.score <= 84);
+});

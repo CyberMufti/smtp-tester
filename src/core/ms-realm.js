@@ -80,7 +80,7 @@ export function classifyM365Realm(realm) {
     const h = realm.authUrl || realm.authUrlHost || '';
     if (/godaddy|secureserver/i.test(h)) return 'GoDaddy';
     if (/\bokta\b/i.test(h)) return 'Federated (Okta)';
-    if (/adfs|\bsts\b|fs\./i.test(h)) return 'Federated (ADFS)';
+    if (/adfs|\bsts\b|\bfs\./i.test(h)) return 'Federated (ADFS)';
     if (/ping(id|federate|one)/i.test(h)) return 'Federated (PingFederate)';
     if (/onelogin/i.test(h)) return 'Federated (OneLogin)';
     return 'Federated';

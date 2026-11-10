@@ -819,7 +819,7 @@ async function writeResultFolder(runFile, outDir) {
   }
   // Clear only the subtrees this function owns (SMTP result/ and Leads/) so a
   // separate verified/ folder from the Email Verifier is preserved across runs.
-  for (const sub of ['SMTP result', 'Leads']) {
+  for (const sub of ['SMTP result', 'Leads', 'panels']) {
     try { rmSync(join(outDir, sub), { recursive: true, force: true }); } catch (e) { /* ignore */ }
   }
   mkdirSync(outDir, { recursive: true });

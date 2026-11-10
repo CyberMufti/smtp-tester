@@ -60,6 +60,14 @@ export function deliverabilityScore(result) {
   }
 
   score = Math.max(0, Math.min(100, Math.round(score)));
+  // Only a CONFIRMED inbox placement can earn an "A". Everything else — a bare
+  // "valid" (accepted, not confirmed), unknown, limited, unverified — is capped
+  // at B no matter how good its auth/content is, because we never proved the
+  // mail actually reaches the inbox. (Spam/dead already score low on their own.)
+  if (result.status !== 'inbox' && score > 84) {
+    score = 84;
+    factors.push({ delta: 0, label: 'capped at B — inbox placement not confirmed' });
+  }
   const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
   return { score, grade, factors };
 }
