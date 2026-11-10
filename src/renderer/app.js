@@ -1,6 +1,7 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName } from '../core/country-names.js';
+import { deliverabilityScore } from '../core/deliverability.js';
 
 const api = window.api;
 const $ = (sel) => document.querySelector(sel);
@@ -494,6 +495,14 @@ function rowHtml(r) {
   const seedDetail = (r.perSeed || [])
     .map((s) => `<span class="seed-tag">${esc(s.label)}: <b>${s.error ? 'error' : s.folder || 'not found'}</b></span>`)
     .join('');
+  // Deliverability grade (fuses placement + SPF/DMARC + blacklist + content).
+  const dg = deliverabilityScore(r);
+  if (dg) {
+    const cls = { A: 'b-ok', B: 'b-ok', C: 'b-neutral', D: 'b-warn', F: 'b-bad' }[dg.grade] || 'b-neutral';
+    const tip = dg.factors.map((f) => `${f.delta > 0 ? '+' : ''}${f.delta} ${f.label}`).join(' · ');
+    parts.push(`<span class="dbadge ${cls}" title="Deliverability ${dg.score}/100 — ${esc(tip)}">★ ${dg.grade} · ${dg.score}</span>`);
+  }
+
   if (seedDetail) parts.push(seedDetail);
   else if (r.reason) parts.push(esc(r.reason));
 
