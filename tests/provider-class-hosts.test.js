@@ -42,6 +42,13 @@ test('major Chinese providers are recognized', () => {
   assert.equal(classifyProvider({ user: 'a@qq.com' }), 'Tencent Exmail');
 });
 
+test('transactional ESPs (Mailgun, Mailjet, Brevo) are recognized from host/MX', () => {
+  assert.equal(classifyProvider({ user: 'a@acme.com', host: 'smtp.mailgun.org' }), 'Mailgun');
+  assert.equal(classifyProvider({ user: 'a@acme.com', host: 'in-v3.mailjet.com' }), 'Mailjet');
+  assert.equal(classifyProvider({ user: 'a@acme.com', host: 'smtp-relay.brevo.com' }), 'Brevo');
+  assert.equal(classifyProvider({ user: 'a@acme.com', host: 'smtp-relay.sendinblue.com' }), 'Brevo');
+});
+
 test('consumer webmail domains added', () => {
   assert.equal(classifyProvider({ user: 'a@gmx.com' }), 'GMX/Web.de');
   assert.equal(classifyProvider({ user: 'a@web.de' }), 'GMX/Web.de');

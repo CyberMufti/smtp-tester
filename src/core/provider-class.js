@@ -44,6 +44,8 @@ export const PROVIDER_BUCKETS = [
   'Optimum',
   'Spectrum/RR',
   'Mailgun',
+  'Mailjet',
+  'Brevo',
   'Intermedia',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
@@ -111,6 +113,7 @@ const PROVIDER_HOME_COUNTRY = {
   'NetEase': 'China', 'Tencent Exmail': 'China', 'Alibaba Mail': 'China',
   'Yandex': 'Russia', 'Mail.ru': 'Russia',
   'Optimum': 'United States', 'Spectrum/RR': 'United States', 'Mailgun': 'United States',
+  'Mailjet': 'France', 'Brevo': 'France',
   'GMX/Web.de': 'Germany',
 };
 
@@ -175,7 +178,9 @@ const PLATFORM_PATTERNS = [
   { re: /(netease\.com|mxmail\.netease|qiye163|163mx|\b163\.com|126\.com)/i, bucket: 'NetEase' },
   { re: /(exmail\.qq\.com|mxbiz\d*\.qq\.com|\bqq\.com)/i, bucket: 'Tencent Exmail' },
   { re: /(mxhichina\.com|aliyun|alibaba-inc|alimail)/i, bucket: 'Alibaba Mail' },
-  { re: /mailgun\.(org|net)/i, bucket: 'Mailgun' },
+  { re: /mailgun\.(org|net|com)/i, bucket: 'Mailgun' },
+  { re: /mailjet\.com/i, bucket: 'Mailjet' },
+  { re: /(brevo\.com|sendinblue\.com)/i, bucket: 'Brevo' },
   { re: /(optimum\.net|optonline\.net)/i, bucket: 'Optimum' },
   { re: /(\brr\.com|roadrunner|twc\.com|charter\.net|spectrum\.net|rr\.com)/i, bucket: 'Spectrum/RR' },
   { re: /(yandex)\./i, bucket: 'Yandex' },
