@@ -12,12 +12,37 @@
  *   - `lockSkipped`: we deliberately did not test this account to avoid locking
  *     it; firing a dozen panel logins would hammer the account we just spared.
  *
- * @param {{ status?: string, deadReason?: string, lockSkipped?: boolean } | null | undefined} result
+ * Also skipped: consumer / SaaS mailbox providers, transactional ESPs, and
+ * security gateways — their domains are the provider's own (gmail.com,
+ * yahoo.com, …) or a hosted mail platform, so they NEVER expose a customer
+ * cPanel/WHM/webmail. Probing them is pure waste and produced false positives
+ * (e.g. yahoo.com 302-redirecting an unknown /webmail path read as a "valid"
+ * webmail login). Custom-domain business platforms (Google Workspace / Microsoft
+ * 365) and "Other"/"Unknown" are NOT skipped — those domains may still have
+ * separate cPanel web hosting worth checking.
+ *
+ * @param {{ status?: string, deadReason?: string, lockSkipped?: boolean, provider?: string } | null | undefined} result
  * @returns {boolean}
  */
+const NO_PANEL_PROVIDERS = new Set([
+  // Consumer webmail (the domain is the provider's own).
+  'Gmail', 'Outlook/Hotmail', 'Yahoo/AOL', 'iCloud', 'Proton Mail', 'Fastmail', 'Zoho',
+  'GMX/Web.de', 'Yandex', 'Mail.ru', 'NetEase', 'Tencent Exmail', 'Alibaba Mail', 'Amazon WorkMail',
+  // Consumer ISPs / portals.
+  'Optimum', 'Spectrum/RR', 'Comcast', 'AT&T', 'Verizon', 'Cox', 'CenturyLink', 'Frontier', 'Earthlink',
+  'Sky', 'Virgin Media', 'TalkTalk', 'Telstra', 'Rogers', 'Bell', 'Telus', 'Shaw', 'T-Online',
+  'Orange', 'Free', 'BT', 'Libero', 'Seznam', 'Naver', 'Daum', 'UOL', 'Terra',
+  'Yahoo! Japan', 'docomo', 'au/KDDI', 'SoftBank', 'OCN', '@nifty', 'BIGLOBE', 'So-net', 'Plala', 'Rakuten', 'J:COM', 'Asahi Net',
+  // Transactional ESPs and security gateways (hosted platforms, no customer panel).
+  'Mailgun', 'Mailjet', 'Brevo', 'SendGrid', 'Amazon SES', 'Postmark', 'SparkPost', 'Mandrill',
+  'Mailchimp', 'SMTP2GO', 'Elastic Email', 'MailerSend',
+  'Mimecast', 'Proofpoint', 'Barracuda', 'Cisco IronPort', 'TrendMicro', 'Forcepoint', 'Sophos',
+]);
+
 export function shouldRunPanelChecks(result) {
   if (!result) return false;
   if (result.lockSkipped) return false;
   if (result.status === 'dead' && result.deadReason === 'connect') return false;
+  if (result.provider && NO_PANEL_PROVIDERS.has(String(result.provider).split(' — ')[0])) return false;
   return true;
 }

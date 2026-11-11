@@ -39,17 +39,21 @@ export function classifyWebmailLogin(res) {
   const __blk = detectPanelBlock(res); if (__blk) return __blk;
   const location = headers.location || headers.Location || '';
 
-  // Roundcube/Horde redirect to ?_task=mail or ?_task=show after success.
-  if (/[?&]_task=(mail|show)/i.test(location)) {
-    return { reachable: true, valid: true, status: 'valid', detail: location };
-  }
-  // Redirect back to login = auth failure.
-  if (/[?&]_task=login/i.test(location)) {
+  // A redirect back to a login page = auth failure (covers Roundcube _task=login).
+  if (location && /login/i.test(location)) {
     return { reachable: true, valid: false, status: 'invalid', detail: 'redirected to login' };
   }
-  // Any other redirect (post-login landing page) = success (best-effort).
-  if ((statusCode === 301 || statusCode === 302 || statusCode === 303) && location && !/login/i.test(location)) {
+  // A redirect INTO the webmail app (mailbox view / webmail session) = success.
+  // Roundcube/Horde/SquirrelMail land on the mailbox, or a cPanel webmail session.
+  if (/[?&]_task=(mail|show)|\/imp\/|[?&]page=mailbox|\/src\/(left_main|right_main|webmail)\.php|cpsess\d|\/(inbox|mailbox)(\/|\?|$)/i.test(location)) {
     return { reachable: true, valid: true, status: 'valid', detail: location };
+  }
+  // Any OTHER redirect is NOT a login. Consumer mail domains (yahoo.com,
+  // aol.com, ...) 302 an unknown /webmail path to their homepage, which must
+  // never read as a valid webmail login (the earlier "any non-login redirect =
+  // valid" rule did exactly that — a confirmed false positive).
+  if ((statusCode === 301 || statusCode === 302 || statusCode === 303) && location) {
+    return { reachable: true, valid: false, status: 'not-webmail', detail: `redirect to ${location}`.slice(0, 120) };
   }
   if (/login\s*failed|invalid\s*request|authentication\s*failed/i.test(body)) {
     return { reachable: true, valid: false, status: 'invalid', detail: 'login rejected' };

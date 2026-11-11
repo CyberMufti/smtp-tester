@@ -40,3 +40,15 @@ test('does not run panels for a missing result', () => {
   assert.equal(shouldRunPanelChecks(null), false);
   assert.equal(shouldRunPanelChecks(undefined), false);
 });
+
+test('consumer / SaaS mailbox providers skip panel checks (no customer cPanel/webmail)', () => {
+  for (const provider of ['Gmail', 'Yahoo/AOL', 'Outlook/Hotmail', 'iCloud', 'SendGrid', 'Mimecast', 'Cox', 'Yahoo! Japan']) {
+    assert.equal(shouldRunPanelChecks({ status: 'valid', provider }), false, provider);
+  }
+});
+
+test('hosting / custom-domain / self-hosted providers still run panel checks', () => {
+  for (const provider of ['GoDaddy', 'Namecheap', 'HostGator', 'Other', 'Unknown', 'cPanel/Exim', 'Google Workspace', 'Microsoft 365', undefined]) {
+    assert.equal(shouldRunPanelChecks({ status: 'valid', provider }), true, String(provider));
+  }
+});

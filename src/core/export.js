@@ -7,6 +7,7 @@
  * @typedef {import('./tester.js').Result} Result
  */
 import { classifyProvider } from './provider-class.js';
+import { panelUrlFor } from './cred-line.js';
 import { deliverabilityScore } from './deliverability.js';
 import { warmupRecommendation } from './warmup.js';
 
@@ -123,16 +124,16 @@ export function hostGroupedExportFiles(results) {
       // cyberpanel, webmin, hestia, imap, pop3). Format: host:port:user:pass,
       // using the port that actually accepted the login when the probe reports it.
       for (const [type, hit] of Object.entries(r.panels)) {
-        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(hit.host || host, hit.port, user, pass));
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(type, hit.host || host, hit.port, user, pass));
       }
     }
   }
   return files;
 }
 
-/** A control-panel login line: host:port:user:pass, or host:user:pass if no port. */
-function panelLine(host, port, user, pass) {
-  return port ? `${host}:${port}:${user}:${pass}` : `${host}:${user}:${pass}`;
+/** A control-panel login line: the direct login URL plus the credentials. */
+function panelLine(type, host, port, user, pass) {
+  return `${panelUrlFor(type, host, port)} | ${user} | ${pass}`;
 }
 
 /**
@@ -238,7 +239,7 @@ export function resultFolderFiles(results) {
       // panels/<type>_valid.txt (cpanel, whm, webmail, ssh, plesk, directadmin,
       // cyberpanel, webmin, hestia, imap, pop3). Format: host:port:user:pass.
       for (const [type, hit] of Object.entries(r.panels)) {
-        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(hit.host || host, hit.port, user, pass));
+        if (hit?.valid) add(`panels/${safeName(type)}_valid.txt`, panelLine(type, hit.host || host, hit.port, user, pass));
       }
     }
   }

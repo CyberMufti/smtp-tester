@@ -209,9 +209,9 @@ test('control-panel exports are host:port:user:pass using the port that logged i
   }];
 
   for (const files of [resultFolderFiles(rows), hostGroupedExportFiles(rows)]) {
-    assert.deepEqual(files['panels/cpanel_valid.txt'], ['site.com:2083:admin@site.com:s3cr3t']);
-    assert.deepEqual(files['panels/whm_valid.txt'], ['site.com:2087:admin@site.com:s3cr3t']);
-    assert.deepEqual(files['panels/webmail_valid.txt'], ['site.com:2096:admin@site.com:s3cr3t']);
+    assert.deepEqual(files['panels/cpanel_valid.txt'], ['https://site.com:2083 | admin@site.com | s3cr3t']);
+    assert.deepEqual(files['panels/whm_valid.txt'], ['https://site.com:2087 | admin@site.com | s3cr3t']);
+    assert.deepEqual(files['panels/webmail_valid.txt'], ['https://site.com:2096 | admin@site.com | s3cr3t']);
     assert.ok(!files['panels/ssh_valid.txt'], 'a non-valid panel is not exported');
   }
 
@@ -236,13 +236,13 @@ test('a valid panel login on a DEAD SMTP is still exported (both export views)',
   }];
 
   const byHost = hostGroupedExportFiles(rows);
-  assert.deepEqual(byHost['panels/cpanel_valid.txt'], ['reagan.com:2083:jbearden@reagan.com:pw']);
+  assert.deepEqual(byHost['panels/cpanel_valid.txt'], ['https://reagan.com:2083 | jbearden@reagan.com | pw']);
   assert.ok(!byHost['panels/whm_valid.txt'], 'a blocked panel is not exported as valid');
   // The dead SMTP credential itself must NOT land in any valid/ SMTP file.
   assert.ok(!Object.keys(byHost).some((k) => k.startsWith('valid/')), 'dead SMTP cred is not a working SMTP');
 
   const rf = resultFolderFiles(rows);
-  assert.deepEqual(rf['panels/cpanel_valid.txt'], ['reagan.com:2083:jbearden@reagan.com:pw']);
+  assert.deepEqual(rf['panels/cpanel_valid.txt'], ['https://reagan.com:2083 | jbearden@reagan.com | pw']);
   assert.ok(!Object.keys(rf).some((k) => k.startsWith('SMTP result/')), 'dead SMTP is not under SMTP result/');
 });
 

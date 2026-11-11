@@ -94,3 +94,17 @@ test('runWebmailChecks preserves input order', async () => {
   assert.deepEqual(r.map((x) => x.valid), [false, true, false]);
   assert.deepEqual(r.map((x) => x.host), ['a', 'b', 'c']);
 });
+
+test('a 302 to a site homepage is NOT a valid webmail login (consumer false-positive fix)', () => {
+  for (const loc of ['https://www.yahoo.com/', 'https://www.aol.com', '/', 'https://mail.example.com/portal']) {
+    const r = classifyWebmailLogin({ statusCode: 302, headers: { location: loc }, body: '' });
+    assert.equal(r.valid, false, loc);
+  }
+});
+
+test('a 302 into the webmail app (mailbox/_task=mail/imp) is still valid', () => {
+  for (const loc of ['/?_task=mail', '/imp/', '/inbox', '/src/webmail.php']) {
+    const r = classifyWebmailLogin({ statusCode: 302, headers: { location: loc }, body: '' });
+    assert.equal(r.valid, true, loc);
+  }
+});

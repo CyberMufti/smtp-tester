@@ -1,7 +1,7 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName, countryList } from '../core/country-names.js';
-import { credLineFor, maskCredLine, panelLineFor } from '../core/cred-line.js';
+import { credLineFor, maskCredLine, panelLineFor, maskPanelLine } from '../core/cred-line.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
 import { warmupRecommendation } from '../core/warmup.js';
@@ -556,10 +556,14 @@ function drawerRowsFor(status) {
   return rows.map(credLineFor).filter((l) => l && l !== ':::');
 }
 
+function maskDrawerLine(line) {
+  return PANEL_TILE_TYPES.includes(drawerStatus) ? maskPanelLine(line) : maskCredLine(line);
+}
+
 function drawerRowHtml(line, i) {
   const revealed = drawerRevealedRows.has(i);
   return `<div class="cred-row" data-i="${i}">`
-    + `<code class="cred-text">${esc(revealed ? line : maskCredLine(line))}</code>`
+    + `<code class="cred-text">${esc(revealed ? line : maskDrawerLine(line))}</code>`
     + `<span class="cred-row-btns">`
     + `<button class="cred-btn" data-act="reveal" type="button">${revealed ? 'Hide' : 'Reveal'}</button>`
     + `<button class="cred-btn" data-act="copy" type="button">Copy</button>`
@@ -619,7 +623,7 @@ $('#tile-drawer-list')?.addEventListener('click', async (e) => {
   if (btn.dataset.act === 'reveal') {
     if (drawerRevealedRows.has(i)) drawerRevealedRows.delete(i); else drawerRevealedRows.add(i);
     const on = drawerRevealedRows.has(i);
-    row.querySelector('.cred-text').textContent = on ? drawerLines[i] : maskCredLine(drawerLines[i]);
+    row.querySelector('.cred-text').textContent = on ? drawerLines[i] : maskDrawerLine(drawerLines[i]);
     btn.textContent = on ? 'Hide' : 'Reveal';
   } else if (btn.dataset.act === 'copy') {
     try { await navigator.clipboard.writeText(drawerLines[i]); btn.textContent = 'Copied'; }
