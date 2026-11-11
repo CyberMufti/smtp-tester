@@ -739,3 +739,26 @@ test('a persistent block ends as non-dead (unknown + blocked), not a confirmed d
   assert.notEqual(results[0].status, 'dead');
   assert.equal(results[0].blocked, true);
 });
+
+test('the pool tier uses the validate-on-acquire provider (no dead proxy sent through)', async () => {
+  const usedProxies = [];
+  const deps = {
+    smtp: {
+      async verify(cred, o) { usedProxies.push(o?.proxy ?? null); return { connected: true, authenticated: true }; },
+      async send(cred, o) { return { accepted: [o.to] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  // A live-only provider: returns a validated proxy URL (dead ones already filtered).
+  let liveCalls = 0;
+  const proxyProviderLive = async () => { liveCalls++; return 'socks5://live.proxy:1080'; };
+
+  const results = await runBatch(
+    [{ host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' }],
+    [],
+    { concurrency: 1, deps, proxyProviderLive },
+  );
+  assert.equal(results[0].status, 'valid');
+  assert.ok(liveCalls >= 1, 'proxyProviderLive was awaited for the pool tier');
+  assert.ok(usedProxies.includes('socks5://live.proxy:1080'), 'the validated proxy was used for the send');
+});

@@ -122,6 +122,8 @@ async function buildProxyOptions(opts) {
   }
   const out = { proxy: sel.proxy };
   if (sel.usePool) {
+    // Validate-on-acquire: never hand out a dead proxy (15s freshness cache).
+    out.proxyProviderLive = () => proxyPool.acquireLive({ ttlMs: PROXY_REVALIDATE_MS });
     out.proxyProvider = () => proxyPool.getNext();
     out.onProxyFailure = (proxyUrl) => retireProxy(proxyUrl);
   }
@@ -354,6 +356,10 @@ function proxyPoolPath() {
 let proxyDaemonTimer = null;
 let proxyReplenishing = false;
 const PROXY_TARGET = 100;
+// Freshness window for validate-on-acquire: a pool proxy confirmed live within
+// this long is handed out without re-checking; older ones are re-validated (and
+// discarded if dead) before use, so a dead proxy is never sent through.
+const PROXY_REVALIDATE_MS = 15000;
 
 // Top up the live proxy pool when it runs low — MERGE fresh validated proxies
 // into the existing pool (not replace), guarded so only one replenish runs at a
@@ -554,6 +560,7 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
         lockoutRegistry,
         proxyUrl: proxyUrlFrom(settings?.proxy),
         ...(proxyPool.size().valid > 0 ? {
+          proxyProviderLive: () => proxyPool.acquireLive({ ttlMs: PROXY_REVALIDATE_MS }),
           proxyProvider: () => proxyPool.getNext(),
           onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
         } : {}),

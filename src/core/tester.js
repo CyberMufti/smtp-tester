@@ -695,7 +695,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       // operator's fixed egress, reported but not discarded.
       const tiers = [];
       if (opts.proxy) tiers.push('manual');
-      if (opts.proxyProvider) tiers.push('pool');
+      if (opts.proxyProvider || opts.proxyProviderLive) tiers.push('pool');
       tiers.push('direct');
 
       // Watchdog: cap total wall-clock time on the FIRST tier that actually
@@ -723,7 +723,12 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         if (signal?.aborted) return;
         let tierProxy;
         if (kind === 'manual') tierProxy = opts.proxy;
-        else if (kind === 'pool') { try { tierProxy = opts.proxyProvider() ?? null; } catch { tierProxy = null; } }
+        else if (kind === 'pool') {
+          // Prefer a validate-on-acquire provider so a dead proxy is never used;
+          // fall back to the plain round-robin provider when none is injected.
+          try { tierProxy = opts.proxyProviderLive ? await opts.proxyProviderLive() : (opts.proxyProvider?.() ?? null); }
+          catch { tierProxy = null; }
+        }
         else tierProxy = null;
         // A pool tier that yields nothing (empty pool) or just re-hands the
         // manual proxy adds no new egress — skip straight to the next tier.
@@ -790,10 +795,10 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
         await new Promise((r) => setTimeout(r, retryBlocked ? (opts.blockedBackoffMs ?? 8000) : (opts.retryBackoffMs ?? 2000)));
         if (signal?.aborted) break;
         let retryOpts;
-        if (retryBlocked && typeof opts.proxyProvider === 'function') {
+        if (retryBlocked && (opts.proxyProviderLive || typeof opts.proxyProvider === 'function')) {
           let fresh = null;
-          try { fresh = opts.proxyProvider(); } catch { fresh = null; }
-          retryOpts = { ...opts, proxy: fresh || undefined, proxyProvider: undefined };
+          try { fresh = opts.proxyProviderLive ? await opts.proxyProviderLive() : opts.proxyProvider(); } catch { fresh = null; }
+          retryOpts = { ...opts, proxy: fresh || undefined, proxyProvider: undefined, proxyProviderLive: undefined };
         } else {
           retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : primaryOpts;
         }

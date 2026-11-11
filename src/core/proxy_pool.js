@@ -222,7 +222,9 @@ export class ProxyPool {
         const url = proxyEntryToUrl(entry);
         let ok = false;
         try { ok = await checkFn(url, { target, timeout }); } catch { ok = false; }
-        results[i] = ok ? entry : null;
+        // Stamp a validation time so acquireLive's freshness cache can skip a
+        // just-validated proxy instead of re-checking it on first use.
+        results[i] = ok ? { ...entry, lastChecked: Date.now() } : null;
         done++;
         try { onProgress?.(done, input.length); } catch { /* ignore */ }
       }
@@ -259,6 +261,48 @@ export class ProxyPool {
     const entry = this.valid[this.index];
     this.index = (this.index + 1) % this.valid.length;
     return proxyEntryToUrl(entry);
+  }
+
+  /**
+   * Acquire the next proxy that is confirmed LIVE, validating on acquire so a
+   * dead proxy is never handed out. Round-robins to the next entry; if it was
+   * validated within `ttlMs` it is returned straight away (freshness cache),
+   * otherwise it is re-validated now — a live one is stamped fresh and returned,
+   * a dead one is discarded (markDead) and the scan moves on. Returns null when
+   * no live proxy is found (so the caller falls through to the next tier).
+   *
+   * Validation reuses the pool's own check (SOCKS connect to the validate
+   * target). `checkFn`/`now` are injectable for tests.
+   *
+   * @param {{ ttlMs?:number, checkFn?:Function, now?:()=>number }} [opts]
+   * @returns {Promise<string|null>}
+   */
+  async acquireLive(opts = {}) {
+    const ttlMs = Number(opts.ttlMs ?? 15000);
+    const checkFn = opts.checkFn || defaultCheck;
+    const now = typeof opts.now === 'function' ? opts.now : Date.now;
+    const target = this.validateTarget;
+    const timeout = this.validateTimeout;
+    // Try each current entry at most once; if none are live, give up.
+    let scans = this.valid.length;
+    while (scans-- > 0 && this.valid.length) {
+      if (this.index >= this.valid.length) this.index = 0;
+      const entry = this.valid[this.index];
+      const url = proxyEntryToUrl(entry);
+      if (entry.lastChecked && now() - entry.lastChecked < ttlMs) {
+        this.index = (this.index + 1) % this.valid.length; // fresh — hand it out
+        return url;
+      }
+      let ok = false;
+      try { ok = await checkFn(url, { target, timeout }); } catch { ok = false; }
+      if (ok) {
+        entry.lastChecked = now();
+        this.index = (this.index + 1) % this.valid.length;
+        return url;
+      }
+      this.markDead(url); // dead — discard and leave the cursor on the next entry
+    }
+    return null;
   }
 
   /** Random valid proxy URL, or null. */
