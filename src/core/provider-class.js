@@ -60,6 +60,23 @@ export const PROVIDER_BUCKETS = [
   'BT',
   'Libero',
   'Seznam',
+  // Japan — carriers, ISPs/webmail, and the major domestic hosts.
+  'Yahoo! Japan',
+  'docomo',
+  'au/KDDI',
+  'SoftBank',
+  'OCN',
+  '@nifty',
+  'BIGLOBE',
+  'So-net',
+  'Plala',
+  'Rakuten',
+  'J:COM',
+  'Asahi Net',
+  'Sakura Internet',
+  'Xserver',
+  'Lolipop',
+  'GMO',
   // Security gateways (the real mailbox sits behind them).
   'Mimecast',
   'Proofpoint',
@@ -126,6 +143,19 @@ const CONSUMER_DOMAINS = new Map([
   ['btinternet.com', 'BT'], ['bt.com', 'BT'],
   ['libero.it', 'Libero'], ['virgilio.it', 'Libero'], ['tiscali.it', 'Libero'],
   ['seznam.cz', 'Seznam'],
+  // Japan — mobile carriers, ISPs, and webmail portals.
+  ['yahoo.co.jp', 'Yahoo! Japan'], ['ybb.ne.jp', 'Yahoo! Japan'],
+  ['docomo.ne.jp', 'docomo'],
+  ['ezweb.ne.jp', 'au/KDDI'], ['au.com', 'au/KDDI'], ['dion.ne.jp', 'au/KDDI'],
+  ['softbank.ne.jp', 'SoftBank'], ['i.softbank.jp', 'SoftBank'], ['vodafone.ne.jp', 'SoftBank'], ['disney.ne.jp', 'SoftBank'],
+  ['ocn.ne.jp', 'OCN'],
+  ['nifty.com', '@nifty'], ['nifty.ne.jp', '@nifty'],
+  ['biglobe.ne.jp', 'BIGLOBE'],
+  ['so-net.ne.jp', 'So-net'], ['sonet.ne.jp', 'So-net'],
+  ['plala.or.jp', 'Plala'], ['plala.com', 'Plala'],
+  ['rakuten.co.jp', 'Rakuten'], ['rakuten.jp', 'Rakuten'],
+  ['jcom.home.ne.jp', 'J:COM'], ['jcom.zaq.ne.jp', 'J:COM'], ['zaq.ne.jp', 'J:COM'],
+  ['asahi-net.or.jp', 'Asahi Net'],
 ]);
 
 // Providers whose users are strongly concentrated in one country, used as a
@@ -143,6 +173,13 @@ const PROVIDER_HOME_COUNTRY = {
   'Comcast': 'United States', 'AT&T': 'United States', 'Verizon': 'United States',
   'Orange': 'France', 'Free': 'France',
   'BT': 'United Kingdom', 'Libero': 'Italy', 'Seznam': 'Czechia',
+  // Japan — carriers/ISPs/hosts whose customers are overwhelmingly domestic, so
+  // Japan is a safe lead-country fallback for a .com/.net on one of them (the
+  // .jp ccTLD already resolves on its own via domainCountry).
+  'Yahoo! Japan': 'Japan', 'docomo': 'Japan', 'au/KDDI': 'Japan', 'SoftBank': 'Japan',
+  'OCN': 'Japan', '@nifty': 'Japan', 'BIGLOBE': 'Japan', 'So-net': 'Japan', 'Plala': 'Japan',
+  'Rakuten': 'Japan', 'J:COM': 'Japan', 'Asahi Net': 'Japan',
+  'Sakura Internet': 'Japan', 'Xserver': 'Japan', 'Lolipop': 'Japan', 'GMO': 'Japan',
 };
 
 /**
@@ -249,6 +286,26 @@ const PLATFORM_PATTERNS = [
   { re: /(\.mail\.ru|mxs\.mail\.ru)/i, bucket: 'Mail.ru' },
   { re: /(gmx\.|web\.de)/i, bucket: 'GMX/Web.de' },
   { re: /(mail\.me\.com|icloud)/i, bucket: 'iCloud' },
+  // Japan — must precede the generic Yahoo rule so yahoo.co.jp (Yahoo! JAPAN, a
+  // separate company) isn't swept into US "Yahoo/AOL". All anchored on (^|\.) so
+  // a substring like "notnifty.com" can't match. Mobile carriers, ISPs, then the
+  // big domestic hosts (Sakura, Xserver, Lolipop, GMO family).
+  { re: /(^|\.)(yahoo\.co\.jp|ybb\.ne\.jp)/i, bucket: 'Yahoo! Japan' },
+  { re: /(^|\.)docomo\.ne\.jp/i, bucket: 'docomo' },
+  { re: /(^|\.)(ezweb\.ne\.jp|dion\.ne\.jp|kddi\.(com|ne\.jp))/i, bucket: 'au/KDDI' },
+  { re: /(^|\.)softbank\.(ne\.jp|jp)/i, bucket: 'SoftBank' },
+  { re: /(^|\.)ocn\.ne\.jp/i, bucket: 'OCN' },
+  { re: /(^|\.)nifty\.(com|ne\.jp)/i, bucket: '@nifty' },
+  { re: /(^|\.)biglobe\.ne\.jp/i, bucket: 'BIGLOBE' },
+  { re: /(^|\.)so-?net\.ne\.jp/i, bucket: 'So-net' },
+  { re: /(^|\.)plala\.or\.jp/i, bucket: 'Plala' },
+  { re: /(^|\.)(jcom\.(home|zaq)\.ne\.jp|zaq\.ne\.jp)/i, bucket: 'J:COM' },
+  { re: /(^|\.)asahi-net\.or\.jp/i, bucket: 'Asahi Net' },
+  { re: /(^|\.)rakuten\.(co\.jp|ne\.jp|jp)/i, bucket: 'Rakuten' },
+  { re: /(^|\.)sakura\.(ne|ad)\.jp/i, bucket: 'Sakura Internet' },
+  { re: /(^|\.)(xserver\.jp|xsrv\.jp)/i, bucket: 'Xserver' },
+  { re: /(^|\.)lolipop\.jp/i, bucket: 'Lolipop' },
+  { re: /(^|\.)(onamae\.com|heteml\.(jp|net)|muumuu\.jp|conoha\.(jp|io)|value-domain\.com|gmoserver\.jp|gmocloud\.com)/i, bucket: 'GMO' },
   { re: /(yahoodns|yahoo)\./i, bucket: 'Yahoo/AOL' },
 ];
 
