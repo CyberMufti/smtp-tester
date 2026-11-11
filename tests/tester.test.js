@@ -700,3 +700,42 @@ test('RDAP is not called at all when disabled (default)', async () => {
   assert.equal(results[0].domainCountry, 'Unknown');
   assert.equal(fetchCalls, 0);
 });
+
+test('a throttled login is retried and recovered to its true status (not left dead)', async () => {
+  const t0 = Date.now();
+  const deps = {
+    smtp: {
+      async verify() {
+        return (Date.now() - t0 < 40)
+          ? { connected: true, authenticated: false, error: 'Too many login attempts, please try again later' }
+          : { connected: true, authenticated: true };
+      },
+      async send(cred, o) { return { accepted: [o.to] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  const results = await runBatch(
+    [{ host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' }],
+    [],
+    { concurrency: 1, deps, blockedRetries: 1, blockedBackoffMs: 90 },
+  );
+  assert.equal(results[0].status, 'valid');
+  assert.notEqual(results[0].blocked, true);
+});
+
+test('a persistent block ends as non-dead (unknown + blocked), not a confirmed dead', async () => {
+  const deps = {
+    smtp: {
+      async verify() { return { connected: true, authenticated: false, error: 'account temporarily locked - suspicious activity' }; },
+      async send() { return { accepted: [] }; },
+    },
+    imap: { async findToken() { return { found: false, folder: null }; } },
+  };
+  const results = await runBatch(
+    [{ host: 'h.com', port: 587, user: 'a@acme.com', pass: 'x' }],
+    [],
+    { concurrency: 1, deps, blockedRetries: 1, blockedBackoffMs: 5 },
+  );
+  assert.notEqual(results[0].status, 'dead');
+  assert.equal(results[0].blocked, true);
+});

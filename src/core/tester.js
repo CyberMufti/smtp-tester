@@ -280,7 +280,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     else step.sendError = err.message;
   }
 
-  const { status, reason, perSeed, userExists, selfSendOnly } = classify(step);
+  const { status, reason, perSeed, userExists, selfSendOnly, blocked } = classify(step);
 
   // Categorize a dead result so the orchestrator can retry transient (connect)
   // failures but never retry a permanent auth/send rejection.
@@ -383,6 +383,7 @@ async function testOne(cred, index, seeds, opts, smtp, imap, ctx) {
     deadReason,
     userExists,
     selfSendOnly,
+    blocked,
     perSeed,
     latencyMs: Date.now() - start,
     token,
@@ -773,12 +774,29 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
           try { opts.onProxyFailure(lastDeadProxy, String(result.reason || '')); } catch {}
         }
       }
-      // Retry transient connection failures (not auth/send rejections) with backoff.
-      const maxRetries = opts.retries ?? 0;
-      for (let attempt = 0; attempt < maxRetries && result.deadReason === 'connect' && !signal?.aborted; attempt++) {
-        await new Promise((r) => setTimeout(r, opts.retryBackoffMs ?? 2000));
+      // Retry transient conditions with backoff:
+      //  - a transient CONNECT failure (opts.retries, default 0), and
+      //  - a THROTTLED/BLOCKED login (default 2 tries): the server rate-limited
+      //    the test IP rather than rejecting the password, so a valid credential
+      //    would otherwise read as dead. Blocked retries wait longer (the block
+      //    clears with time) and rotate to a fresh pool proxy when one exists, so
+      //    the next attempt comes from a different egress IP.
+      const connectRetries = opts.retries ?? 0;
+      const blockedRetries = opts.blockedRetries ?? 2;
+      for (let attempt = 0; attempt < Math.max(connectRetries, blockedRetries) && !signal?.aborted; attempt++) {
+        const retryConnect = result.deadReason === 'connect' && attempt < connectRetries;
+        const retryBlocked = result.blocked && attempt < blockedRetries;
+        if (!retryConnect && !retryBlocked) break;
+        await new Promise((r) => setTimeout(r, retryBlocked ? (opts.blockedBackoffMs ?? 8000) : (opts.retryBackoffMs ?? 2000)));
         if (signal?.aborted) break;
-        const retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : primaryOpts;
+        let retryOpts;
+        if (retryBlocked && typeof opts.proxyProvider === 'function') {
+          let fresh = null;
+          try { fresh = opts.proxyProvider(); } catch { fresh = null; }
+          retryOpts = { ...opts, proxy: fresh || undefined, proxyProvider: undefined };
+        } else {
+          retryOpts = result.proxyFallback ? { ...opts, proxy: null, proxyProvider: undefined } : primaryOpts;
+        }
         result = await testOne(cred, index, seeds, retryOpts, smtp, imap, ctx);
       }
       // Catch-all detection: before testing this domain, run a probe against

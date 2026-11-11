@@ -47,6 +47,34 @@ export const LIMIT_RE = new RegExp(
 );
 
 /**
+ * Response language that means the login could NOT be evaluated because the
+ * server throttled or blocked the attempt (rate limit, temporary lock,
+ * suspicious-activity challenge, IP block, or a 4xx temporary-auth code) — as
+ * opposed to a genuine wrong password. Such a result is NOT a confirmed dead
+ * credential: the account may well be valid, the test IP was just rate-limited.
+ * It is retried and, if still unresolved, reported as "unknown (blocked)" so a
+ * valid credential is never discarded as "dead" during a bulk run.
+ */
+export const BLOCK_RE = new RegExp(
+  [
+    'too many (login|authentication|failed|connection|request|attempt)',
+    'try again (later|in)', 'please try again', 'retry (later|in)',
+    'temporar(il)?y (blocked|locked|unavailable|deferred|rejected|disabled|suspended|failed|not available)',
+    'throttl', 'rate[\\s-]?limit', 'slow down', 'greylist',
+    'suspicious (sign|activity|login|attempt)', 'unusual (sign|activity)',
+    'account (is )?temporarily',
+    '\\b4\\.7\\.[01]\\b', '\\b454\\b', '\\b421\\b',
+    '(ip|address|client)( address)? (has been |is )?(temporarily )?(blocked|blacklisted|banned)',
+  ].join('|'),
+  'i',
+);
+
+/** Whether an auth/connect error is a throttle/block (retryable), not a bad credential. */
+export function detectBlocked(text) {
+  return !!text && BLOCK_RE.test(String(text));
+}
+
+/**
  * Reclassify a working SMTP whose sends are rate/quota-limited to "limited".
  * Applies only to a credential that actually authenticated — any non-dead
  * status, or a dead result that failed at the SEND stage (connect+auth were
@@ -132,7 +160,12 @@ export function classify(s) {
   const perSeed = seeds;
 
   if (!s.connected) {
-    return { status: 'dead', reason: s.connectError || 'could not connect to server', perSeed };
+    const err = s.connectError || 'could not connect to server';
+    if (detectBlocked(err)) {
+      return { status: 'unknown', blocked: true, perSeed,
+        reason: `connection throttled/blocked by the server — not a confirmed failure; retry (${String(err).slice(0, 140)})` };
+    }
+    return { status: 'dead', reason: err, perSeed };
   }
   if (!s.authenticated) {
     // The server connected but refused the login. `userExists` (from the SMTP
@@ -140,6 +173,15 @@ export function classify(s) {
     // refused (e.g. wrong password)". It is only meaningful here, so it is only
     // attached on an auth rejection.
     const base = s.authError || 'authentication failed';
+    // A throttle/block response (rate limit, temporary lock, suspicious-activity
+    // challenge, IP block) is NOT a confirmed bad credential — the server never
+    // evaluated the password. Report it as "unknown (blocked)" and DON'T assert
+    // the account exists, so a valid-but-rate-limited login is neither discarded
+    // as dead nor counted as a (possibly false) lead.
+    if (detectBlocked(base)) {
+      return { status: 'unknown', blocked: true, perSeed,
+        reason: `login throttled/blocked by the server — not a confirmed bad credential; the test IP is likely rate-limited (${String(base).slice(0, 140)})` };
+    }
     const out = { status: 'dead', reason: base, perSeed };
     if (s.userExists !== undefined) {
       out.userExists = s.userExists;

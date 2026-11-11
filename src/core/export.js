@@ -102,8 +102,12 @@ export function hostGroupedExportFiles(results) {
     const st = r.status;
     const host = r.usedHost || r.cred?.host || (r.cred?.user?.split('@')[1] || '');
     const group = safeName(hostGroupKey(host));
-    // Working SMTP credential lines — never for a dead SMTP.
-    if (st !== 'dead') {
+    // A throttled/blocked login isn't a working credential (its validity is
+    // unproven) — keep it out of the valid files and give it its own retry list.
+    if (r.blocked) {
+      add(`blocked/${group}.txt`, workingCredLine(r));
+    } else if (st !== 'dead') {
+      // Working SMTP credential lines — never for a dead SMTP.
       const line = workingCredLine(r);
       if (st === 'unverified') add(`unverified/${group}.txt`, line);
       else if (st === 'limited') add(`limited/${group}.txt`, line);
@@ -138,6 +142,9 @@ function panelLine(host, port, user, pass) {
  * reports no such user, or that never connected, is not a usable lead.
  */
 function isAliveLead(r) {
+  // A throttled/blocked login was never evaluated by the server, so it's neither
+  // a confirmed-working account nor a proven address — not a lead.
+  if (r.blocked) return false;
   return r.status !== 'dead' || r.userExists === true;
 }
 
@@ -197,8 +204,12 @@ export function resultFolderFiles(results) {
     const host = r.usedHost || r.cred?.host || (r.cred?.user?.split('@')[1] || '');
     const line = workingCredLine(r);
 
-    // SMTP result view — working SMTPs only, by delivery status then host.
-    if (st !== 'dead') {
+    // SMTP result view — working SMTPs by delivery status, then host. A blocked
+    // login goes to its own 'blocked' folder (unproven, re-test from another IP),
+    // not into an 'unconfirmed'/working bucket.
+    if (r.blocked) {
+      add(`SMTP result/blocked/${safeName(hostGroupKey(host))}.txt`, line);
+    } else if (st !== 'dead') {
       add(`SMTP result/${smtpStatusFolder(st)}/${safeName(hostGroupKey(host))}.txt`, line);
     }
 

@@ -84,6 +84,24 @@ function isAuthError(err) {
 }
 
 /**
+ * Infer whether the mailbox exists from an auth-rejection message. Defaults to
+ * TRUE — a refused login usually means a real account with the wrong password —
+ * but a response that explicitly signals a non-existent or invalid recipient
+ * returns FALSE, so a dead address is not counted as a lead. Response codes are
+ * matched on word boundaries (so "15500" never reads as a 550).
+ * @param {string} message
+ * @returns {boolean}
+ */
+export function inferUserExists(message) {
+  const msg = String(message || '').toLowerCase();
+  const noSuchUser =
+    /\b550\b/.test(msg) ||
+    /\b5\.1\.[01]\b/.test(msg) ||
+    /(user unknown|unknown user|no such user|user not found|no such mailbox|mailbox (unavailable|not found|does not exist)|does not exist|invalid (recipient|mailbox|user|address)|recipient (address )?rejected|address rejected|account (does not exist|not found|unavailable))/.test(msg);
+  return !noSuchUser;
+}
+
+/**
  * Check whether a credential can connect and authenticate.
  * @returns {Promise<{connected:boolean, authenticated:boolean, error?:string}>}
  */
@@ -94,12 +112,7 @@ export async function verify(cred, opts = {}) {
     return { connected: true, authenticated: true };
   } catch (err) {
     if (isAuthError(err)) {
-      const msg = String(err.message || '').toLowerCase();
-      // Match 550 as a standalone response code, not as a substring — otherwise a
-      // reference/ticket number or a size like "15500" in the error text would
-      // wrongly flag the account as non-existent.
-      const userExists = !/\b550\b/.test(msg) && !msg.includes('user unknown') && !msg.includes('no such user');
-      return { connected: true, authenticated: false, userExists, error: err.message };
+      return { connected: true, authenticated: false, userExists: inferUserExists(err.message), error: err.message };
     }
     return { connected: false, authenticated: false, error: err.message };
   } finally {

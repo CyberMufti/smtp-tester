@@ -245,3 +245,19 @@ test('a valid panel login on a DEAD SMTP is still exported (both export views)',
   assert.deepEqual(rf['panels/cpanel_valid.txt'], ['reagan.com:2083:jbearden@reagan.com:pw']);
   assert.ok(!Object.keys(rf).some((k) => k.startsWith('SMTP result/')), 'dead SMTP is not under SMTP result/');
 });
+
+test('a throttled/blocked login is a retry list, not a lead or a working credential', async () => {
+  const { hostGroupedExportFiles, resultFolderFiles } = await import('../src/core/export.js');
+  const rows = [{
+    status: 'unknown', blocked: true,
+    cred: { host: 'smtp.gmail.com', port: 587, user: 'a@acme.com', pass: 'pw' },
+    usedHost: 'smtp.gmail.com', usedPort: 587, provider: 'Gmail', domainCountry: 'Unknown',
+  }];
+  const byHost = hostGroupedExportFiles(rows);
+  assert.deepEqual(byHost['blocked/gmail.com.txt'], ['smtp.gmail.com:587:a@acme.com:pw']);
+  assert.ok(!Object.keys(byHost).some((k) => k.startsWith('valid/')), 'blocked is not a working credential');
+
+  const rf = resultFolderFiles(rows);
+  assert.deepEqual(rf['SMTP result/blocked/gmail.com.txt'], ['smtp.gmail.com:587:a@acme.com:pw']);
+  assert.ok(!Object.keys(rf).some((k) => k.startsWith('Leads/')), 'blocked is not a lead');
+});

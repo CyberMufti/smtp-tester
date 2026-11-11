@@ -665,6 +665,7 @@ function rowHtml(r) {
   if (serverName !== 'Unknown' && serverName !== r.domainCountry) parts.push(`<span class="dbadge b-neutral" title="Mail-server location (GeoIP) — the datacenter, shown when it differs from the lead's country">🖥 ${esc(serverName)}</span>`);
 
   // Account-existence verdict (only present when a server refused the login).
+  if (r.blocked) parts.push('<span class="dbadge b-warn" title="The server throttled/blocked the login (test IP likely rate-limited) — validity unproven. Re-test from a different IP; exported under blocked/.">throttled/blocked — retry</span>');
   if (r.catchAll) parts.push('<span class="dbadge b-neutral">catch-all domain</span>');
   if (r.userDoesNotExist) parts.push('<span class="dbadge b-bad">user does not exist (skipped)</span>');
   if (r.userExists === false) parts.push('<span class="dbadge b-bad">account not found</span>');
