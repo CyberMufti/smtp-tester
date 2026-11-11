@@ -130,6 +130,30 @@ html, body {
   background: linear-gradient(90deg, var(--accent), var(--accent-2, #3b82f6)); opacity: 0.55;
 }
 .tile:hover { transform: translateY(-2px); border-color: #2a3444; box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+.tile.clickable { cursor: pointer; }
+.tile.clickable:active { transform: translateY(0); }
+.tile.open { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow), 0 6px 18px rgba(0,0,0,0.3); }
+
+.tile-drawer {
+  margin: 10px 0 4px; padding: 10px 12px;
+  background: var(--panel-2, #151925);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tile-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.tile-drawer-title { font-size: 12.5px; font-weight: 600; color: var(--text-strong); }
+.tile-drawer-actions { display: flex; gap: 6px; }
+.mini-btn {
+  font-size: 11.5px; padding: 3px 10px; border-radius: 7px; cursor: pointer;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  transition: border-color .15s ease, color .15s ease;
+}
+.mini-btn:hover { border-color: var(--accent); color: var(--text-strong); }
+.tile-drawer-list {
+  margin: 0; max-height: 260px; overflow: auto;
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  color: var(--text); white-space: pre; user-select: text;
+  background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px 10px;
+}
 .tile-num { font-size: 26px; font-weight: 800; font-family: var(--mono); color: var(--text-strong); line-height: 1; }
 .tile-num.ok { color: var(--st-inbox); }
 .tile-num.warn { color: var(--st-spam); }

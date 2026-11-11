@@ -97,14 +97,26 @@
           </header>
 
           <div id="dash-tiles" class="tiles">
-            <div class="tile"><div class="tile-num" id="dash-total">0</div><div class="tile-lbl">Total tested</div></div>
-            <div class="tile"><div class="tile-num ok" id="dash-inbox">0</div><div class="tile-lbl">Inbox</div></div>
-            <div class="tile"><div class="tile-num warn" id="dash-spam">0</div><div class="tile-lbl">Spam</div></div>
-            <div class="tile"><div class="tile-num" id="dash-valid">0</div><div class="tile-lbl">Valid</div></div>
-            <div class="tile"><div class="tile-num unv" id="dash-unverified">0</div><div class="tile-lbl">Unverified</div></div>
-            <div class="tile"><div class="tile-num lim" id="dash-limited">0</div><div class="tile-lbl">Limited</div></div>
-            <div class="tile"><div class="tile-num bad" id="dash-dead">0</div><div class="tile-lbl">Dead</div></div>
-            <div class="tile"><div class="tile-num" id="dash-unknown">0</div><div class="tile-lbl">Unknown</div></div>
+            <div class="tile clickable" data-status="all" title="Show all tested credentials"><div class="tile-num" id="dash-total">0</div><div class="tile-lbl">Total tested</div></div>
+            <div class="tile clickable" data-status="inbox" title="Show inbox credentials"><div class="tile-num ok" id="dash-inbox">0</div><div class="tile-lbl">Inbox</div></div>
+            <div class="tile clickable" data-status="spam" title="Show spam credentials"><div class="tile-num warn" id="dash-spam">0</div><div class="tile-lbl">Spam</div></div>
+            <div class="tile clickable" data-status="valid" title="Show valid credentials"><div class="tile-num" id="dash-valid">0</div><div class="tile-lbl">Valid</div></div>
+            <div class="tile clickable" data-status="unverified" title="Show unverified credentials"><div class="tile-num unv" id="dash-unverified">0</div><div class="tile-lbl">Unverified</div></div>
+            <div class="tile clickable" data-status="limited" title="Show limited credentials"><div class="tile-num lim" id="dash-limited">0</div><div class="tile-lbl">Limited</div></div>
+            <div class="tile clickable" data-status="dead" title="Show dead credentials"><div class="tile-num bad" id="dash-dead">0</div><div class="tile-lbl">Dead</div></div>
+            <div class="tile clickable" data-status="unknown" title="Show unknown credentials"><div class="tile-num" id="dash-unknown">0</div><div class="tile-lbl">Unknown</div></div>
+          </div>
+
+          <div id="tile-drawer" class="tile-drawer" hidden>
+            <div class="tile-drawer-head">
+              <span id="tile-drawer-title" class="tile-drawer-title"></span>
+              <div class="tile-drawer-actions">
+                <button id="tile-reveal" class="mini-btn" type="button">Reveal</button>
+                <button id="tile-copy" class="mini-btn" type="button">Copy</button>
+                <button id="tile-hide" class="mini-btn" type="button">Hide</button>
+              </div>
+            </div>
+            <pre id="tile-drawer-list" class="tile-drawer-list" aria-live="polite"></pre>
           </div>
 
           <div id="dash-charts" class="dash-charts" hidden>

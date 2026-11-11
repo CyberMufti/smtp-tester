@@ -1,6 +1,7 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName, countryList } from '../core/country-names.js';
+import { credLineFor, maskCredLine } from '../core/cred-line.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
 import { warmupRecommendation } from '../core/warmup.js';
@@ -535,6 +536,76 @@ $('#filters').addEventListener('click', (e) => {
 $('#filter-provider')?.addEventListener('change', (e) => { activeProvider = e.target.value; renderResults(); });
 $('#filter-country')?.addEventListener('change', (e) => { activeCountry = e.target.value; renderResults(); });
 
+// ---------- Clickable stat tiles -> content drawer ----------
+let drawerStatus = null;     // which tile is open ('all' | 'inbox' | ... ) or null
+let drawerLines = [];        // the real host:port:user:pass lines currently shown
+let drawerRevealed = false;  // are passwords unmasked?
+
+function drawerRowsFor(status) {
+  const rows = status === 'all' ? recent : recent.filter((r) => r.status === status);
+  return rows.map(credLineFor).filter((l) => l && l !== ':::');
+}
+
+const TILE_LABELS = { all: 'All', inbox: 'Inbox', spam: 'Spam', valid: 'Valid', unverified: 'Unverified', limited: 'Limited', dead: 'Dead', unknown: 'Unknown' };
+
+function renderDrawerList() {
+  const el = $('#tile-drawer-list');
+  if (!el) return;
+  if (!drawerLines.length) { el.textContent = '(no credentials in this category yet)'; return; }
+  el.textContent = (drawerRevealed ? drawerLines : drawerLines.map(maskCredLine)).join('\n');
+}
+
+// Rebuild the open drawer's content for its current status (keeps reveal state).
+// Called on open and whenever new results stream in while it's open.
+function refreshOpenDrawer() {
+  if (!drawerStatus) return;
+  drawerLines = drawerRowsFor(drawerStatus);
+  const label = TILE_LABELS[drawerStatus] || drawerStatus;
+  const n = drawerLines.length;
+  $('#tile-drawer-title').textContent =
+    `${label} — ${n} credential${n === 1 ? '' : 's'}${n ? ` (passwords ${drawerRevealed ? 'shown' : 'hidden'})` : ''}`;
+  renderDrawerList();
+}
+
+function openTileDrawer(status) {
+  // Clicking the open tile again closes it.
+  if (drawerStatus === status) { hideTileDrawer(); return; }
+  drawerStatus = status;
+  drawerRevealed = false;
+  $('#tile-reveal').textContent = 'Reveal';
+  $$('#dash-tiles .tile').forEach((t) => t.classList.toggle('open', t.dataset.status === status));
+  $('#tile-drawer').hidden = false;
+  refreshOpenDrawer();
+}
+
+function hideTileDrawer() {
+  drawerStatus = null;
+  $('#tile-drawer').hidden = true;
+  $$('#dash-tiles .tile').forEach((t) => t.classList.remove('open'));
+}
+
+$('#dash-tiles')?.addEventListener('click', (e) => {
+  const tile = e.target.closest('.tile[data-status]');
+  if (tile) openTileDrawer(tile.dataset.status);
+});
+$('#tile-reveal')?.addEventListener('click', () => {
+  drawerRevealed = !drawerRevealed;
+  $('#tile-reveal').textContent = drawerRevealed ? 'Hide passwords' : 'Reveal';
+  refreshOpenDrawer();
+});
+$('#tile-copy')?.addEventListener('click', async () => {
+  const btn = $('#tile-copy');
+  if (!drawerLines.length) { btn.textContent = 'Nothing to copy'; setTimeout(() => (btn.textContent = 'Copy'), 1200); return; }
+  try {
+    await navigator.clipboard.writeText(drawerLines.join('\n'));   // always the REAL credentials
+    btn.textContent = `Copied ${drawerLines.length}`;
+  } catch {
+    btn.textContent = 'Copy failed';
+  }
+  setTimeout(() => (btn.textContent = 'Copy'), 1400);
+});
+$('#tile-hide')?.addEventListener('click', hideTileDrawer);
+
 function renderResults() {
   renderSummary();
   renderContentScoreBanner();
@@ -591,6 +662,7 @@ function updateDashboardTiles() {
   set('#dash-dead', counts.dead || 0);
   set('#dash-unknown', counts.unknown || 0);
   renderDashCharts();
+  refreshOpenDrawer(); // keep an open tile drawer in sync as results stream in
 }
 
 function barRows(map, { top = 10, color, sort = true } = {}) {
