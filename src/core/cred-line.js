@@ -14,6 +14,22 @@ export function credLineFor(r) {
   return [host, port, c.user || '', c.pass || ''].join(':');
 }
 
+/**
+ * host:port:user:pass for a VALID control-panel login on a result (cpanel / whm
+ * / webmail), using the panel's own host and the port that accepted the login —
+ * matching the panels/ export format. Null when that panel wasn't valid.
+ * @param {object} r a tester Result @param {string} type 'cpanel'|'whm'|'webmail'
+ * @returns {string|null}
+ */
+export function panelLineFor(r, type) {
+  const hit = r && r.panels && r.panels[type];
+  if (!hit || !hit.valid) return null;
+  const c = r.cred || {};
+  const host = hit.host || r.usedHost || c.host || (typeof c.user === 'string' && c.user.includes('@') ? c.user.split('@')[1] : '') || '';
+  const port = hit.port || '';
+  return [host, port, c.user || '', c.pass || ''].join(':');
+}
+
 /** Mask the password (everything after the user) for display: host:port:user:•••• */
 export function maskCredLine(line) {
   const parts = String(line == null ? '' : line).split(':');

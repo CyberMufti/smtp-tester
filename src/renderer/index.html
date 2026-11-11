@@ -105,18 +105,21 @@
             <div class="tile clickable" data-status="limited" title="Show limited credentials"><div class="tile-num lim" id="dash-limited">0</div><div class="tile-lbl">Limited</div></div>
             <div class="tile clickable" data-status="dead" title="Show dead credentials"><div class="tile-num bad" id="dash-dead">0</div><div class="tile-lbl">Dead</div></div>
             <div class="tile clickable" data-status="unknown" title="Show unknown credentials"><div class="tile-num" id="dash-unknown">0</div><div class="tile-lbl">Unknown</div></div>
+            <div class="tile clickable" data-status="cpanel" title="Show valid cPanel logins"><div class="tile-num ok" id="dash-cpanel">0</div><div class="tile-lbl">cPanel</div></div>
+            <div class="tile clickable" data-status="whm" title="Show valid WHM logins"><div class="tile-num ok" id="dash-whm">0</div><div class="tile-lbl">WHM</div></div>
+            <div class="tile clickable" data-status="webmail" title="Show valid Webmail logins"><div class="tile-num ok" id="dash-webmail">0</div><div class="tile-lbl">Webmail</div></div>
           </div>
 
           <div id="tile-drawer" class="tile-drawer" hidden>
             <div class="tile-drawer-head">
               <span id="tile-drawer-title" class="tile-drawer-title"></span>
               <div class="tile-drawer-actions">
-                <button id="tile-reveal" class="mini-btn" type="button">Reveal</button>
-                <button id="tile-copy" class="mini-btn" type="button">Copy</button>
+                <button id="tile-reveal" class="mini-btn" type="button">Reveal all</button>
+                <button id="tile-copy" class="mini-btn" type="button">Copy all</button>
                 <button id="tile-hide" class="mini-btn" type="button">Hide</button>
               </div>
             </div>
-            <pre id="tile-drawer-list" class="tile-drawer-list" aria-live="polite"></pre>
+            <div id="tile-drawer-list" class="tile-drawer-list" aria-live="polite"></div>
           </div>
 
           <div id="dash-charts" class="dash-charts" hidden>

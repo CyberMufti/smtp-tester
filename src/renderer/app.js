@@ -1,7 +1,7 @@
 import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName, countryList } from '../core/country-names.js';
-import { credLineFor, maskCredLine } from '../core/cred-line.js';
+import { credLineFor, maskCredLine, panelLineFor } from '../core/cred-line.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
 import { warmupRecommendation } from '../core/warmup.js';
@@ -53,12 +53,15 @@ const MAX_RECENT = 5000;
 // this; only pasted text and non-delimited fallback files do.
 const MAX_INLINE_BYTES = 8_000_000; // ~8 MB
 let counts = {};
+let panelCounts = {}; // valid control-panel logins by type (cpanel/whm/webmail)
 let testedCount = 0;
 let recent = [];
 let firstSpamScore = null;
+const PANEL_TILE_TYPES = ['cpanel', 'whm', 'webmail'];
 
 function resetRunState() {
   counts = {};
+  panelCounts = {};
   testedCount = 0;
   recent = [];
   firstSpamScore = null;
@@ -415,6 +418,9 @@ api.onProgress((batch) => {
     if (!result) continue; // defensive: never let one malformed item drop the rest
     testedCount++;
     counts[result.status] = (counts[result.status] || 0) + 1;
+    if (result.panels) {
+      for (const t of PANEL_TILE_TYPES) if (result.panels[t]?.valid) panelCounts[t] = (panelCounts[t] || 0) + 1;
+    }
     if (!firstSpamScore && result.spamScore) firstSpamScore = result.spamScore;
     // Track distinct provider/country values for the leads-filter dropdowns.
     const pBefore = seenProviders.size, cBefore = seenCountries.size;
@@ -536,43 +542,56 @@ $('#filters').addEventListener('click', (e) => {
 $('#filter-provider')?.addEventListener('change', (e) => { activeProvider = e.target.value; renderResults(); });
 $('#filter-country')?.addEventListener('change', (e) => { activeCountry = e.target.value; renderResults(); });
 
-// ---------- Clickable stat tiles -> content drawer ----------
-let drawerStatus = null;     // which tile is open ('all' | 'inbox' | ... ) or null
-let drawerLines = [];        // the real host:port:user:pass lines currently shown
-let drawerRevealed = false;  // are passwords unmasked?
+// ---------- Clickable stat tiles -> content drawer (per-line copy/reveal) ----------
+let drawerStatus = null;                 // which tile is open, or null
+let drawerLines = [];                    // the real host:port:user:pass lines currently shown
+let drawerRevealedRows = new Set();      // indices whose password is unmasked on screen
+const DRAWER_RENDER_CAP = 800;           // cap interactive rows (Copy all still covers the rest)
+
+const TILE_LABELS = { all: 'All', inbox: 'Inbox', spam: 'Spam', valid: 'Valid', unverified: 'Unverified', limited: 'Limited', dead: 'Dead', unknown: 'Unknown', cpanel: 'cPanel', whm: 'WHM', webmail: 'Webmail' };
 
 function drawerRowsFor(status) {
+  if (PANEL_TILE_TYPES.includes(status)) return recent.map((r) => panelLineFor(r, status)).filter(Boolean);
   const rows = status === 'all' ? recent : recent.filter((r) => r.status === status);
   return rows.map(credLineFor).filter((l) => l && l !== ':::');
 }
 
-const TILE_LABELS = { all: 'All', inbox: 'Inbox', spam: 'Spam', valid: 'Valid', unverified: 'Unverified', limited: 'Limited', dead: 'Dead', unknown: 'Unknown' };
+function drawerRowHtml(line, i) {
+  const revealed = drawerRevealedRows.has(i);
+  return `<div class="cred-row" data-i="${i}">`
+    + `<code class="cred-text">${esc(revealed ? line : maskCredLine(line))}</code>`
+    + `<span class="cred-row-btns">`
+    + `<button class="cred-btn" data-act="reveal" type="button">${revealed ? 'Hide' : 'Reveal'}</button>`
+    + `<button class="cred-btn" data-act="copy" type="button">Copy</button>`
+    + `</span></div>`;
+}
 
 function renderDrawerList() {
   const el = $('#tile-drawer-list');
   if (!el) return;
-  if (!drawerLines.length) { el.textContent = '(no credentials in this category yet)'; return; }
-  el.textContent = (drawerRevealed ? drawerLines : drawerLines.map(maskCredLine)).join('\n');
+  if (!drawerLines.length) { el.innerHTML = '<div class="cred-empty">(no credentials in this category yet)</div>'; return; }
+  const cap = Math.min(drawerLines.length, DRAWER_RENDER_CAP);
+  let html = '';
+  for (let i = 0; i < cap; i++) html += drawerRowHtml(drawerLines[i], i);
+  if (drawerLines.length > cap) html += `<div class="cred-empty">… ${drawerLines.length - cap} more — use "Copy all" or export for the full set.</div>`;
+  el.innerHTML = html;
 }
 
-// Rebuild the open drawer's content for its current status (keeps reveal state).
-// Called on open and whenever new results stream in while it's open.
+// Rebuild the open drawer for its current status; called on open and as results stream in.
 function refreshOpenDrawer() {
   if (!drawerStatus) return;
   drawerLines = drawerRowsFor(drawerStatus);
   const label = TILE_LABELS[drawerStatus] || drawerStatus;
   const n = drawerLines.length;
-  $('#tile-drawer-title').textContent =
-    `${label} — ${n} credential${n === 1 ? '' : 's'}${n ? ` (passwords ${drawerRevealed ? 'shown' : 'hidden'})` : ''}`;
+  $('#tile-drawer-title').textContent = `${label} — ${n} credential${n === 1 ? '' : 's'}`;
   renderDrawerList();
 }
 
 function openTileDrawer(status) {
-  // Clicking the open tile again closes it.
-  if (drawerStatus === status) { hideTileDrawer(); return; }
+  if (drawerStatus === status) { hideTileDrawer(); return; } // click again = close
   drawerStatus = status;
-  drawerRevealed = false;
-  $('#tile-reveal').textContent = 'Reveal';
+  drawerRevealedRows = new Set();
+  $('#tile-reveal').textContent = 'Reveal all';
   $$('#dash-tiles .tile').forEach((t) => t.classList.toggle('open', t.dataset.status === status));
   $('#tile-drawer').hidden = false;
   refreshOpenDrawer();
@@ -580,6 +599,7 @@ function openTileDrawer(status) {
 
 function hideTileDrawer() {
   drawerStatus = null;
+  drawerRevealedRows = new Set();
   $('#tile-drawer').hidden = true;
   $$('#dash-tiles .tile').forEach((t) => t.classList.remove('open'));
 }
@@ -588,21 +608,39 @@ $('#dash-tiles')?.addEventListener('click', (e) => {
   const tile = e.target.closest('.tile[data-status]');
   if (tile) openTileDrawer(tile.dataset.status);
 });
+
+// Per-line reveal / copy, via event delegation (no listener per row).
+$('#tile-drawer-list')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.cred-btn');
+  if (!btn) return;
+  const row = btn.closest('.cred-row');
+  const i = Number(row?.dataset.i);
+  if (!Number.isInteger(i) || i < 0 || i >= drawerLines.length) return;
+  if (btn.dataset.act === 'reveal') {
+    if (drawerRevealedRows.has(i)) drawerRevealedRows.delete(i); else drawerRevealedRows.add(i);
+    const on = drawerRevealedRows.has(i);
+    row.querySelector('.cred-text').textContent = on ? drawerLines[i] : maskCredLine(drawerLines[i]);
+    btn.textContent = on ? 'Hide' : 'Reveal';
+  } else if (btn.dataset.act === 'copy') {
+    try { await navigator.clipboard.writeText(drawerLines[i]); btn.textContent = 'Copied'; }
+    catch { btn.textContent = 'Failed'; }
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1100);
+  }
+});
+
+// Header convenience: Reveal all (toggle) / Copy all / Hide.
 $('#tile-reveal')?.addEventListener('click', () => {
-  drawerRevealed = !drawerRevealed;
-  $('#tile-reveal').textContent = drawerRevealed ? 'Hide passwords' : 'Reveal';
-  refreshOpenDrawer();
+  const allShown = drawerLines.length > 0 && drawerRevealedRows.size >= drawerLines.length;
+  drawerRevealedRows = allShown ? new Set() : new Set(drawerLines.map((_, i) => i));
+  $('#tile-reveal').textContent = allShown ? 'Reveal all' : 'Hide all';
+  renderDrawerList();
 });
 $('#tile-copy')?.addEventListener('click', async () => {
   const btn = $('#tile-copy');
-  if (!drawerLines.length) { btn.textContent = 'Nothing to copy'; setTimeout(() => (btn.textContent = 'Copy'), 1200); return; }
-  try {
-    await navigator.clipboard.writeText(drawerLines.join('\n'));   // always the REAL credentials
-    btn.textContent = `Copied ${drawerLines.length}`;
-  } catch {
-    btn.textContent = 'Copy failed';
-  }
-  setTimeout(() => (btn.textContent = 'Copy'), 1400);
+  if (!drawerLines.length) { btn.textContent = 'Nothing'; setTimeout(() => (btn.textContent = 'Copy all'), 1100); return; }
+  try { await navigator.clipboard.writeText(drawerLines.join('\n')); btn.textContent = `Copied ${drawerLines.length}`; }
+  catch { btn.textContent = 'Failed'; }
+  setTimeout(() => (btn.textContent = 'Copy all'), 1400);
 });
 $('#tile-hide')?.addEventListener('click', hideTileDrawer);
 
@@ -661,6 +699,9 @@ function updateDashboardTiles() {
   set('#dash-limited', counts.limited || 0);
   set('#dash-dead', counts.dead || 0);
   set('#dash-unknown', counts.unknown || 0);
+  set('#dash-cpanel', panelCounts.cpanel || 0);
+  set('#dash-whm', panelCounts.whm || 0);
+  set('#dash-webmail', panelCounts.webmail || 0);
   renderDashCharts();
   refreshOpenDrawer(); // keep an open tile drawer in sync as results stream in
 }

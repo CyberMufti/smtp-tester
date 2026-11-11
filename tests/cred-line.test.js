@@ -16,3 +16,13 @@ test('maskCredLine hides the password but keeps host:port:user', () => {
   // too few fields -> unchanged
   assert.equal(maskCredLine('h:587:u'), 'h:587:u');
 });
+
+import { panelLineFor } from '../src/core/cred-line.js';
+
+test('panelLineFor builds host:port:user:pass for a valid panel, null otherwise', () => {
+  const r = { usedHost: 'smtp.x.com', cred: { user: 'admin@x.com', pass: 'pw' },
+    panels: { cpanel: { valid: true, host: 'x.com', port: 2083 }, whm: { valid: false, port: 2087 } } };
+  assert.equal(panelLineFor(r, 'cpanel'), 'x.com:2083:admin@x.com:pw');
+  assert.equal(panelLineFor(r, 'whm'), null);
+  assert.equal(panelLineFor({ cred: {} }, 'cpanel'), null);
+});
