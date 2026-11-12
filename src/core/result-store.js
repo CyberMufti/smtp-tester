@@ -75,25 +75,34 @@ export async function* readResults(filePath) {
 /**
  * Read an existing run file to learn what has already been tested, so a run can
  * resume without repeating work. Returns the set of completed credential keys
- * plus the prior totals/counts (used to seed an appending sink). A missing file
- * yields an empty result.
+ * plus the prior totals/counts (used to seed an appending sink). It also returns
+ * `recent`: the newest `recentCap` results (oldest-first), so a resumed run can
+ * repopulate the dashboard's in-memory window and keep the tile counts and the
+ * tile-drawer content in sync. A missing file yields an empty result.
  * @param {string} filePath
- * @returns {Promise<{keys:Set<string>, total:number, counts:Record<string,number>}>}
+ * @param {{recentCap?:number}} [opts] recentCap bounds the returned `recent` tail.
+ * @returns {Promise<{keys:Set<string>, total:number, counts:Record<string,number>, recent:Result[]}>}
  */
-export async function readRunProgress(filePath) {
+export async function readRunProgress(filePath, { recentCap = 5000 } = {}) {
   const keys = new Set();
   const counts = {};
   let total = 0;
+  let recent = [];
   try {
     for await (const r of readResults(filePath)) {
       total++;
       counts[r.status] = (counts[r.status] || 0) + 1;
       if (r.cred) keys.add(credKey(r.cred));
+      // Retain only the newest recentCap results; trim in bulk so this stays
+      // amortized O(1) even across millions of rows (mirrors the renderer).
+      recent.push(r);
+      if (recentCap > 0 && recent.length > recentCap * 1.2) recent = recent.slice(-recentCap);
     }
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
-  return { keys, total, counts };
+  if (recentCap > 0 && recent.length > recentCap) recent = recent.slice(-recentCap);
+  return { keys, total, counts, recent };
 }
 
 /** Write a string to a stream, awaiting drain on backpressure. */

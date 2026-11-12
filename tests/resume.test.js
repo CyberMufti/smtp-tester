@@ -43,6 +43,42 @@ test('readRunProgress reports completed keys and counts from a partial run', asy
   });
 });
 
+test('readRunProgress returns the newest results so a resumed drawer stays in sync', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'run.jsonl');
+    const sink = createResultSink(path);
+    sink.write(result('inbox', { host: 'a.com', port: 587, user: 'a@a.com', pass: 'p1' }));
+    sink.write(result('dead', { host: 'b.com', port: 587, user: 'b@b.com', pass: 'p2' }));
+    await sink.close();
+
+    const prog = await readRunProgress(path);
+    // The tile count for 'inbox' is 1, so the drawer must be able to find that row.
+    assert.equal(prog.counts.inbox, 1);
+    assert.ok(Array.isArray(prog.recent), 'recent tail is returned for the drawer');
+    assert.equal(prog.recent.length, 2, 'every retained result comes back');
+    assert.equal(prog.recent.filter((r) => r.status === 'inbox').length, 1,
+      'the inbox row the tile counts is present in the restored window');
+    assert.equal(prog.recent[0].cred.user, 'a@a.com', 'oldest-first order preserved');
+  });
+});
+
+test('readRunProgress keeps only the newest recentCap results', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'run.jsonl');
+    const sink = createResultSink(path);
+    for (let i = 0; i < 10; i++) {
+      sink.write(result('valid', { host: `h${i}.com`, port: 587, user: `u${i}@x.com`, pass: 'p' }));
+    }
+    await sink.close();
+
+    const prog = await readRunProgress(path, { recentCap: 3 });
+    assert.equal(prog.total, 10, 'counts still reflect the whole run');
+    assert.equal(prog.recent.length, 3, 'recent is capped to recentCap');
+    assert.deepEqual(prog.recent.map((r) => r.cred.user), ['u7@x.com', 'u8@x.com', 'u9@x.com'],
+      'the newest recentCap results are retained, oldest-first');
+  });
+});
+
 test('append sink seeded with prior totals continues the counts and keeps old rows', async () => {
   await withTempDir(async (dir) => {
     const path = join(dir, 'run.jsonl');

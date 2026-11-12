@@ -75,6 +75,29 @@ function resetRunState() {
   refreshLeadFilters();
 }
 
+// Recompute the display-only aggregates (panel tile counts, lead-filter options,
+// grades) from the retained `recent` window. Used on resume, where `recent` is
+// restored from disk but these derived tallies are not persisted. The cumulative
+// status `counts`/`testedCount` are restored separately from the run summary.
+function rebuildDerivedFromRecent() {
+  panelCounts = {};
+  dashProviders = {};
+  dashCountries = {};
+  dashGrades = {};
+  seenProviders.clear();
+  seenCountries.clear();
+  for (const result of recent) {
+    if (result.panels) {
+      for (const t of PANEL_TILE_TYPES) if (result.panels[t]?.valid) panelCounts[t] = (panelCounts[t] || 0) + 1;
+    }
+    if (result.provider) { seenProviders.add(result.provider); dashProviders[result.provider] = (dashProviders[result.provider] || 0) + 1; }
+    if (result.domainCountry && result.domainCountry !== 'Unknown') dashCountries[result.domainCountry] = (dashCountries[result.domainCountry] || 0) + 1;
+    if (result.domainCountry) seenCountries.add(result.domainCountry);
+    const g = deliverabilityScore(result); if (g) dashGrades[g.grade] = (dashGrades[g.grade] || 0) + 1;
+  }
+  refreshLeadFilters();
+}
+
 // ---------- Sidebar navigation ----------
 function navTo(tab) {
   const target = $(`#screen-${tab}`);
@@ -333,7 +356,13 @@ async function runFileBatch(isResume = false) {
     const prior = await api.runProgress();
     counts = { ...prior.counts };
     testedCount = prior.total;
+    // Restore the newest window of prior results so the table and the tile
+    // drawer reflect the restored counts — otherwise a pre-resume inbox/valid
+    // hit shows in the tile count but the drawer reads an empty `recent`.
+    recent = Array.isArray(prior.recent) ? prior.recent.slice(-MAX_RECENT) : [];
+    rebuildDerivedFromRecent();
     renderSummary();
+    renderResults();
   }
   $('#progress-label').textContent = testedCount + ' / ' + runTotal;
   

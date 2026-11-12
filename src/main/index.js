@@ -62,7 +62,7 @@ async function safeReadProgress(filePath) {
     return await readRunProgress(filePath);
   } catch (err) {
     recordCrash('readRunProgress', err);
-    return { keys: new Set(), total: 0, counts: {} };
+    return { keys: new Set(), total: 0, counts: {}, recent: [] };
   }
 }
 
@@ -117,7 +117,7 @@ async function buildProxyOptions(opts) {
   const sel = selectProxyTier({ manualUrl, manualAlive, hasPool });
   const notice = proxyTierNotice(sel, manualUrl);
   if (notice) {
-    try { mainWindow?.webContents.send('proxy:progress', { phase: 'preflight', tier: sel.tier, notice }); } catch { /* window gone */ }
+    try { sendToWindow('proxy:progress', { phase: 'preflight', tier: sel.tier, notice }); } catch { /* window gone */ }
     console.log(`[Proxy] ${notice}`);
   }
   const out = { proxy: sel.proxy };
@@ -188,7 +188,7 @@ async function runMonitorCheck() {
   }
 
   const summary = { count: results.length, died: died.map((d) => ({ user: d.cred.user, reason: d.reason })), at: Date.now() };
-  mainWindow?.webContents.send('monitor:checked', summary);
+  sendToWindow('monitor:checked', summary);
   return summary;
 }
 
@@ -286,7 +286,7 @@ async function bootstrapSidecar() {
       if (ok.available || ok.partial) {
         sidecarBinary = frozen;
         sidecarStatus = { state: 'ready', engine: 'bundled' };
-        mainWindow?.webContents.send('auth:status', sidecarStatus);
+        sendToWindow('auth:status', sidecarStatus);
         return;
       }
     }
@@ -297,7 +297,7 @@ async function bootstrapSidecar() {
       script: sidecarScript(),
       log: (m) => {
         sidecarStatus = { state: 'pending', message: m };
-        mainWindow?.webContents.send('auth:status', sidecarStatus);
+        sendToWindow('auth:status', sidecarStatus);
       },
     });
     if (res.ready) {
@@ -310,7 +310,7 @@ async function bootstrapSidecar() {
     recordCrash('sidecarBootstrap', err);
     sidecarStatus = { state: 'unavailable', reason: 'error', detail: err.message };
   }
-  try { mainWindow?.webContents.send('auth:status', sidecarStatus); } catch { /* window gone */ }
+  try { sendToWindow('auth:status', sidecarStatus); } catch { /* window gone */ }
 }
 
 // Record unexpected errors to a log file (and keep the app alive) so a stray
@@ -326,7 +326,30 @@ function recordCrash(kind, err) {
 process.on('uncaughtException', (err) => recordCrash('uncaughtException', err));
 process.on('unhandledRejection', (err) => recordCrash('unhandledRejection', err));
 
+// Safe send to the renderer: `mainWindow?.` only guards the null case, but after
+// a renderer crash the window object is still non-null while its webContents is
+// destroyed — calling .send() then throws "Object has been destroyed", which is
+// exactly what a background timer/batcher hits once the renderer is gone. Check
+// both the window and its webContents before sending so those callers no-op
+// instead of throwing.
+function sendToWindow(channel, payload) {
+  const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+  if (!wc || wc.isDestroyed()) return false;
+  try {
+    wc.send(channel, payload);
+    return true;
+  } catch (err) {
+    recordCrash('sendToWindow:' + channel, err);
+    return false;
+  }
+}
+
+// Whether a renderer-crash reload has already been attempted for the current
+// window, so a renderer that dies again immediately doesn't loop on reloads.
+let rendererReloadTried = false;
+
 function createWindow() {
+  rendererReloadTried = false;
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 820,
@@ -342,12 +365,36 @@ function createWindow() {
   });
   mainWindow.removeMenu?.();
   mainWindow.loadFile(join(__dirname, '..', 'renderer', 'index.html'));
-  // Null the reference on close so the pervasive `mainWindow?.webContents.send`
-  // guards short-circuit instead of throwing "Object has been destroyed" when a
+  // Null the reference on close so the pervasive `sendToWindow` guards
+  // short-circuit instead of throwing "Object has been destroyed" when a
   // timer/monitor/batcher fires after the window is gone (notably on macOS,
   // where closing the window keeps the app alive).
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  // --- Renderer-crash diagnostics -----------------------------------------
+  // The window can vanish mid-run when its renderer (or the GPU/utility) process
+  // dies — an OOM on a very large run or a GPU/driver fault (common on Windows).
+  // Nothing logged *why* before; these handlers record the reason/exit code so a
+  // "it closed itself" report has a concrete cause, and reload once so a one-off
+  // renderer death recovers instead of leaving a dead window the timers hammer.
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    recordCrash('render-process-gone', `reason=${details?.reason} exitCode=${details?.exitCode}`);
+    if (details?.reason === 'clean-exit') return; // normal teardown, not a crash
+    if (rendererReloadTried) return;              // already tried once — don't loop
+    rendererReloadTried = true;
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); } catch (err) { recordCrash('rendererReload', err); }
+  });
+  mainWindow.webContents.on('unresponsive', () => recordCrash('renderer-unresponsive', 'window stopped responding'));
+  mainWindow.webContents.on('responsive', () => recordCrash('renderer-responsive', 'window recovered'));
+  mainWindow.on('unresponsive', () => recordCrash('window-unresponsive', 'window stopped responding'));
 }
+
+// Child (GPU / utility / sidecar) process deaths are app-level, not per-window:
+// log them too, since a GPU-process crash is a frequent Windows cause of a
+// window going blank or disappearing.
+app.on('child-process-gone', (_e, details) => {
+  recordCrash('child-process-gone', `type=${details?.type} reason=${details?.reason} exitCode=${details?.exitCode} name=${details?.name || ''}`);
+});
 
 function proxyPoolPath() {
   return join(app.getPath('userData'), 'proxy-pool.json');
@@ -370,12 +417,12 @@ async function replenishProxies(target = PROXY_TARGET) {
   if (proxyPool.size().valid >= target) return;
   proxyReplenishing = true;
   try {
-    mainWindow?.webContents.send('proxy:progress', { phase: 'daemon-start', valid: proxyPool.size().valid });
+    sendToWindow('proxy:progress', { phase: 'daemon-start', valid: proxyPool.size().valid });
     await proxyPool.scrape();
     const res = await proxyPool.validate({ maxProxies: 5000, merge: true });
     await proxyPool.save(proxyPoolPath());
     console.log(`[Proxy] Topped up +${res.added}; pool now ${proxyPool.size().valid} live.`);
-    mainWindow?.webContents.send('proxy:progress', { phase: 'daemon-done', valid: proxyPool.size().valid, added: res.added });
+    sendToWindow('proxy:progress', { phase: 'daemon-done', valid: proxyPool.size().valid, added: res.added });
   } catch (err) {
     recordCrash('proxyReplenish', err);
   } finally {
@@ -481,7 +528,7 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
     const results = await runCpanelChecks(
       list,
       { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2083, ports: opts?.ports || [2083, 2082, 8443], timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
-      (result, index) => mainWindow?.webContents.send('cpanel:progress', { result, index, total: list.length }),
+      (result, index) => sendToWindow('cpanel:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
       (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
@@ -510,7 +557,7 @@ ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
         timeout: Number(opts?.timeout) || 10000,
         lockoutRegistry,
       },
-      (result, index) => mainWindow?.webContents.send('webmail:progress', { result, index, total: list.length }),
+      (result, index) => sendToWindow('webmail:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
       (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
@@ -530,7 +577,7 @@ ipcMain.handle('whm:check', async (_e, { targets, opts }) => {
     const results = await runWhmChecks(
       list,
       { concurrency: Number(opts?.concurrency) || 10, port: Number(opts?.port) || 2087, ports: opts?.ports || [2087, 2086, 8443], timeout: Number(opts?.timeout) || 10000, gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }), lockoutRegistry },
-      (result, index) => mainWindow?.webContents.send('whm:progress', { result, index, total: list.length }),
+      (result, index) => sendToWindow('whm:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
       (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
@@ -565,7 +612,7 @@ ipcMain.handle('ssh:check', async (_e, { targets, opts }) => {
           onProxyFailure: (proxyUrl) => retireProxy(proxyUrl),
         } : {}),
       },
-      (result, index) => mainWindow?.webContents.send('ssh:progress', { result, index, total: list.length }),
+      (result, index) => sendToWindow('ssh:progress', { result, index, total: list.length }),
     );
     const summary = results.reduce(
       (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
@@ -714,7 +761,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     // credential floods the renderer (and this process) at large scale; a batched
     // array keeps the message rate bounded while delivering every result.
     progress = createProgressBatcher({
-      flush: (items) => mainWindow?.webContents.send('batch:progress', items),
+      flush: (items) => sendToWindow('batch:progress', items),
     });
     const effSource = resume ? skipKnown(source, prior.keys) : source;
     // Preflight the proxy and pick the starting tier: manual (if alive) →
@@ -800,7 +847,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     // (or its setup) throws, so the renderer never gets stuck in "running".
     currentAbort = null;
     if (progress) progress.flush();
-    try { mainWindow?.webContents.send('batch:done', { done: true }); } catch { /* window gone */ }
+    try { sendToWindow('batch:done', { done: true }); } catch { /* window gone */ }
   }
 }
 
@@ -852,8 +899,10 @@ ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume, preD
 // How much of a prior run is on disk, so the UI can offer "resume" and seed its
 // progress display. Returns only summary numbers, never the credential keys.
 ipcMain.handle('run:progress', async () => {
-  const { total, counts } = await safeReadProgress(runFilePath());
-  return { total, counts };
+  const { total, counts, recent } = await safeReadProgress(runFilePath());
+  // `recent` lets the renderer repopulate its in-memory window on resume so the
+  // dashboard tile counts and the tile-drawer content stay in sync.
+  return { total, counts, recent };
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
@@ -930,11 +979,11 @@ ipcMain.handle('verify:run', async (_e, { emails }) => {
       catch (err) { result = { email, status: 'unknown', error: err.message }; }
       counts[result.status] = (counts[result.status] || 0) + 1;
       done++;
-      mainWindow?.webContents.send('verify:progress', { result, done, total: list.length });
+      sendToWindow('verify:progress', { result, done, total: list.length });
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
-  mainWindow?.webContents.send('verify:done', { done, total: list.length, counts });
+  sendToWindow('verify:done', { done, total: list.length, counts });
   return { total: list.length, counts };
 });
 
