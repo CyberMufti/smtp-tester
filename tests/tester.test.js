@@ -45,13 +45,16 @@ test('accepts an async-iterable source (streaming) and tests every credential on
   async function* source() {
     for (const c of makeCreds(7)) yield c;
   }
-  let progress = 0;
-  const results = await runBatch(source(), [], { concurrency: 3, deps }, () => progress++);
-  assert.equal(results.length, 7);
-  assert.equal(progress, 7);
+  // Streaming delivers results via onProgress and does NOT retain them in the
+  // return value (that array would grow O(N) for the whole run and eventually
+  // GC-thrash a large scan to a halt) — so collect them from the callback.
+  const seen = [];
+  const ret = await runBatch(source(), [], { concurrency: 3, deps }, (r) => seen.push(r));
+  assert.deepEqual(ret, [], 'streaming retains no results in the return value');
+  assert.equal(seen.length, 7, 'but every credential is delivered via onProgress');
   assert.ok(deps.maxInFlight() <= 3, `maxInFlight was ${deps.maxInFlight()}`);
   // Each credential handed to exactly one worker — users are all distinct.
-  assert.equal(new Set(results.map((r) => r.cred.user)).size, 7);
+  assert.equal(new Set(seen.map((r) => r.cred.user)).size, 7);
 });
 
 test('streaming source stops promptly when aborted', async () => {
@@ -64,12 +67,25 @@ test('streaming source stops promptly when aborted', async () => {
     }
   }
   const ac = new AbortController();
-  const run = runBatch(source(), [], { concurrency: 2, deps, signal: ac.signal });
+  let delivered = 0;
+  const run = runBatch(source(), [], { concurrency: 2, deps, signal: ac.signal }, () => delivered++);
   setTimeout(() => ac.abort(), 15);
-  const results = await run;
+  await run;
   // It must not drain all 1000 after an early abort.
   assert.ok(produced < 1000, `produced ${produced} — abort did not stop the stream`);
-  assert.ok(results.length <= produced);
+  assert.ok(delivered <= produced);
+});
+
+test('streaming does not retain results in memory, even for a large run', async () => {
+  const deps = okDeps();
+  const N = 2000;
+  async function* source() {
+    for (let i = 0; i < N; i++) yield { host: `h${i}.com`, port: 587, user: `u${i}`, pass: 'p' };
+  }
+  let delivered = 0;
+  const ret = await runBatch(source(), [], { concurrency: 8, deps }, () => delivered++);
+  assert.equal(delivered, N, 'every credential is delivered via onProgress');
+  assert.equal(ret.length, 0, 'the return array stays empty — no O(N) retention that would stall a big scan');
 });
 
 test('respects concurrency limit and returns a result per credential', async () => {

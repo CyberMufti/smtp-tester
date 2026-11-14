@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createResultSink, readResults, exportRun } from '../src/core/result-store.js';
+import { createResultSink, createConfirmedLiveFile, readResults, exportRun } from '../src/core/result-store.js';
 import { parse } from '../src/core/parser.js';
 
 async function withTempDir(fn) {
@@ -33,6 +33,80 @@ async function writeRun(dir) {
   const { total, counts } = await sink.close();
   return { path, total, counts };
 }
+
+test('sink surfaces a write-stream error instead of hanging drain/close forever', async () => {
+  await withTempDir(async (dir) => {
+    // A path whose parent is a FILE, not a directory — createWriteStream opens
+    // it asynchronously and emits 'error' (ENOTDIR). Before the fix, close()/
+    // drain() would wait on events that never fire and hang the whole scan.
+    const blocker = join(dir, 'blocker');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(blocker, 'x');
+    const badPath = join(blocker, 'run.jsonl');
+
+    const sink = createResultSink(badPath);
+    // close() must reject (not hang) once the async open fails.
+    await assert.rejects(sink.close(), (err) => err && typeof err.code === 'string');
+  });
+});
+
+test('sink.drain rejects when the stream has errored', async () => {
+  await withTempDir(async (dir) => {
+    const blocker = join(dir, 'blocker2');
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(blocker, 'x');
+    const sink = createResultSink(join(blocker, 'run.jsonl'));
+    // Let the async open fail and the 'error' land.
+    await new Promise((r) => setTimeout(r, 20));
+    await assert.rejects(Promise.resolve().then(() => sink.drain()));
+    // And a subsequent write throws rather than silently succeeding.
+    assert.throws(() => sink.write({ status: 'inbox', cred: { host: 'a', port: 1, user: 'u', pass: 'p' } }));
+  });
+});
+
+test('confirmed-live file saves inbox+spam the instant they arrive, re-importably', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'nested', 'inbox+spam (live).txt');
+    const live = createConfirmedLiveFile(path, { generatedAt: '2026-01-01' });
+    // Stream results one at a time, as the run loop does.
+    assert.equal(live.add(SAMPLE[0]), true, 'inbox is written');
+    // The hit is on disk immediately — before any later result, no close() needed.
+    let text = await readFile(path, 'utf8');
+    assert.ok(text.includes('smtp.gmail.com:587:a@gmail.com:p1'), 'inbox line flushed mid-run');
+    assert.equal(live.add(SAMPLE[1]), true, 'spam is written');
+    assert.equal(live.add(SAMPLE[2]), false, 'valid is NOT a confirmed hit');
+    assert.equal(live.add(SAMPLE[3]), false, 'dead is NOT a confirmed hit');
+
+    text = await readFile(path, 'utf8');
+    const creds = text.split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.deepEqual(creds, ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.x.com:587:b@x.com:p2'],
+      'only inbox+spam, as host:port:user:pass');
+    // Re-importable: the parser round-trips the saved lines.
+    assert.equal(parse(creds.join('\n')).records.length, 2);
+  });
+});
+
+test('confirmed-live file truncates on a fresh run but appends on resume', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'inbox+spam (live).txt');
+    const first = createConfirmedLiveFile(path, {});
+    first.add(SAMPLE[0]);
+
+    // Resume: append keeps the earlier hit and adds more.
+    const resumed = createConfirmedLiveFile(path, { append: true });
+    resumed.add(SAMPLE[1]);
+    let creds = (await readFile(path, 'utf8')).split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.deepEqual(creds, ['smtp.gmail.com:587:a@gmail.com:p1', 'smtp.x.com:587:b@x.com:p2']);
+
+    // Fresh (non-append) run starts the file over.
+    const fresh = createConfirmedLiveFile(path, {});
+    creds = (await readFile(path, 'utf8')).split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.deepEqual(creds, [], 'a new run clears prior confirmed hits');
+    fresh.add(SAMPLE[1]);
+    creds = (await readFile(path, 'utf8')).split('\n').filter((l) => l && !l.startsWith('#'));
+    assert.deepEqual(creds, ['smtp.x.com:587:b@x.com:p2']);
+  });
+});
 
 test('sink appends JSONL and reports running totals and counts', async () => {
   await withTempDir(async (dir) => {

@@ -2,6 +2,7 @@ import { parse, dedupeCredentials } from '../core/parser.js';
 import { seedPlacementStatus } from '../core/seed-status.js';
 import { countryName, countryList } from '../core/country-names.js';
 import { credLineFor, maskCredLine, panelLineFor, maskPanelLine } from '../core/cred-line.js';
+import { isKeeperResult, KEEPER_STATUSES } from '../core/keepers.js';
 import { deliverabilityScore } from '../core/deliverability.js';
 import { summarizeRun } from '../core/run-history.js';
 import { warmupRecommendation } from '../core/warmup.js';
@@ -46,6 +47,13 @@ let running = false;
 // Filtering/paging operates over this retained window; exports read the full
 // run file from disk, so every result is still accounted for.
 const MAX_RECENT = 5000;
+// Rare/valuable hits (inbox/spam/valid/… and panel logins) are retained in full
+// — NOT subject to the recent-window cap — so the tile drawer can always show
+// and copy every hit the tile counts, even once the bulk results have evicted
+// them from `recent` mid-scan. Keepers are a small fraction of a run, so this
+// stays cheap; the cap is a safety backstop for pathological all-valid runs.
+const MAX_KEEPERS = 100000;
+const KEEPER_STATUS_SET = new Set(KEEPER_STATUSES);
 // The paste box and the FileReader fallback both hold their whole content in
 // renderer memory and parse it on the UI thread, so a huge payload freezes the
 // window. Above this size we refuse that path and point at the file picker,
@@ -56,6 +64,7 @@ let counts = {};
 let panelCounts = {}; // valid control-panel logins by type (cpanel/whm/webmail)
 let testedCount = 0;
 let recent = [];
+let keepers = [];
 let firstSpamScore = null;
 const PANEL_TILE_TYPES = ['cpanel', 'whm', 'webmail'];
 
@@ -64,6 +73,7 @@ function resetRunState() {
   panelCounts = {};
   testedCount = 0;
   recent = [];
+  keepers = [];
   firstSpamScore = null;
   seenProviders.clear();
   seenCountries.clear();
@@ -360,6 +370,12 @@ async function runFileBatch(isResume = false) {
     // drawer reflect the restored counts — otherwise a pre-resume inbox/valid
     // hit shows in the tile count but the drawer reads an empty `recent`.
     recent = Array.isArray(prior.recent) ? prior.recent.slice(-MAX_RECENT) : [];
+    // Restore every prior keeper (read in full from disk), not just those still
+    // in the recent window, so the resumed drawer shows all the hits the tiles
+    // count. Fall back to deriving them from `recent` if the backend is older.
+    keepers = Array.isArray(prior.keepers)
+      ? prior.keepers.slice(-MAX_KEEPERS)
+      : recent.filter(isKeeperResult);
     rebuildDerivedFromRecent();
     renderSummary();
     renderResults();
@@ -460,6 +476,11 @@ api.onProgress((batch) => {
     if (result.domainCountry) seenCountries.add(result.domainCountry);
     if (seenProviders.size !== pBefore || seenCountries.size !== cBefore) filtersDirty = true;
     recent.push(result);
+    // Retain every rare/valuable hit in full, separate from the capped `recent`
+    // window, so the tile drawer can still show/copy them once bulk results have
+    // pushed them out of `recent` (the symptom: tile reads "24 inbox" but the
+    // drawer shows "(no credentials in this category yet)" mid-scan).
+    if (isKeeperResult(result)) keepers.push(result);
     // Append just this row instead of rebuilding the whole table — rebuilding on
     // every result is O(n^2) and freezes/crashes the window on large batches.
     appendResultRow(result);
@@ -467,6 +488,7 @@ api.onProgress((batch) => {
   // Retain only the newest window for the table; trim in bulk so this stays
   // amortized O(1) even across millions of results.
   if (recent.length > MAX_RECENT * 1.2) recent = recent.slice(-MAX_RECENT);
+  if (keepers.length > MAX_KEEPERS * 1.2) keepers = keepers.slice(-MAX_KEEPERS);
   if (filtersDirty) refreshLeadFilters();
 
   $('#progress-label').textContent = `${testedCount} / ${runTotal}`;
@@ -580,8 +602,13 @@ const DRAWER_RENDER_CAP = 800;           // cap interactive rows (Copy all still
 const TILE_LABELS = { all: 'All', inbox: 'Inbox', spam: 'Spam', valid: 'Valid', unverified: 'Unverified', limited: 'Limited', dead: 'Dead', unknown: 'Unknown', cpanel: 'cPanel', whm: 'WHM', webmail: 'Webmail' };
 
 function drawerRowsFor(status) {
-  if (PANEL_TILE_TYPES.includes(status)) return recent.map((r) => panelLineFor(r, status)).filter(Boolean);
-  const rows = status === 'all' ? recent : recent.filter((r) => r.status === status);
+  // Rare/valuable tiles (panels + keeper statuses) read the full `keepers` list
+  // so the drawer always matches the tile count, regardless of scan size. Bulk
+  // tiles ('all'/'dead'/'unknown') read the capped `recent` window — an inherently
+  // windowed view that points at export for the complete set.
+  if (PANEL_TILE_TYPES.includes(status)) return keepers.map((r) => panelLineFor(r, status)).filter(Boolean);
+  const source = KEEPER_STATUS_SET.has(status) ? keepers : recent;
+  const rows = status === 'all' ? recent : source.filter((r) => r.status === status);
   return rows.map(credLineFor).filter((l) => l && l !== ':::');
 }
 

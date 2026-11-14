@@ -8,7 +8,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmS
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
-import { createResultSink, exportRun, readRunProgress, readResults } from '../core/result-store.js';
+import { createResultSink, createConfirmedLiveFile, exportRun, readRunProgress, readResults } from '../core/result-store.js';
 import { createProgressBatcher } from '../core/progress-batcher.js';
 import { settleWithBudget } from '../core/settle-with-budget.js';
 import { shouldRunPanelChecks } from '../core/panel-gate.js';
@@ -749,6 +749,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   // setup below throws — otherwise an early failure strands the renderer in
   // the "running" state (currentAbort non-null, batch:done never sent).
   let sink = null;
+  let confirmedLive = null;
   let progress = null;
   try {
     const geoResolver = await getGeoResolver();
@@ -757,6 +758,14 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
     sink = resume
       ? createResultSink(runFilePath(), { append: true, initialTotal: prior.total, initialCounts: prior.counts })
       : createResultSink(runFilePath());
+    // Save confirmed (inbox+spam) hits to a standalone file as they stream in,
+    // so they survive a cancel/crash before the run completes. Truncated for a
+    // fresh run, appended on resume. Best-effort — a failure must not fail the run.
+    try {
+      confirmedLive = createConfirmedLiveFile(confirmedLivePath(), { append: resume, generatedAt: new Date().toISOString() });
+    } catch (e) {
+      recordCrash('initConfirmedLiveFile', e);
+    }
     // Coalesce per-credential progress into batched IPC sends. One message per
     // credential floods the renderer (and this process) at large scale; a batched
     // array keeps the message rate bounded while delivering every result.
@@ -826,6 +835,9 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
         // instant connection-refused failures) — this throttles the worker that
         // awaits this callback, keeping the streaming sink bounded as intended.
         if (!sink.write(result)) await sink.drain();
+        // Persist confirmed hits immediately — before the run finishes — so an
+        // inbox/spam credential is never lost to a mid-scan cancel or crash.
+        try { confirmedLive?.add(result); } catch (e) { recordCrash('appendConfirmedLive', e); }
         progress.push({ result, index });
       },
     );
@@ -899,10 +911,12 @@ ipcMain.handle('batch:runFile', async (_e, { filePath, seeds, opts, resume, preD
 // How much of a prior run is on disk, so the UI can offer "resume" and seed its
 // progress display. Returns only summary numbers, never the credential keys.
 ipcMain.handle('run:progress', async () => {
-  const { total, counts, recent } = await safeReadProgress(runFilePath());
+  const { total, counts, recent, keepers } = await safeReadProgress(runFilePath());
   // `recent` lets the renderer repopulate its in-memory window on resume so the
-  // dashboard tile counts and the tile-drawer content stay in sync.
-  return { total, counts, recent };
+  // dashboard tile counts and the tile-drawer content stay in sync; `keepers`
+  // carries EVERY rare/valuable hit (inbox/spam/valid/panels), not just the
+  // newest window, so a resumed drawer can show all the hits the tiles count.
+  return { total, counts, recent, keepers };
 });
 
 ipcMain.handle('content:score', async (_e, content) => scoreContent(content));
@@ -997,6 +1011,15 @@ function resultFolderPath() {
   // clears the folder before writing, so a shared path would have instances
   // wiping each other's results.
   return INSTANCE_SLOT > 1 ? `${base}-${INSTANCE_SLOT}` : base;
+}
+
+// A confirmed (inbox+spam) credentials file that is appended the instant each
+// hit is detected — so the user never loses them if the run is cancelled, the
+// window crashes, or the machine dies mid-scan. Lives at the result-folder root
+// (writeResultFolder only clears its SMTP result/Leads/panels subtrees, so this
+// file survives the end-of-run folder rebuild) as a re-importable TXT.
+function confirmedLivePath() {
+  return join(resultFolderPath(), 'inbox+spam (live).txt');
 }
 
 /**

@@ -79,6 +79,44 @@ test('readRunProgress keeps only the newest recentCap results', async () => {
   });
 });
 
+test('readRunProgress retains every keeper even after the recent window evicts it', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'run.jsonl');
+    const sink = createResultSink(path);
+    // One early inbox hit, then enough bulk dead results to push it out of a
+    // small recent window — the exact shape that made the drawer read empty
+    // while the tile still counted the inbox hit.
+    sink.write(result('inbox', { host: 'win.com', port: 587, user: 'win@win.com', pass: 'secret' }));
+    for (let i = 0; i < 20; i++) {
+      sink.write(result('dead', { host: `d${i}.com`, port: 587, user: `d${i}@x.com`, pass: 'p' }));
+    }
+    await sink.close();
+
+    const prog = await readRunProgress(path, { recentCap: 3 });
+    assert.equal(prog.counts.inbox, 1, 'the tile count still sees the inbox hit');
+    assert.equal(prog.recent.filter((r) => r.status === 'inbox').length, 0,
+      'the inbox hit has been evicted from the capped recent window');
+    assert.equal(prog.keepers.length, 1, 'but keepers retains it in full');
+    assert.equal(prog.keepers[0].cred.user, 'win@win.com');
+  });
+});
+
+test('readRunProgress keepers include panel-valid results of any status', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'run.jsonl');
+    const sink = createResultSink(path);
+    const panelHit = result('dead', { host: 'p.com', port: 2083, user: 'p@p.com', pass: 'x' });
+    panelHit.panels = { cpanel: { valid: true, port: 2083 } };
+    sink.write(panelHit);
+    sink.write(result('dead', { host: 'q.com', port: 587, user: 'q@q.com', pass: 'y' }));
+    await sink.close();
+
+    const prog = await readRunProgress(path);
+    assert.equal(prog.keepers.length, 1, 'only the panel-valid result is kept');
+    assert.equal(prog.keepers[0].cred.user, 'p@p.com');
+  });
+});
+
 test('append sink seeded with prior totals continues the counts and keeps old rows', async () => {
   await withTempDir(async (dir) => {
     const path = join(dir, 'run.jsonl');

@@ -579,7 +579,10 @@ function dedupe(list) {
  *   signal?:AbortSignal, deps?:{smtp:any, imap:any},
  * }} [opts]
  * @param {(result:Result, index:number)=>void} [onProgress]
- * @returns {Promise<Result[]>}
+ * @returns {Promise<Result[]>} For an ARRAY source, every result (indexed to
+ *   match the input). For a STREAMING (async-iterable) source, an EMPTY array —
+ *   streaming results are delivered only via `onProgress`, never retained, so a
+ *   multi-million-row run stays bounded in memory. Consume them in `onProgress`.
  */
 // A server telling us to slow down: a 421 greeting-refusal, or 4xx responses
 // mentioning rate/throttle/too-many/try-again. Scanned across the result's
@@ -606,6 +609,12 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
   const streaming = creds != null && !Array.isArray(creds) && typeof creds[Symbol.asyncIterator] === 'function';
   const results = [];
   let next = 0;
+  // Only the ARRAY path retains every result — its caller reads the returned
+  // array. A STREAMING run hands each result to onProgress (which persists it to
+  // disk) and its caller discards the return value, so retaining them here would
+  // grow memory O(N) over the whole run and eventually GC-thrash the process to a
+  // halt partway in. Store only when not streaming; streaming returns [].
+  const record = (index, result) => { if (!streaming) results[index] = result; };
 
   const iterator = streaming ? creds[Symbol.asyncIterator]() : null;
   // A promise chain that serializes iterator.next() across concurrent workers.
@@ -818,7 +827,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
             catchAllDomains.add(_domain);
             result.catchAll = true;
             result.reason = 'catch-all domain detected (' + _domain + ') — SMTP results unreliable';
-            results[index] = result;
+            record(index, result);
             if (onProgress) await onProgress(result, index);
             continue;
           }
@@ -827,7 +836,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       if (_domain && catchAllDomains.has(_domain)) {
         result.catchAll = true;
         result.reason = 'skipped: domain is catch-all';
-        results[index] = result;
+        record(index, result);
         if (onProgress) await onProgress(result, index);
         continue;
       }
@@ -891,7 +900,7 @@ export async function runBatch(creds, seeds = [], opts = {}, onProgress) {
       }
 
       if (looksRateLimited(result)) applyCooldown(); // Keep global cooldown as a fallback
-      results[index] = result;
+      record(index, result);
       if (onProgress) await onProgress(result, index);
     }
   }

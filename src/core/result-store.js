@@ -10,9 +10,11 @@
  *
  * @typedef {import('./tester.js').Result} Result
  */
-import { createWriteStream, createReadStream } from 'node:fs';
+import { createWriteStream, createReadStream, appendFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 import { credKey } from './parser.js';
+import { isKeeperResult } from './keepers.js';
 import {
   workingTxtHeaderLines,
   workingCredLine,
@@ -32,22 +34,66 @@ export function createResultSink(filePath, { append = false, initialTotal = 0, i
   const stream = createWriteStream(filePath, { flags: append ? 'a' : 'w' });
   let total = initialTotal;
   const counts = { ...initialCounts };
+  // A write-stream error (disk full, path removed, volume unmounted mid-run) is
+  // otherwise fatal in two ways: an unhandled 'error' crashes the process, and —
+  // worse — a caller awaiting drain() would wait forever for a 'drain' event that
+  // never comes, silently hanging the whole scan. Capture the error, keep the
+  // process alive, and surface it to write()/drain()/close() so the run fails
+  // cleanly instead of deadlocking.
+  let streamError = null;
+  stream.on('error', (err) => { streamError = err; });
   return {
-    /** @param {Result} result — returns false under backpressure (caller may await drain). */
+    /** @param {Result} result — returns false under backpressure (caller may await drain). @throws if the stream has errored. */
     write(result) {
+      if (streamError) throw streamError;
       total++;
       counts[result.status] = (counts[result.status] || 0) + 1;
       return stream.write(JSON.stringify(result) + '\n');
     },
     total: () => total,
     counts: () => ({ ...counts }),
+    // Resolve as soon as the buffer drains OR the stream errors — the caller
+    // checks write()'s return next and will throw, so this must never hang.
     drain() {
-      return new Promise((resolve) => stream.once('drain', resolve));
+      if (streamError) return Promise.reject(streamError);
+      return new Promise((resolve, reject) => {
+        const onDrain = () => { stream.off('error', onError); resolve(); };
+        const onError = (err) => { stream.off('drain', onDrain); reject(err); };
+        stream.once('drain', onDrain);
+        stream.once('error', onError);
+      });
     },
     close() {
+      if (streamError) return Promise.reject(streamError);
       return new Promise((resolve, reject) =>
-        stream.end((err) => (err ? reject(err) : resolve({ total, counts: { ...counts } }))),
+        stream.end((err) => (err || streamError ? reject(err || streamError) : resolve({ total, counts: { ...counts } }))),
       );
+    },
+  };
+}
+
+/**
+ * A standalone file of confirmed (inbox+spam) credentials, appended the instant
+ * each hit is detected — so confirmed hits survive a cancel/crash before the run
+ * finishes. inbox/spam are rare, so a synchronous write-through append per hit is
+ * cheap and guarantees durability (a buffered stream could lose the last hits on
+ * a crash). `add(result)` writes only inbox/spam and returns whether it did.
+ *
+ * @param {string} filePath
+ * @param {{append?:boolean, generatedAt?:string}} [opts] append continues an
+ *   existing file (resume); otherwise the file is started fresh with a header.
+ */
+export function createConfirmedLiveFile(filePath, { append = false, generatedAt = '' } = {}) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  if (!append || !existsSync(filePath)) {
+    writeFileSync(filePath, confirmedTxtHeaderLines(generatedAt).join('\n') + '\n');
+  }
+  return {
+    /** @param {object} result @returns {boolean} true if it was a confirmed hit that got written. */
+    add(result) {
+      if (!result || !CONFIRMED_STATUSES.includes(result.status)) return false;
+      appendFileSync(filePath, workingCredLine(result) + '\n');
+      return true;
     },
   };
 }
@@ -80,14 +126,18 @@ export async function* readResults(filePath) {
  * repopulate the dashboard's in-memory window and keep the tile counts and the
  * tile-drawer content in sync. A missing file yields an empty result.
  * @param {string} filePath
- * @param {{recentCap?:number}} [opts] recentCap bounds the returned `recent` tail.
- * @returns {Promise<{keys:Set<string>, total:number, counts:Record<string,number>, recent:Result[]}>}
+ * @param {{recentCap?:number, keeperCap?:number}} [opts] recentCap bounds the
+ *   returned `recent` tail; keeperCap bounds the returned `keepers` list.
+ * @returns {Promise<{keys:Set<string>, total:number, counts:Record<string,number>, recent:Result[], keepers:Result[]}>}
  */
-export async function readRunProgress(filePath, { recentCap = 5000 } = {}) {
+export async function readRunProgress(filePath, { recentCap = 5000, keeperCap = 100000 } = {}) {
   const keys = new Set();
   const counts = {};
   let total = 0;
   let recent = [];
+  // Every rare/valuable hit (inbox/spam/valid/… and panel logins), not just the
+  // newest window — so a resumed drawer can show all of them the tile counts.
+  let keepers = [];
   try {
     for await (const r of readResults(filePath)) {
       total++;
@@ -97,12 +147,17 @@ export async function readRunProgress(filePath, { recentCap = 5000 } = {}) {
       // amortized O(1) even across millions of rows (mirrors the renderer).
       recent.push(r);
       if (recentCap > 0 && recent.length > recentCap * 1.2) recent = recent.slice(-recentCap);
+      if (isKeeperResult(r)) {
+        keepers.push(r);
+        if (keeperCap > 0 && keepers.length > keeperCap * 1.2) keepers = keepers.slice(-keeperCap);
+      }
     }
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
   if (recentCap > 0 && recent.length > recentCap) recent = recent.slice(-recentCap);
-  return { keys, total, counts, recent };
+  if (keeperCap > 0 && keepers.length > keeperCap) keepers = keepers.slice(-keeperCap);
+  return { keys, total, counts, recent, keepers };
 }
 
 /** Write a string to a stream, awaiting drain on backpressure. */
