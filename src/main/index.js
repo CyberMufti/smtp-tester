@@ -980,6 +980,10 @@ ipcMain.handle('verify:run', async (_e, { emails }) => {
     msRealm: (email) => probeRealm(email),
     geoResolver,
   };
+  // Fresh output folder; valid addresses are appended as they are found so
+  // results are saved live and survive a mid-run cancel or crash.
+  let outDir = '';
+  try { outDir = resetVerifiedFolder(); } catch (err) { recordCrash('verifyFolderInit', err); }
   const counts = {};
   let done = 0;
   const concurrency = 8;
@@ -993,12 +997,15 @@ ipcMain.handle('verify:run', async (_e, { emails }) => {
       catch (err) { result = { email, status: 'unknown', error: err.message }; }
       counts[result.status] = (counts[result.status] || 0) + 1;
       done++;
+      if (result.status === 'valid') {
+        try { appendVerifiedResult(result); } catch (err) { recordCrash('verifyLiveSave', err); }
+      }
       sendToWindow('verify:progress', { result, done, total: list.length });
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
-  sendToWindow('verify:done', { done, total: list.length, counts });
-  return { total: list.length, counts };
+  sendToWindow('verify:done', { done, total: list.length, counts, folder: outDir });
+  return { total: list.length, counts, folder: outDir };
 });
 
 // Export the last run by streaming its JSONL file to the chosen format — the
@@ -1053,10 +1060,38 @@ async function writeResultFolder(runFile, outDir) {
   return { count, folder: outDir };
 }
 
+// The Email Verifier's live output folder (Desktop/result/verified/).
+function verifiedFolderPath() {
+  return join(resultFolderPath(), 'verified');
+}
+
+// Start a fresh verified/ folder for a new verifier run, so live-saved files
+// don't accumulate stale addresses from a previous run.
+function resetVerifiedFolder() {
+  const outDir = verifiedFolderPath();
+  try { rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  mkdirSync(outDir, { recursive: true });
+  return outDir;
+}
+
+// Append one VALID verified result to its provider+country file as the run
+// proceeds, so results are on disk before the scan finishes. Non-valid results
+// are ignored (verifiedFolderFiles keeps only status === 'valid').
+function appendVerifiedResult(r) {
+  const files = verifiedFolderFiles([r]);
+  const outDir = verifiedFolderPath();
+  for (const [name, arr] of Object.entries(files)) {
+    if (!arr.length) continue;
+    const full = join(outDir, name);
+    mkdirSync(dirname(full), { recursive: true });
+    appendFileSync(full, arr.join('\n') + '\n');
+  }
+}
+
 // Write the Email Verifier's VALID addresses to Desktop/result/verified/, one
 // file per provider+country. Clears only result/verified first.
 async function writeVerifiedFolder(results) {
-  const outDir = join(resultFolderPath(), 'verified');
+  const outDir = verifiedFolderPath();
   const files = verifiedFolderFiles(results || []);
   try { rmSync(outDir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
   mkdirSync(outDir, { recursive: true });

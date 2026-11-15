@@ -73,3 +73,35 @@ test('verifyEmail: M365 existence comes from the realm probe, no RCPT', async ()
   assert.equal(r.provider, 'Microsoft 365');
   assert.equal(rcptCalled, false, 'M365 must not RCPT-probe');
 });
+
+test('verifyEmail: consumer Outlook/Hotmail does NOT use the realm check (unreliable for consumer) and is not falsely invalid', async () => {
+  let realmCalled = false;
+  const deps = {
+    ...DEPS,
+    // Microsoft's endpoint returns "no" for every consumer address — must be ignored.
+    msRealm: async () => { realmCalled = true; return { nameSpaceType: 'Federated', ifExists: 'no' }; },
+    enumerate: async (email) => (email.startsWith('__probe') ? { exists: 'unknown' } : { exists: false }),
+  };
+  const r = await verifyEmail('someone@hotmail.com', deps);
+  assert.equal(r.provider, 'Outlook/Hotmail');
+  assert.equal(realmCalled, false, 'consumer Outlook/Hotmail must not be judged by the Azure-AD realm check');
+  assert.equal(r.exists, 'unknown');
+  assert.equal(r.status, 'unknown', 'consumer Outlook/Hotmail RCPT is untrusted — never a false "invalid"');
+});
+
+test('verifyEmail: a 550 from an anti-harvesting provider (Yahoo) is reported unknown, not a false invalid', async () => {
+  const deps = {
+    ...DEPS,
+    // Yahoo returns the same rejection for real and fake mailboxes.
+    enumerate: async (email) => (email.startsWith('__probe') ? { exists: 'unknown' } : { exists: false }),
+  };
+  const r = await verifyEmail('realuser@yahoo.com', deps);
+  assert.equal(r.provider, 'Yahoo/AOL');
+  assert.equal(r.exists, 'unknown');
+  assert.equal(r.status, 'unknown', 'an untrusted RCPT verdict must not be surfaced as "invalid"');
+});
+
+test('verifyEmail: RCPT verdicts are still trusted for ordinary custom domains', async () => {
+  assert.equal((await verifyEmail('john@acme.com', DEPS)).status, 'valid');
+  assert.equal((await verifyEmail('ghost@acme.com', DEPS)).status, 'invalid');
+});

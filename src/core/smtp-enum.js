@@ -79,14 +79,20 @@ export async function enumerateUser(target, opts = {}) {
     session = new SmtpSocket(socket, timeout);
     
     await session.read(); // Greeting
-    let ehlo = await session.cmd('EHLO probe.local');
+    // A plausible FQDN in the HELO/EHLO; many MTAs reject a bare label like
+    // "probe.local", which caused false failures. Overridable via opts.heloName.
+    const helo = String(opts.heloName || 'mail-verifier.net');
+    let ehlo = await session.cmd('EHLO ' + helo);
     if (ehlo.code !== 250) {
-      const helo = await session.cmd('HELO probe.local');
-      if (helo.code !== 250) throw new Error('HELO failed');
+      const h = await session.cmd('HELO ' + helo);
+      if (h.code !== 250) throw new Error('HELO failed');
     }
 
-    // 1. Try RCPT TO (MAIL FROM first)
-    const mf = await session.cmd('MAIL FROM:<postmaster@' + host + '>');
+    // 1. Try RCPT TO. Use the null sender <> — the standard envelope for a
+    // non-delivery probe (it's what bounce messages use), which strict servers
+    // accept where a made-up postmaster@<mxhost> sender was rejected with 550,
+    // producing false "invalid" verdicts.
+    const mf = await session.cmd('MAIL FROM:<>');
     if (mf.code === 250) {
       const rcpt = await session.cmd('RCPT TO:<' + user + '>');
       if (rcpt.code === 250 || rcpt.code === 251) {

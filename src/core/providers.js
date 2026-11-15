@@ -36,6 +36,25 @@ const PROVIDERS = {
   'gmx.net': { host: 'mail.gmx.net', ports: [587, 465] },
   'yandex.com': { host: 'smtp.yandex.com', ports: [465, 587] },
   'mail.com': { host: 'smtp.mail.com', ports: [587, 465] },
+  // Australian ISPs / webmail — submission endpoints (SSL 465 first where the
+  // ISP prefers it, then STARTTLS 587).
+  'bigpond.com': { host: 'smtp.telstra.com', ports: [465, 587] },
+  'bigpond.net.au': { host: 'smtp.telstra.com', ports: [465, 587] },
+  'telstra.com': { host: 'smtp.telstra.com', ports: [465, 587] },
+  'telstra.com.au': { host: 'smtp.telstra.com', ports: [465, 587] },
+  'optusnet.com.au': { host: 'mail.optusnet.com.au', ports: [587, 465] },
+  'iinet.net.au': { host: 'mail.iinet.net.au', ports: [465, 587] },
+  'westnet.com.au': { host: 'mail.westnet.com.au', ports: [465, 587] },
+  'tpg.com.au': { host: 'mail.tpg.com.au', ports: [465, 587] },
+  'internode.on.net': { host: 'mail.internode.on.net', ports: [465, 587] },
+  'dodo.com.au': { host: 'smtp.dodo.com.au', ports: [465, 587] },
+  'iprimus.com.au': { host: 'smtp.iprimus.com.au', ports: [465, 587] },
+  'ozemail.com.au': { host: 'smtp.ozemail.com.au', ports: [465, 587] },
+  'exetel.com.au': { host: 'mail.exetel.com.au', ports: [465, 587] },
+  'aussiebroadband.com.au': { host: 'mail.aussiebroadband.com.au', ports: [465, 587] },
+  'grapevine.com.au': { host: 'mail.grapevine.com.au', ports: [465, 587] },
+  'netspace.net.au': { host: 'mail.netspace.net.au', ports: [465, 587] },
+  'adam.com.au': { host: 'mail.adam.com.au', ports: [465, 587] },
 };
 
 /**

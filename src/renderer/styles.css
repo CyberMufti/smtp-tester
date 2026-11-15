@@ -226,6 +226,7 @@ code { background: var(--inset); padding: 1.5px 6px; border-radius: 6px; font-si
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.run-controls label.disabled { opacity: 0.45; }
 .btn.primary {
   background: transparent; color: var(--accent); border-color: rgba(34, 197, 94, 0.5);
 }

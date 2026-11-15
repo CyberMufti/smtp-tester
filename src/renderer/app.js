@@ -226,6 +226,21 @@ function refreshParse() {
 
 // ---------- Run / cancel ----------
 $('#btn-run').addEventListener('click', runBatch);
+// Verifier / Debounce mode and credential testing are mutually exclusive: when
+// verify is picked, the Protocols dropdown is irrelevant (grey it out) and the
+// Run button says what it will do.
+function syncVerifierMode() {
+  const on = ($('#opt-verifier')?.value || 'off') === 'verify';
+  const protocols = $('#opt-protocols');
+  if (protocols) {
+    protocols.disabled = on;
+    protocols.closest('label')?.classList.toggle('disabled', on);
+  }
+  const runBtn = $('#btn-run');
+  if (runBtn) runBtn.textContent = on ? 'Verify Emails' : 'Test All';
+}
+$('#opt-verifier')?.addEventListener('change', syncVerifierMode);
+syncVerifierMode();
 $('#btn-cancel').addEventListener('click', () => {
   $('#btn-cancel').textContent = 'Cancelling...';
   $('#btn-cancel').disabled = true;
@@ -318,8 +333,43 @@ function startRunUI() {
   $('#progress-fill').style.width = '0%';
 }
 
+// Pull every email address out of pasted text, whatever the surrounding format
+// (plain list, email:pass, or host:port:user:pass). Deduped, order preserved.
+const EMAIL_RE = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/gi;
+function extractEmails(text) {
+  const seen = new Set();
+  const out = [];
+  for (const m of String(text || '').matchAll(EMAIL_RE)) {
+    const addr = m[0].toLowerCase();
+    if (!seen.has(addr)) { seen.add(addr); out.push(m[0]); }
+  }
+  return out;
+}
+
+// Verifier / Debounce mode: ignore credentials, verify the addresses only
+// (exists? + host/provider + country) via the Verify engine, then show them on
+// the Verify tab where they can be saved grouped by host and country.
+async function runVerifierBatch() {
+  const source = loadedFiles.length > 0
+    ? ''
+    : ($('#creds-input')?.value || '');
+  const emails = extractEmails(source);
+  if (!emails.length) {
+    $('#parse-errors').textContent = loadedFiles.length > 0
+      ? 'Verifier mode works on pasted addresses — paste a list of emails in the box above (not a loaded file).'
+      : 'No email addresses found to verify — paste a list of addresses (one per line, or any format).';
+    return;
+  }
+  $('#parse-errors').textContent = `Verifying ${emails.length} address${emails.length === 1 ? '' : 'es'} — results open in the Verify tab.`;
+  $('#verify-input').value = emails.join('\n');
+  $('#verify-count').textContent = `${emails.length} address${emails.length === 1 ? '' : 'es'}`;
+  navTo('verify');
+  await startVerifyRun(emails);
+}
+
 async function runBatch() {
   if (running) return;
+  if (($('#opt-verifier')?.value || 'off') === 'verify') return runVerifierBatch();
   // A file selection streams from disk; a pasted list tests the parsed records.
   if (loadedFiles.length > 0) return runFileBatch();
 
@@ -1008,8 +1058,7 @@ $('#verify-input')?.addEventListener('input', () => {
   const n = verifyEmailsFromInput().length;
   $('#verify-count').textContent = n ? `${n} address${n === 1 ? '' : 'es'}` : '';
 });
-$('#btn-verify-run')?.addEventListener('click', async () => {
-  const emails = verifyEmailsFromInput();
+async function startVerifyRun(emails) {
   if (!emails.length) return;
   verifyResults = [];
   verifyCounts = {};
@@ -1021,19 +1070,26 @@ $('#btn-verify-run')?.addEventListener('click', async () => {
   $('#verify-progress').textContent = `0 / ${emails.length}`;
   try { await api.verifyRun(emails); }
   finally { $('#btn-verify-run').disabled = false; $('#btn-verify-cancel').disabled = true; }
-});
+}
+$('#btn-verify-run')?.addEventListener('click', () => startVerifyRun(verifyEmailsFromInput()));
 $('#btn-verify-cancel')?.addEventListener('click', () => api.verifyCancel());
 api.onVerifyProgress(({ result, done, total }) => {
   if (!result) return;
   verifyResults.push(result);
   verifyCounts[result.status] = (verifyCounts[result.status] || 0) + 1;
   if (result.status === 'valid') verifyHasValid = true;
-  $('#verify-progress').textContent = `${done} / ${total}`;
+  $('#verify-progress').textContent = verifyHasValid
+    ? `${done} / ${total} · saving valid live`
+    : `${done} / ${total}`;
   renderVerifySummary();
   appendVerifyRow(result);
   $('#btn-verify-export').disabled = !verifyHasValid;
 });
-api.onVerifyDone(({ done }) => { $('#verify-progress').textContent = `${done} verified`; });
+api.onVerifyDone(({ done, folder }) => {
+  $('#verify-progress').textContent = folder
+    ? `${done} verified · saved to ${folder}`
+    : `${done} verified`;
+});
 $('#verify-filters')?.addEventListener('click', (e) => {
   const btn = e.target.closest('.chip-filter');
   if (!btn) return;

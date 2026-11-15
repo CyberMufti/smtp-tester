@@ -74,6 +74,20 @@ export const PROVIDER_BUCKETS = [
   'Virgin Media',
   'TalkTalk',
   'Telstra',
+  // Australia — the major ISPs/webmail brands (Telstra/BigPond above).
+  'Optus',
+  'iiNet',
+  'Westnet',
+  'TPG',
+  'Internode',
+  'Dodo',
+  'iPrimus',
+  'Ozemail',
+  'Exetel',
+  'Aussie Broadband',
+  'Grapevine',
+  'Netspace',
+  'Adam Internet',
   'Rogers',
   'Bell',
   'Telus',
@@ -173,7 +187,23 @@ const CONSUMER_DOMAINS = new Map([
   ['sky.com', 'Sky'],
   ['virginmedia.com', 'Virgin Media'], ['ntlworld.com', 'Virgin Media'], ['blueyonder.co.uk', 'Virgin Media'],
   ['talktalk.net', 'TalkTalk'], ['tiscali.co.uk', 'TalkTalk'],
-  ['bigpond.com', 'Telstra'], ['bigpond.net.au', 'Telstra'], ['telstra.com', 'Telstra'],
+  ['bigpond.com', 'Telstra'], ['bigpond.net.au', 'Telstra'], ['telstra.com', 'Telstra'], ['telstra.com.au', 'Telstra'],
+  // Australia — ISP/webmail domains (many already carry a .au ccTLD, but the
+  // provider mapping still names the host and gives bigpond.com/iinet.com a
+  // country via PROVIDER_HOME_COUNTRY).
+  ['optusnet.com.au', 'Optus'], ['optus.com.au', 'Optus'], ['optus.net.au', 'Optus'],
+  ['iinet.net.au', 'iiNet'], ['iinet.com', 'iiNet'],
+  ['westnet.com.au', 'Westnet'],
+  ['tpg.com.au', 'TPG'], ['tpgi.com.au', 'TPG'],
+  ['internode.on.net', 'Internode'],
+  ['dodo.com.au', 'Dodo'],
+  ['iprimus.com.au', 'iPrimus'], ['primus.com.au', 'iPrimus'],
+  ['ozemail.com.au', 'Ozemail'], ['ozemail.com', 'Ozemail'],
+  ['exetel.com.au', 'Exetel'],
+  ['aussiebroadband.com.au', 'Aussie Broadband'], ['abb.id.au', 'Aussie Broadband'],
+  ['grapevine.com.au', 'Grapevine'], ['grapevine.net.au', 'Grapevine'],
+  ['netspace.net.au', 'Netspace'],
+  ['adam.com.au', 'Adam Internet'],
   ['rogers.com', 'Rogers'],
   ['bell.net', 'Bell'], ['sympatico.ca', 'Bell'],
   ['telus.net', 'Telus'],
@@ -215,6 +245,12 @@ const PROVIDER_HOME_COUNTRY = {
   'Cox': 'United States', 'CenturyLink': 'United States', 'Frontier': 'United States', 'Earthlink': 'United States',
   'Sky': 'United Kingdom', 'Virgin Media': 'United Kingdom', 'TalkTalk': 'United Kingdom',
   'Telstra': 'Australia', 'T-Online': 'Germany',
+  // Australian ISPs/webmail — home country for a bigpond.com/iinet.com/etc. that
+  // carries no .au ccTLD of its own.
+  'Optus': 'Australia', 'iiNet': 'Australia', 'Westnet': 'Australia', 'TPG': 'Australia',
+  'Internode': 'Australia', 'Dodo': 'Australia', 'iPrimus': 'Australia', 'Ozemail': 'Australia',
+  'Exetel': 'Australia', 'Aussie Broadband': 'Australia', 'Grapevine': 'Australia',
+  'Netspace': 'Australia', 'Adam Internet': 'Australia',
   'Rogers': 'Canada', 'Bell': 'Canada', 'Telus': 'Canada', 'Shaw': 'Canada',
   'Orange': 'France', 'Free': 'France',
   'BT': 'United Kingdom', 'Libero': 'Italy', 'Seznam': 'Czechia',
@@ -226,6 +262,37 @@ const PROVIDER_HOME_COUNTRY = {
   'Rakuten': 'Japan', 'J:COM': 'Japan', 'Asahi Net': 'Japan',
   'Sakura Internet': 'Japan', 'Xserver': 'Japan', 'Lolipop': 'Japan', 'GMO': 'Japan',
 };
+
+// Microsoft's getuserrealm / GetCredentialType endpoint reliably reports
+// existence ONLY for org Microsoft 365 tenants (Managed namespace, backed by
+// Azure AD). Consumer mailboxes (outlook.com / hotmail.com / live.com) are NOT
+// in Azure AD — the endpoint classifies them "Federated" and returns
+// IfExistsResult=1 (does-not-exist) for EVERY consumer address, so it must not
+// be used for them (it would mark every real mailbox invalid).
+const MICROSOFT_REALM_RELIABLE = new Set(['Microsoft 365']);
+
+/** Does this provider expose Microsoft's (reliable) HTTP existence check? */
+export function usesMicrosoftRealm(provider) {
+  return MICROSOFT_REALM_RELIABLE.has(provider);
+}
+
+// Consumer mailbox platforms that deliberately defeat passwordless RCPT
+// verification: they return the SAME response (a blanket 550, or an accept-all
+// 250) whether or not the mailbox exists, and often drop probes from IPs with no
+// mail reputation entirely. An RCPT verdict from these is untrustworthy, so the
+// verifier downgrades it to "unknown" rather than report a confident
+// valid/invalid — this is what caused real mailboxes to show as "invalid".
+// Gmail/Google Workspace are intentionally NOT here: when Google does answer a
+// probe its 250/550 is accurate (from a reputationless IP it simply drops the
+// connection, which already yields "unknown").
+const RCPT_UNRELIABLE = new Set([
+  'Yahoo/AOL', 'Yahoo! Japan', 'Outlook/Hotmail', 'iCloud', 'Proton Mail',
+]);
+
+/** Is an RCPT-TO existence verdict trustworthy for this provider? */
+export function rcptProbeReliable(provider) {
+  return !RCPT_UNRELIABLE.has(provider);
+}
 
 /**
  * The home country for a provider bucket, or "Unknown" for global providers.
@@ -368,6 +435,23 @@ const PLATFORM_PATTERNS = [
   { re: /(^|\.)(xserver\.jp|xsrv\.jp)/i, bucket: 'Xserver' },
   { re: /(^|\.)lolipop\.jp/i, bucket: 'Lolipop' },
   { re: /(^|\.)(onamae\.com|heteml\.(jp|net)|muumuu\.jp|conoha\.(jp|io)|value-domain\.com|gmoserver\.jp|gmocloud\.com)/i, bucket: 'GMO' },
+  // Australia — ISP mail hosts, matched on the sending/MX hostname so a custom
+  // domain parked on an AU ISP still resolves to that ISP. Anchored on (^|\.)
+  // so a substring can't match.
+  { re: /(^|\.)(telstra\.com|bigpond\.(com|net\.au))/i, bucket: 'Telstra' },
+  { re: /(^|\.)optusnet\.com\.au/i, bucket: 'Optus' },
+  { re: /(^|\.)iinet\.net\.au/i, bucket: 'iiNet' },
+  { re: /(^|\.)westnet\.com\.au/i, bucket: 'Westnet' },
+  { re: /(^|\.)tpg(i)?\.com\.au/i, bucket: 'TPG' },
+  { re: /(^|\.)internode\.on\.net/i, bucket: 'Internode' },
+  { re: /(^|\.)dodo\.com\.au/i, bucket: 'Dodo' },
+  { re: /(^|\.)(iprimus|primus)\.com\.au/i, bucket: 'iPrimus' },
+  { re: /(^|\.)ozemail\.com(\.au)?/i, bucket: 'Ozemail' },
+  { re: /(^|\.)exetel\.com\.au/i, bucket: 'Exetel' },
+  { re: /(^|\.)aussiebroadband\.com\.au/i, bucket: 'Aussie Broadband' },
+  { re: /(^|\.)grapevine\.(com|net)\.au/i, bucket: 'Grapevine' },
+  { re: /(^|\.)netspace\.net\.au/i, bucket: 'Netspace' },
+  { re: /(^|\.)adam\.com\.au/i, bucket: 'Adam Internet' },
   { re: /(yahoodns|yahoo)\./i, bucket: 'Yahoo/AOL' },
 ];
 

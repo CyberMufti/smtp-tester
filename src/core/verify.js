@@ -14,7 +14,7 @@
  *   geoResolver?:(host:string)=>Promise<string>,
  * }} VerifyDeps
  */
-import { classifyProvider, providerHomeCountry, serverLocationMeaningful } from './provider-class.js';
+import { classifyProvider, providerHomeCountry, serverLocationMeaningful, usesMicrosoftRealm, rcptProbeReliable } from './provider-class.js';
 import { domainCountry, countryName } from './country-names.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -94,8 +94,10 @@ export async function verifyEmail(email, deps) {
 
   if (!base.hasMx) return { ...base, status: 'no-mx' };
 
-  // Existence probe.
-  if (base.provider === 'Microsoft 365' && typeof deps.msRealm === 'function') {
+  // Existence probe. Microsoft webmail (org M365 AND consumer Outlook/Hotmail)
+  // is checked over Microsoft's HTTPS endpoint, which needs no port 25 and is
+  // the most reliable signal available for those addresses.
+  if (usesMicrosoftRealm(base.provider) && typeof deps.msRealm === 'function') {
     try {
       const realm = await deps.msRealm(addr);
       base.exists = toExists(realm?.ifExists);
@@ -109,7 +111,10 @@ export async function verifyEmail(email, deps) {
         base.catchAll = true;
       } else {
         const res = await deps.enumerate(addr, { host: mx[0], port: 25 });
-        base.exists = toExists(res?.exists);
+        // Consumer webmail that defeats RCPT probing returns the same code for
+        // real and fake mailboxes, so a "no" here is not a real non-existence —
+        // report unknown instead of a misleading "invalid".
+        base.exists = rcptProbeReliable(base.provider) ? toExists(res?.exists) : 'unknown';
       }
     } catch { /* unknown */ }
   }

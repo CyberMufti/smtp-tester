@@ -219,6 +219,12 @@
                   <option value="all">All protocols</option>
                 </select>
               </label>
+              <label title="Email Verifier / Debounce: instead of testing credentials, check whether each email address exists and detect its host (provider) and country. No passwords or SMTP logins are used — paste a plain list of addresses. Results open in the Verify tab, where you can save them grouped by host and country.">Verifier / Debounce
+                <select id="opt-verifier">
+                  <option value="off" selected>Off — test credentials</option>
+                  <option value="verify">Verify emails only (Debounce)</option>
+                </select>
+              </label>
               <label>Show rows
                 <select id="opt-rowcap">
                   <option value="500">500</option>
@@ -321,7 +327,7 @@
                   <button class="chip-filter" data-vfilter="unknown">Unknown</button>
                   <button class="chip-filter" data-vfilter="no-mx">No MX</button>
                 </div>
-                <button id="btn-verify-export" class="btn primary" disabled>Export valid (.txt)</button>
+                <button id="btn-verify-export" class="btn primary" disabled title="Valid addresses are already saved automatically to Desktop/result/verified/ (grouped by host and country) as the scan runs. This re-saves the full set and shows the folder.">Export valid (.txt)</button>
               </div>
             </div>
             <div id="verify-summary" class="summary"></div>
