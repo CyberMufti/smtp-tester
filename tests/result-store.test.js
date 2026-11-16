@@ -42,7 +42,12 @@ test('createValidLoginsLiveFile writes username:password for authenticated login
     // inbox, spam, valid -> written; dead -> skipped.
     assert.deepEqual(wrote, [true, true, true, false]);
     const body = await readFile(path, 'utf8');
-    assert.deepEqual(body.trim().split('\n'), ['a@gmail.com:p1', 'b@x.com:p2', 'c@y.com:p3']);
+    // <webmail-login-url>: user:pass — no provider on SAMPLE, so the /webmail fallback.
+    assert.deepEqual(body.trim().split('\n'), [
+      'https://gmail.com/webmail: a@gmail.com:p1',
+      'https://x.com/webmail: b@x.com:p2',
+      'https://y.com/webmail: c@y.com:p3',
+    ]);
     // A blocked/throttled login is unproven and must not be written.
     assert.equal(vf.add(result('inbox', { user: 'e@z.com', pass: 'p5' }, { blocked: true })), false);
   });
@@ -58,7 +63,10 @@ test('createValidLoginsLiveFile truncates a fresh run but appends on resume', as
     fresh.add(SAMPLE[1]);
     // Resume (append:true) keeps existing content.
     createValidLoginsLiveFile(path, { append: true }).add(SAMPLE[2]);
-    assert.deepEqual((await readFile(path, 'utf8')).trim().split('\n'), ['b@x.com:p2', 'c@y.com:p3']);
+    assert.deepEqual((await readFile(path, 'utf8')).trim().split('\n'), [
+      'https://x.com/webmail: b@x.com:p2',
+      'https://y.com/webmail: c@y.com:p3',
+    ]);
   });
 });
 

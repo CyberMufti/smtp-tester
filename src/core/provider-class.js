@@ -294,6 +294,55 @@ export function rcptProbeReliable(provider) {
   return !RCPT_UNRELIABLE.has(provider);
 }
 
+// Browser webmail login page per provider bucket, so a working email+password
+// can be opened and used directly. Custom/business domains fall back to the
+// cPanel webmail convention on their own domain.
+const WEBMAIL_BY_PROVIDER = {
+  'Gmail': 'https://mail.google.com',
+  'Google Workspace': 'https://mail.google.com',
+  'Outlook/Hotmail': 'https://outlook.live.com',
+  'Microsoft 365': 'https://outlook.office.com',
+  'Yahoo/AOL': 'https://mail.yahoo.com',
+  'iCloud': 'https://www.icloud.com/mail',
+  'Zoho': 'https://mail.zoho.com',
+  'GMX/Web.de': 'https://www.gmx.net',
+  'Proton Mail': 'https://mail.proton.me',
+  'Yandex': 'https://mail.yandex.com',
+  'Mail.ru': 'https://e.mail.ru',
+  'Fastmail': 'https://www.fastmail.com',
+  // Australian ISPs/webmail.
+  'Telstra': 'https://webmail.telstra.com',
+  'Optus': 'https://webmail.optusnet.com.au',
+  'iiNet': 'https://webmail.iinet.net.au',
+  'Westnet': 'https://webmail.westnet.com.au',
+  'TPG': 'https://webmail.tpg.com.au',
+  'Internode': 'https://webmail.internode.on.net',
+  'Dodo': 'https://webmail.dodo.com.au',
+  'iPrimus': 'https://webmail.iprimus.com.au',
+  'Ozemail': 'https://webmail.ozemail.com.au',
+  'Exetel': 'https://webmail.exetel.com.au',
+  'Aussie Broadband': 'https://webmail.aussiebroadband.com.au',
+  'Netspace': 'https://webmail.netspace.net.au',
+  'Adam Internet': 'https://webmail.adam.com.au',
+  'Grapevine': 'https://webmail.grapevine.com.au',
+};
+
+/**
+ * The browser webmail login URL for an account, from its provider bucket and
+ * email domain. Known providers map to their real login page; AOL (inside the
+ * Yahoo/AOL bucket) is handled by domain; everything else falls back to the
+ * cPanel webmail path on the account's own domain.
+ * @param {{provider?:string, domain?:string}} arg
+ * @returns {string}
+ */
+export function webmailLoginUrl({ provider, domain } = {}) {
+  const d = String(domain || '').toLowerCase().trim();
+  if (/(^|\.)aol\.com$/.test(d)) return 'https://mail.aol.com';
+  const byProvider = WEBMAIL_BY_PROVIDER[provider];
+  if (byProvider) return byProvider;
+  return d ? `https://${d}/webmail` : '';
+}
+
 /**
  * The home country for a provider bucket, or "Unknown" for global providers.
  * Used only as a fallback after the domain's country TLD.

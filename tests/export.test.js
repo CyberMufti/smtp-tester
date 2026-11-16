@@ -11,9 +11,21 @@ test('isWorkingLogin: authenticated (non-dead, non-blocked) credentials count as
   assert.equal(isWorkingLogin(null), false);
 });
 
-test('loginCredLine emits username:password', () => {
-  assert.equal(loginCredLine({ cred: { user: 'john@acme.com', pass: 's3cret' } }), 'john@acme.com:s3cret');
-  assert.equal(loginCredLine({ cred: {} }), ':');
+test('loginCredLine prefixes the webmail login URL: <url>: user:pass', () => {
+  assert.equal(
+    loginCredLine({ provider: 'Gmail', cred: { user: 'john@gmail.com', pass: 's3cret' } }),
+    'https://mail.google.com: john@gmail.com:s3cret',
+  );
+  // Custom/business domain falls back to the /webmail convention on its domain.
+  assert.equal(
+    loginCredLine({ provider: 'Other', cred: { user: 'a@acme.com', pass: 'p' } }),
+    'https://acme.com/webmail: a@acme.com:p',
+  );
+  // Australian ISP bucket resolves to its webmail portal.
+  assert.equal(
+    loginCredLine({ provider: 'Telstra', cred: { user: 'bob@bigpond.com', pass: 'x' } }),
+    'https://webmail.telstra.com: bob@bigpond.com:x',
+  );
 });
 
 test('csvRowLine neutralizes spreadsheet formula injection in a cell', () => {

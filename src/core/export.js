@@ -6,7 +6,7 @@
  *
  * @typedef {import('./tester.js').Result} Result
  */
-import { classifyProvider } from './provider-class.js';
+import { classifyProvider, webmailLoginUrl } from './provider-class.js';
 import { panelUrlFor } from './cred-line.js';
 import { deliverabilityScore } from './deliverability.js';
 import { warmupRecommendation } from './warmup.js';
@@ -62,9 +62,17 @@ export function isWorkingLogin(r) {
   return !!r && r.status !== 'dead' && !r.blocked;
 }
 
-/** The `username:password` line for a working login (the valid.txt format). */
+/**
+ * The valid.txt line for a working login: `<webmail-login-url>: user:pass`, so
+ * the credential can be opened and used directly. The URL is the account's
+ * browser webmail page (provider-aware, with a per-domain /webmail fallback).
+ */
 export function loginCredLine(r) {
-  return `${r.cred?.user ?? ''}:${r.cred?.pass ?? ''}`;
+  const user = r.cred?.user ?? '';
+  const pass = r.cred?.pass ?? '';
+  const domain = typeof user === 'string' && user.includes('@') ? user.split('@')[1] : '';
+  const url = webmailLoginUrl({ provider: r.provider, domain });
+  return `${url}: ${user}:${pass}`;
 }
 
 // Multi-label public suffixes we care about, so host "mail.acme.co.uk" groups
