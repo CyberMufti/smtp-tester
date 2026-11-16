@@ -1,14 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toWorkingTxt, toConfirmedTxt, csvRowLine, isWorkingLogin, loginCredLine } from '../src/core/export.js';
+import { toWorkingTxt, toConfirmedTxt, csvRowLine, isConfirmedLogin, hasValidAuth, savesToValidTxt, loginCredLine } from '../src/core/export.js';
 
-test('isWorkingLogin: authenticated (non-dead, non-blocked) credentials count as a working login', () => {
-  for (const status of ['valid', 'inbox', 'spam', 'unverified', 'limited', 'unknown']) {
-    assert.equal(isWorkingLogin({ status, cred: { user: 'a', pass: 'b' } }), true, status);
+const GOOD_AUTH = { spf: { found: true, result: 'pass' }, dmarc: { found: true, policy: 'reject', aligned: true } };
+
+test('isConfirmedLogin: only a delivered authenticated send (valid/inbox/spam, not blocked) counts', () => {
+  for (const status of ['valid', 'inbox', 'spam']) {
+    assert.equal(isConfirmedLogin({ status, cred: {} }), true, status);
   }
-  assert.equal(isWorkingLogin({ status: 'dead', cred: {} }), false, 'dead login is not working');
-  assert.equal(isWorkingLogin({ status: 'inbox', blocked: true, cred: {} }), false, 'blocked/throttled login is unproven');
-  assert.equal(isWorkingLogin(null), false);
+  for (const status of ['unverified', 'limited', 'unknown', 'dead']) {
+    assert.equal(isConfirmedLogin({ status, cred: {} }), false, status);
+  }
+  assert.equal(isConfirmedLogin({ status: 'valid', blocked: true, cred: {} }), false, 'blocked login is unproven');
+  assert.equal(isConfirmedLogin(null), false);
+});
+
+test('hasValidAuth: requires SPF present (not -all fail) AND DMARC present (not unaligned-under-enforcement)', () => {
+  assert.equal(hasValidAuth({ deliverability: GOOD_AUTH }), true);
+  assert.equal(hasValidAuth({ deliverability: { spf: { found: false }, dmarc: { found: true } } }), false, 'no SPF');
+  assert.equal(hasValidAuth({ deliverability: { spf: { found: true, result: 'fail' }, dmarc: { found: true } } }), false, 'SPF -all fail');
+  assert.equal(hasValidAuth({ deliverability: { spf: { found: true }, dmarc: { found: false } } }), false, 'no DMARC');
+  assert.equal(hasValidAuth({ deliverability: { spf: { found: true }, dmarc: { found: true, policy: 'reject', aligned: false } } }), false, 'DMARC reject, unaligned');
+  assert.equal(hasValidAuth({}), false, 'no deliverability (checks off) -> cannot confirm');
+});
+
+test('savesToValidTxt: confirmed login AND valid SPF/DMARC together', () => {
+  assert.equal(savesToValidTxt({ status: 'valid', cred: {}, deliverability: GOOD_AUTH }), true);
+  assert.equal(savesToValidTxt({ status: 'inbox', cred: {}, deliverability: GOOD_AUTH }), true);
+  assert.equal(savesToValidTxt({ status: 'valid', cred: {} }), false, 'valid but no SPF/DMARC data');
+  assert.equal(savesToValidTxt({ status: 'unverified', cred: {}, deliverability: GOOD_AUTH }), false, 'unverified is not a confirmed login');
 });
 
 test('loginCredLine prefixes the webmail login URL: <url>: user:pass', () => {

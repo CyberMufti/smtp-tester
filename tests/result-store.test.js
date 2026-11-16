@@ -34,35 +34,41 @@ async function writeRun(dir) {
   return { path, total, counts };
 }
 
-test('createValidLoginsLiveFile writes username:password for authenticated logins only, live', async () => {
+const GOOD_AUTH = { spf: { found: true, result: 'pass' }, dmarc: { found: true, policy: 'reject', aligned: true } };
+const good = (status, cred) => result(status, cred, { deliverability: GOOD_AUTH });
+
+test('createValidLoginsLiveFile writes only confirmed logins with valid SPF/DMARC, live', async () => {
   await withTempDir(async (dir) => {
     const path = join(dir, 'valid.txt');
     const vf = createValidLoginsLiveFile(path);
-    const wrote = SAMPLE.map((r) => vf.add(r));
-    // inbox, spam, valid -> written; dead -> skipped.
-    assert.deepEqual(wrote, [true, true, true, false]);
+    const rows = [
+      good('valid', { user: 'a@gmail.com', pass: 'p1' }),                                  // written
+      good('inbox', { user: 'b@x.com', pass: 'p2' }),                                       // written
+      result('valid', { user: 'c@y.com', pass: 'p3' }),                                     // no SPF/DMARC data -> skipped
+      good('unverified', { user: 'd@z.com', pass: 'p4' }),                                  // failed auth gate -> skipped
+      result('valid', { user: 'e@q.com', pass: 'p5' }, { deliverability: { spf: { found: false }, dmarc: { found: true } } }), // no SPF -> skipped
+      result('dead', { user: 'f@dead.com', pass: 'p6' }),                                   // dead -> skipped
+    ];
+    const wrote = rows.map((r) => vf.add(r));
+    assert.deepEqual(wrote, [true, true, false, false, false, false]);
     const body = await readFile(path, 'utf8');
-    // <webmail-login-url>: user:pass — no provider on SAMPLE, so the /webmail fallback.
     assert.deepEqual(body.trim().split('\n'), [
       'https://gmail.com/webmail: a@gmail.com:p1',
       'https://x.com/webmail: b@x.com:p2',
-      'https://y.com/webmail: c@y.com:p3',
     ]);
-    // A blocked/throttled login is unproven and must not be written.
-    assert.equal(vf.add(result('inbox', { user: 'e@z.com', pass: 'p5' }, { blocked: true })), false);
   });
 });
 
 test('createValidLoginsLiveFile truncates a fresh run but appends on resume', async () => {
   await withTempDir(async (dir) => {
     const path = join(dir, 'valid.txt');
-    createValidLoginsLiveFile(path).add(SAMPLE[0]);
+    createValidLoginsLiveFile(path).add(good('valid', { user: 'a@gmail.com', pass: 'p1' }));
     // Fresh (append:false) starts empty again.
     const fresh = createValidLoginsLiveFile(path);
     assert.equal(await readFile(path, 'utf8'), '');
-    fresh.add(SAMPLE[1]);
+    fresh.add(good('spam', { user: 'b@x.com', pass: 'p2' }));
     // Resume (append:true) keeps existing content.
-    createValidLoginsLiveFile(path, { append: true }).add(SAMPLE[2]);
+    createValidLoginsLiveFile(path, { append: true }).add(good('valid', { user: 'c@y.com', pass: 'p3' }));
     assert.deepEqual((await readFile(path, 'utf8')).trim().split('\n'), [
       'https://x.com/webmail: b@x.com:p2',
       'https://y.com/webmail: c@y.com:p3',

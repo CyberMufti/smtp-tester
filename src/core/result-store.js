@@ -23,7 +23,7 @@ import {
   WORKING_GROUPS,
   confirmedTxtHeaderLines,
   CONFIRMED_STATUSES,
-  isWorkingLogin,
+  savesToValidTxt,
   loginCredLine,
 } from './export.js';
 
@@ -101,11 +101,12 @@ export function createConfirmedLiveFile(filePath, { append = false, generatedAt 
 }
 
 /**
- * Append every credential that logs in correctly (the SMTP accepted its email +
- * password) to a standalone `valid.txt` as `username:password`, live, so working
- * logins survive a mid-scan cancel/crash. A plain list with no header, so it can
- * be re-used directly. `add(result)` writes only authenticated logins and
- * returns whether it did.
+ * Append each CONFIRMED login whose sending domain has valid SPF and DMARC to a
+ * standalone `valid.txt`, live, so good logins survive a mid-scan cancel/crash.
+ * Each line is `<webmail-login-url>: username:password`. Only a login that
+ * authenticated AND delivered a test message AND passed SPF+DMARC is written
+ * (see savesToValidTxt) — so this requires the deliverability checks to be on.
+ * A plain list with no header, re-usable directly.
  *
  * @param {string} filePath
  * @param {{append?:boolean}} [opts] append continues an existing file (resume);
@@ -115,9 +116,9 @@ export function createValidLoginsLiveFile(filePath, { append = false } = {}) {
   mkdirSync(dirname(filePath), { recursive: true });
   if (!append || !existsSync(filePath)) writeFileSync(filePath, '');
   return {
-    /** @param {object} result @returns {boolean} true if a working login was written. */
+    /** @param {object} result @returns {boolean} true if a qualifying login was written. */
     add(result) {
-      if (!isWorkingLogin(result)) return false;
+      if (!savesToValidTxt(result)) return false;
       appendFileSync(filePath, loginCredLine(result) + '\n');
       return true;
     },

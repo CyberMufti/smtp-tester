@@ -52,14 +52,45 @@ export function workingCredLine(r) {
   return credLine(host, port, r.cred.user, r.cred.pass);
 }
 
+// Statuses that prove the login is accurate: the SMTP accepted the email +
+// password AND a real message went through (a confirmed authenticated send).
+// 'unverified' (sent but failed the SPF/DMARC gate), 'limited' (rate-limited),
+// 'unknown', 'dead' and blocked logins are all excluded.
+const CONFIRMED_LOGIN_STATUSES = ['valid', 'inbox', 'spam'];
+
 /**
- * Did this credential authenticate (log in correctly)? True for any result that
- * is not dead and was not merely blocked/throttled — i.e. the server accepted
- * the email + password. Used for the standalone "valid" logins file.
+ * Is this a confirmed, accurate login? The credential authenticated and a test
+ * message was actually accepted/delivered (not merely connected or throttled).
  * @param {Result} r
  */
-export function isWorkingLogin(r) {
-  return !!r && r.status !== 'dead' && !r.blocked;
+export function isConfirmedLogin(r) {
+  return !!r && !r.blocked && CONFIRMED_LOGIN_STATUSES.includes(r.status);
+}
+
+/**
+ * Does the sending domain have VALID SPF and DMARC? Mirrors the passing side of
+ * applyAuthGate: SPF present and not an explicit -all fail, DMARC present and not
+ * unaligned under an enforcing policy. Requires that deliverability checks ran
+ * (records were resolved) — with checks off there is nothing to confirm, so this
+ * is false and the login is not saved.
+ * @param {Result} r
+ */
+export function hasValidAuth(r) {
+  const d = r && r.deliverability;
+  if (!d || !d.spf || !d.dmarc) return false;
+  const spfOk = d.spf.found === true && d.spf.result !== 'fail';
+  const dmarcOk = d.dmarc.found === true &&
+    !(d.dmarc.aligned === false && (d.dmarc.policy === 'reject' || d.dmarc.policy === 'quarantine'));
+  return spfOk && dmarcOk;
+}
+
+/**
+ * The gate for the standalone valid.txt: only a confirmed accurate login whose
+ * sending domain has valid SPF and DMARC is saved.
+ * @param {Result} r
+ */
+export function savesToValidTxt(r) {
+  return isConfirmedLogin(r) && hasValidAuth(r);
 }
 
 /**
