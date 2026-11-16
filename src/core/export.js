@@ -52,6 +52,21 @@ export function workingCredLine(r) {
   return credLine(host, port, r.cred.user, r.cred.pass);
 }
 
+/**
+ * Did this credential authenticate (log in correctly)? True for any result that
+ * is not dead and was not merely blocked/throttled — i.e. the server accepted
+ * the email + password. Used for the standalone "valid" logins file.
+ * @param {Result} r
+ */
+export function isWorkingLogin(r) {
+  return !!r && r.status !== 'dead' && !r.blocked;
+}
+
+/** The `username:password` line for a working login (the valid.txt format). */
+export function loginCredLine(r) {
+  return `${r.cred?.user ?? ''}:${r.cred?.pass ?? ''}`;
+}
+
 // Multi-label public suffixes we care about, so host "mail.acme.co.uk" groups
 // as "acme.co.uk" rather than "co.uk". Not exhaustive — a pragmatic subset.
 const TWO_PART_TLDS = new Set([

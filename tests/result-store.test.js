@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createResultSink, createConfirmedLiveFile, readResults, exportRun } from '../src/core/result-store.js';
+import { createResultSink, createConfirmedLiveFile, createValidLoginsLiveFile, readResults, exportRun } from '../src/core/result-store.js';
 import { parse } from '../src/core/parser.js';
 
 async function withTempDir(fn) {
@@ -33,6 +33,34 @@ async function writeRun(dir) {
   const { total, counts } = await sink.close();
   return { path, total, counts };
 }
+
+test('createValidLoginsLiveFile writes username:password for authenticated logins only, live', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'valid.txt');
+    const vf = createValidLoginsLiveFile(path);
+    const wrote = SAMPLE.map((r) => vf.add(r));
+    // inbox, spam, valid -> written; dead -> skipped.
+    assert.deepEqual(wrote, [true, true, true, false]);
+    const body = await readFile(path, 'utf8');
+    assert.deepEqual(body.trim().split('\n'), ['a@gmail.com:p1', 'b@x.com:p2', 'c@y.com:p3']);
+    // A blocked/throttled login is unproven and must not be written.
+    assert.equal(vf.add(result('inbox', { user: 'e@z.com', pass: 'p5' }, { blocked: true })), false);
+  });
+});
+
+test('createValidLoginsLiveFile truncates a fresh run but appends on resume', async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, 'valid.txt');
+    createValidLoginsLiveFile(path).add(SAMPLE[0]);
+    // Fresh (append:false) starts empty again.
+    const fresh = createValidLoginsLiveFile(path);
+    assert.equal(await readFile(path, 'utf8'), '');
+    fresh.add(SAMPLE[1]);
+    // Resume (append:true) keeps existing content.
+    createValidLoginsLiveFile(path, { append: true }).add(SAMPLE[2]);
+    assert.deepEqual((await readFile(path, 'utf8')).trim().split('\n'), ['b@x.com:p2', 'c@y.com:p3']);
+  });
+});
 
 test('sink surfaces a write-stream error instead of hanging drain/close forever', async () => {
   await withTempDir(async (dir) => {

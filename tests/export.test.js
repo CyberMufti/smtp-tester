@@ -1,6 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toWorkingTxt, toConfirmedTxt, csvRowLine } from '../src/core/export.js';
+import { toWorkingTxt, toConfirmedTxt, csvRowLine, isWorkingLogin, loginCredLine } from '../src/core/export.js';
+
+test('isWorkingLogin: authenticated (non-dead, non-blocked) credentials count as a working login', () => {
+  for (const status of ['valid', 'inbox', 'spam', 'unverified', 'limited', 'unknown']) {
+    assert.equal(isWorkingLogin({ status, cred: { user: 'a', pass: 'b' } }), true, status);
+  }
+  assert.equal(isWorkingLogin({ status: 'dead', cred: {} }), false, 'dead login is not working');
+  assert.equal(isWorkingLogin({ status: 'inbox', blocked: true, cred: {} }), false, 'blocked/throttled login is unproven');
+  assert.equal(isWorkingLogin(null), false);
+});
+
+test('loginCredLine emits username:password', () => {
+  assert.equal(loginCredLine({ cred: { user: 'john@acme.com', pass: 's3cret' } }), 'john@acme.com:s3cret');
+  assert.equal(loginCredLine({ cred: {} }), ':');
+});
 
 test('csvRowLine neutralizes spreadsheet formula injection in a cell', () => {
   const row = csvRowLine({

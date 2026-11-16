@@ -23,6 +23,8 @@ import {
   WORKING_GROUPS,
   confirmedTxtHeaderLines,
   CONFIRMED_STATUSES,
+  isWorkingLogin,
+  loginCredLine,
 } from './export.js';
 
 /**
@@ -93,6 +95,30 @@ export function createConfirmedLiveFile(filePath, { append = false, generatedAt 
     add(result) {
       if (!result || !CONFIRMED_STATUSES.includes(result.status)) return false;
       appendFileSync(filePath, workingCredLine(result) + '\n');
+      return true;
+    },
+  };
+}
+
+/**
+ * Append every credential that logs in correctly (the SMTP accepted its email +
+ * password) to a standalone `valid.txt` as `username:password`, live, so working
+ * logins survive a mid-scan cancel/crash. A plain list with no header, so it can
+ * be re-used directly. `add(result)` writes only authenticated logins and
+ * returns whether it did.
+ *
+ * @param {string} filePath
+ * @param {{append?:boolean}} [opts] append continues an existing file (resume);
+ *   otherwise the file is truncated for a fresh run.
+ */
+export function createValidLoginsLiveFile(filePath, { append = false } = {}) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  if (!append || !existsSync(filePath)) writeFileSync(filePath, '');
+  return {
+    /** @param {object} result @returns {boolean} true if a working login was written. */
+    add(result) {
+      if (!isWorkingLogin(result)) return false;
+      appendFileSync(filePath, loginCredLine(result) + '\n');
       return true;
     },
   };

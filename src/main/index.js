@@ -8,7 +8,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmS
 import { resolveTxt, resolve4, resolveMx, resolveSrv } from 'node:dns/promises';
 import { runBatch } from '../core/tester.js';
 import { streamCredentialsFromFile, dedupeFileToDisk, parsedCredsPathFor } from '../core/parse-file.js';
-import { createResultSink, createConfirmedLiveFile, exportRun, readRunProgress, readResults } from '../core/result-store.js';
+import { createResultSink, createConfirmedLiveFile, createValidLoginsLiveFile, exportRun, readRunProgress, readResults } from '../core/result-store.js';
 import { createProgressBatcher } from '../core/progress-batcher.js';
 import { settleWithBudget } from '../core/settle-with-budget.js';
 import { shouldRunPanelChecks } from '../core/panel-gate.js';
@@ -750,6 +750,7 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
   // the "running" state (currentAbort non-null, batch:done never sent).
   let sink = null;
   let confirmedLive = null;
+  let validLoginsLive = null;
   let progress = null;
   try {
     const geoResolver = await getGeoResolver();
@@ -765,6 +766,12 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
       confirmedLive = createConfirmedLiveFile(confirmedLivePath(), { append: resume, generatedAt: new Date().toISOString() });
     } catch (e) {
       recordCrash('initConfirmedLiveFile', e);
+    }
+    // Standalone valid.txt of working email:password logins, appended live.
+    try {
+      validLoginsLive = createValidLoginsLiveFile(validLoginsPath(), { append: resume });
+    } catch (e) {
+      recordCrash('initValidLoginsFile', e);
     }
     // Coalesce per-credential progress into batched IPC sends. One message per
     // credential floods the renderer (and this process) at large scale; a batched
@@ -838,6 +845,8 @@ async function runBatchToDisk(source, seeds, opts, { resume = false } = {}) {
         // Persist confirmed hits immediately — before the run finishes — so an
         // inbox/spam credential is never lost to a mid-scan cancel or crash.
         try { confirmedLive?.add(result); } catch (e) { recordCrash('appendConfirmedLive', e); }
+        // Persist working logins (email:password that authenticated) live too.
+        try { validLoginsLive?.add(result); } catch (e) { recordCrash('appendValidLogins', e); }
         progress.push({ result, index });
       },
     );
@@ -1027,6 +1036,14 @@ function resultFolderPath() {
 // file survives the end-of-run folder rebuild) as a re-importable TXT.
 function confirmedLivePath() {
   return join(resultFolderPath(), 'inbox+spam (live).txt');
+}
+
+// Standalone list of every credential that logged in correctly (email + password
+// accepted by the SMTP), as username:password, appended live. Sits at the result
+// folder root — writeResultFolder only clears its subtrees, so this survives the
+// end-of-run rebuild.
+function validLoginsPath() {
+  return join(resultFolderPath(), 'valid.txt');
 }
 
 /**
