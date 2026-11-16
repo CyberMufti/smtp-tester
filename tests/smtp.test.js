@@ -82,6 +82,31 @@ test('verify reports authenticated=false on wrong password', async () => {
   assert.ok(res.error);
 });
 
+test('verify does NOT report authenticated for an open relay that requires no AUTH', async () => {
+  // A server that accepts mail without authentication (open relay / IP-based
+  // relay, like some ISP SMTPs). Before forceAuth, nodemailer's verify() would
+  // skip login entirely and resolve success, so ANY password looked "valid" —
+  // the false positive behind "valid in the app but wrong on webmail".
+  const relay = await new Promise((resolve) => {
+    const server = new SMTPServer({
+      authOptional: true,
+      hideSTARTTLS: true,
+      disabledCommands: ['AUTH', 'STARTTLS'],
+      onData(stream, _s, cb) { stream.on('data', () => {}); stream.on('end', cb); },
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.server.address().port }));
+  });
+  try {
+    const res = await verify(
+      { host: '127.0.0.1', port: relay.port, user: 'anyone@x.com', pass: 'whatever' },
+      { connectTimeout: 3000 },
+    );
+    assert.equal(res.authenticated, false, 'a relay that never checked the password must not be authenticated');
+  } finally {
+    relay.server.close();
+  }
+});
+
 test('verify reports connected=false when nothing is listening', async () => {
   // Port 1 is privileged/unused; connection should be refused quickly.
   const res = await verify(

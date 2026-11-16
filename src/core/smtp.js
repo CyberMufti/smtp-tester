@@ -59,6 +59,14 @@ function buildTransport(cred, { connectTimeout = 10000, sendTimeout, proxy } = {
     port: cred.port,
     secure: cred.port === 465,
     auth: buildAuth(cred),
+    // Require a real SMTP AUTH exchange. Without this, nodemailer's verify()
+    // resolves as success WITHOUT authenticating whenever the server doesn't
+    // advertise AUTH (open relays, and ISP servers that relay by IP/network) —
+    // the password is never checked, so a wrong credential is reported as a
+    // working login (and its test message is accepted by the relay). forceAuth
+    // makes nodemailer always run AUTH, so a login the server cannot actually
+    // accept fails instead of being mis-reported as valid.
+    forceAuth: true,
     connectionTimeout: connectTimeout,
     greetingTimeout: connectTimeout,
     socketTimeout: sendTimeout ?? connectTimeout,
