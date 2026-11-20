@@ -1492,8 +1492,10 @@ function parseOffice365Input(text) {
   for (const raw of String(text || '').split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
-    const m = line.match(/([^\s:,;|]+@[^\s:,;|]+)[\s:,;|]+([^\s:,;|]+)/);
-    if (m) out.push({ user: m[1], pass: m[2] });
+    // Email up to the first separator; EVERYTHING after it is the password, so
+    // passwords containing : ; , or spaces aren't truncated (matches core parser).
+    const m = line.match(/^(\S+?@\S+?)[\s:;,|]+(.+)$/);
+    if (m && m[2].trim()) out.push({ user: m[1], pass: m[2].trim() });
   }
   return out;
 }
@@ -1519,8 +1521,11 @@ function renderOffice365() {
 }
 function renderOffice365Summary() {
   const c = office365Counts;
-  $('#office365-summary').textContent =
-    `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
+  const base = `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
+  const warn = c.throttled
+    ? ` · ⚠ ${c.throttled} throttled/locked — Microsoft is rate-limiting; lower concurrency and re-run those for accurate results`
+    : '';
+  $('#office365-summary').innerHTML = esc(base) + (warn ? `<span class="err-text">${esc(warn)}</span>` : '');
 }
 $('#office365-filters')?.addEventListener('click', (e) => {
   const btn = e.target.closest('.chip-filter');
@@ -1556,7 +1561,12 @@ $('#office365-file')?.addEventListener('change', async (e) => {
   }
 });
 $('#btn-office365-check')?.addEventListener('click', async () => {
-  const targets = parseOffice365Input($('#office365-input').value);
+  // De-duplicate identical email:password pairs: re-checking the same account
+  // wastes attempts and risks tripping Microsoft smart-lockout, which would make
+  // later results inaccurate.
+  const seen = new Set();
+  const targets = parseOffice365Input($('#office365-input').value)
+    .filter((t) => { const k = `${t.user.toLowerCase()} ${t.pass}`; if (seen.has(k)) return false; seen.add(k); return true; });
   if (!targets.length) {
     $('#office365-summary').innerHTML = '<span class="err-text">Add at least one account as email:password.</span>';
     return;
@@ -1577,6 +1587,7 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
     // Incremental count (O(1)); keep only a bounded window of rows in memory so a
     // very large list can't grow the array/DOM without limit and stall the UI.
     office365Counts[result.status] = (office365Counts[result.status] || 0) + 1;
+    if (result.throttled) office365Counts.throttled = (office365Counts.throttled || 0) + 1;
     office365Results.push(result);
     if (office365Results.length > O365_DOM_CAP) office365Results.shift();
     done++;

@@ -109,9 +109,40 @@ test('runOffice365Checks: runs the batch in order and reports each result', asyn
   assert.equal(seen.length, 2);
 });
 
-test('parseOffice365Lines: email:pass, email pass, and trailing host:port all yield {user,pass}', () => {
+test('parseOffice365Lines: email:pass and email pass', () => {
   assert.deepEqual(parseOffice365Lines('a@x.com:secret'), [{ user: 'a@x.com', pass: 'secret' }]);
   assert.deepEqual(parseOffice365Lines('b@x.com password2'), [{ user: 'b@x.com', pass: 'password2' }]);
-  assert.deepEqual(parseOffice365Lines('c@x.com:pw3:outlook.office365.com:993'), [{ user: 'c@x.com', pass: 'pw3' }]);
   assert.deepEqual(parseOffice365Lines('# comment\n\nd@x.com:pw4'), [{ user: 'd@x.com', pass: 'pw4' }]);
+});
+
+test('parseOffice365Lines: passwords containing : ; , or spaces are NOT truncated', () => {
+  // This was the false-"invalid" bug: a password with a colon was cut short.
+  assert.deepEqual(parseOffice365Lines('a@x.com:P@ss:w0rd:99'), [{ user: 'a@x.com', pass: 'P@ss:w0rd:99' }]);
+  assert.deepEqual(parseOffice365Lines('b@x.com:two words here'), [{ user: 'b@x.com', pass: 'two words here' }]);
+  assert.deepEqual(parseOffice365Lines('c@x.com;semi;colon'), [{ user: 'c@x.com', pass: 'semi;colon' }]);
+  // No password at all -> skipped (can't check without one).
+  assert.deepEqual(parseOffice365Lines('d@x.com'), []);
+});
+
+test('classifyTokenResponse: MFA codes mark the password as valid (not a flat unknown)', () => {
+  const r = classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS50076: MFA required' } });
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.passwordValid, true);
+  assert.match(r.detail, /VALID/);
+});
+
+test('classifyTokenResponse: throttle/lockout codes are flagged throttled, never invalid', () => {
+  const r = classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS50053: account locked' } });
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.throttled, true);
+});
+
+test('classifyTokenResponse: a blocked ROPC client (700016) is unknown, not invalid', () => {
+  assert.equal(classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS700016' } }).status, 'unknown');
+});
+
+test('classifyImapLogin: throttling is never a wrong password', () => {
+  const r = classifyImapLogin({ ok: false, error: 'Request is throttled. Please try again.', authFailed: true });
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.fallback, true);
 });
