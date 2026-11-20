@@ -1538,6 +1538,11 @@ $('#office365-filters')?.addEventListener('click', (e) => {
   $$('#office365-filters .chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
   renderOffice365();
 });
+// Office 365 checking is lockout-limited (Microsoft locks accounts/IP under
+// rapid attempts), so huge lists are impractical AND loading a very large file
+// into the renderer textarea can exhaust renderer memory and crash the window.
+// Cap what we load and check to a sane number.
+const MAX_O365_ACCOUNTS = 5000;
 function readFileText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1554,10 +1559,18 @@ $('#office365-file')?.addEventListener('change', async (e) => {
   try {
     const texts = await Promise.all(files.map(readFileText));
     const box = $('#office365-input');
-    const existing = box.value.trim();
-    box.value = (existing ? existing + '\n' : '') + texts.join('\n');
-    const n = parseOffice365Input(box.value).length;
-    note.textContent = `Loaded ${files.map((f) => f.name).join(', ')} — ${n} account${n === 1 ? '' : 's'} ready.`;
+    // Parse to accounts FIRST (don't dump a possibly-huge raw file into the DOM),
+    // keep only valid email:password lines, and cap the count. Then the textarea
+    // only ever holds the bounded, normalized list.
+    const existing = parseOffice365Input(box.value);
+    const loaded = parseOffice365Input(texts.join('\n'));
+    const all = existing.concat(loaded);
+    const capped = all.length > MAX_O365_ACCOUNTS;
+    const kept = capped ? all.slice(0, MAX_O365_ACCOUNTS) : all;
+    box.value = kept.map((t) => `${t.user}:${t.pass}`).join('\n');
+    note.innerHTML = capped
+      ? `Loaded ${esc(files.map((f) => f.name).join(', '))} — kept first <b>${MAX_O365_ACCOUNTS}</b> accounts (list was larger; O365 checking is lockout-limited, so keep lists small).`
+      : `Loaded ${esc(files.map((f) => f.name).join(', '))} — ${kept.length} account${kept.length === 1 ? '' : 's'} ready.`;
   } catch (err) {
     note.innerHTML = `<span class="err-text">Could not read file: ${esc(err.message)}</span>`;
   } finally {
@@ -1569,11 +1582,16 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
   // wastes attempts and risks tripping Microsoft smart-lockout, which would make
   // later results inaccurate.
   const seen = new Set();
-  const targets = parseOffice365Input($('#office365-input').value)
+  let targets = parseOffice365Input($('#office365-input').value)
     .filter((t) => { const k = `${t.user.toLowerCase()} ${t.pass}`; if (seen.has(k)) return false; seen.add(k); return true; });
   if (!targets.length) {
     $('#office365-summary').innerHTML = '<span class="err-text">Add at least one account as email:password.</span>';
     return;
+  }
+  let capNote = '';
+  if (targets.length > MAX_O365_ACCOUNTS) {
+    targets = targets.slice(0, MAX_O365_ACCOUNTS);
+    capNote = ` · capped to first ${MAX_O365_ACCOUNTS} (O365 checking is lockout-limited)`;
   }
   office365Results = [];
   office365Counts = {};
@@ -1584,7 +1602,7 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
   const cancel = $('#btn-office365-cancel');
   btn.disabled = true;
   cancel.disabled = false;
-  $('#office365-progress').textContent = `0 / ${targets.length}`;
+  $('#office365-progress').textContent = `0 / ${targets.length}${capNote}`;
   let done = 0;
   const off = api.onOffice365Progress(({ result }) => {
     if (!result) return;
@@ -1614,6 +1632,9 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
     $('#office365-progress').textContent = rep.folder
       ? `${done} checked · valid saved to ${rep.folder}`
       : `${done} checked`;
+  } catch (err) {
+    // Never let a renderer-side failure bubble up uncaught.
+    $('#office365-summary').innerHTML = `<span class="err-text">Check failed: ${esc(err?.message || String(err))}</span>`;
   } finally {
     off?.();
     btn.disabled = false;
