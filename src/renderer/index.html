@@ -468,8 +468,11 @@
               <code>Desktop/result/office365-valid.txt</code>.
             </p>
             <p class="muted" style="margin-top:6px">
-              <b>Note:</b> accounts protected by MFA or modern-auth-only policies return
-              <b>unknown</b> — a password can't be confirmed passwordlessly there, and that's expected.
+              <b>Note:</b> most tenants block legacy login, so a correct password usually can't be
+              completed — Microsoft replies "MFA required". Those are shown as
+              <b>✓ password-valid (MFA-gated)</b> and saved to
+              <code>office365-mfa-valid.txt</code> (real credential hits). A clean token lands in
+              <code>office365-valid.txt</code>; everything else stays <b>unknown</b>.
             </p>
             <div class="form-grid">
               <label>Concurrency

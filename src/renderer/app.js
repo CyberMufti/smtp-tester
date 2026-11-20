@@ -1522,10 +1522,13 @@ function renderOffice365() {
 function renderOffice365Summary() {
   const c = office365Counts;
   const base = `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
-  const warn = c.throttled
-    ? ` · ⚠ ${c.throttled} throttled/locked — Microsoft is rate-limiting; lower concurrency and re-run those for accurate results`
+  const mfa = c.mfaValid
+    ? ` <span class="dbadge b-ok">✓ ${c.mfaValid} password-valid (MFA-gated)</span>`
     : '';
-  $('#office365-summary').innerHTML = esc(base) + (warn ? `<span class="err-text">${esc(warn)}</span>` : '');
+  const warn = c.throttled
+    ? ` <span class="err-text">⚠ ${c.throttled} throttled/locked — Microsoft is rate-limiting; lower concurrency and re-run those</span>`
+    : '';
+  $('#office365-summary').innerHTML = esc(base) + mfa + warn;
 }
 $('#office365-filters')?.addEventListener('click', (e) => {
   const btn = e.target.closest('.chip-filter');
@@ -1588,6 +1591,8 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
     // very large list can't grow the array/DOM without limit and stall the UI.
     office365Counts[result.status] = (office365Counts[result.status] || 0) + 1;
     if (result.throttled) office365Counts.throttled = (office365Counts.throttled || 0) + 1;
+    // Password confirmed correct but MFA-gated (status is 'unknown') — a real hit.
+    if (result.passwordValid && result.status !== 'valid') office365Counts.mfaValid = (office365Counts.mfaValid || 0) + 1;
     office365Results.push(result);
     if (office365Results.length > O365_DOM_CAP) office365Results.shift();
     done++;
