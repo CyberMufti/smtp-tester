@@ -47,9 +47,20 @@ test('classifyTokenResponse: a token is valid', () => {
   assert.equal(classifyTokenResponse({ ok: true, data: { access_token: 'ey...' } }).status, 'valid');
 });
 
-test('classifyTokenResponse: AADSTS50126 is a wrong password -> invalid', () => {
+test('classifyTokenResponse: AADSTS50126 (real account, wrong password) -> invalid', () => {
   const r = classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS50126: Error validating credentials.' } });
   assert.equal(r.status, 'invalid');
+});
+
+test('classifyTokenResponse: AADSTS50034 (no such mailbox) -> not-o365, NOT invalid', () => {
+  // This is the proton.me / gmail case: the address has no Microsoft 365 mailbox,
+  // which must never be reported as a wrong password.
+  const r = classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS50034: The user account does not exist.' } });
+  assert.equal(r.status, 'not-o365');
+});
+
+test('classifyTokenResponse: tenant-not-found (AADSTS90002) -> not-o365', () => {
+  assert.equal(classifyTokenResponse({ ok: false, data: { error_description: 'AADSTS90002: Tenant not found' } }).status, 'not-o365');
 });
 
 test('classifyTokenResponse: MFA/conditional-access codes -> unknown (not a false invalid)', () => {

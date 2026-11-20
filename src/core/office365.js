@@ -18,8 +18,14 @@
  * network I/O is injected so the logic runs offline in tests.
  *
  * @typedef {{user:string, pass:string}} O365Target
- * @typedef {('valid'|'invalid'|'unknown'|'unreachable')} O365Status
+ * @typedef {('valid'|'invalid'|'not-o365'|'unknown'|'unreachable')} O365Status
  * @typedef {{user:string, pass:string, status:O365Status, method:(''|'imap'|'oauth'), detail:string}} O365Result
+ *
+ * 'invalid'  = a real Microsoft 365 account, password confirmed WRONG (AADSTS50126).
+ * 'not-o365' = the address has no Microsoft 365 mailbox at all (AADSTS50034 /
+ *              tenant-not-found). This is NOT a wrong password — it's a
+ *              non-Microsoft domain (proton.me, gmail, …) or a typo. Kept
+ *              separate so a non-Microsoft account is never reported "invalid".
  */
 import { ImapFlow } from 'imapflow';
 
@@ -87,8 +93,12 @@ const OAUTH_UNKNOWN_CODES = new Set([
 ]);
 // Throttling — results are unreliable; definitely not a wrong password.
 const OAUTH_THROTTLE_CODES = new Set(['50053', '80049', '90056', '16000']);
-// Definitive bad credential / non-existent account.
-const OAUTH_INVALID_CODES = new Set(['50126', '50034']);
+// The address has NO Microsoft 365 mailbox: account/tenant doesn't exist. This
+// is a non-Microsoft domain (proton.me, gmail, …) or a typo — NOT a wrong
+// password. Reported as 'not-o365', never 'invalid'.
+const OAUTH_NOT_O365_CODES = new Set(['50034', '90002', '90072', '50128', '500212']);
+// Definitive bad credential ON a real Microsoft 365 account.
+const OAUTH_INVALID_CODES = new Set(['50126']);
 
 /**
  * Classify Microsoft's token response into a verdict. Pure.
@@ -105,7 +115,10 @@ export function classifyTokenResponse({ ok, data } = {}) {
   if (OAUTH_THROTTLE_CODES.has(code)) {
     return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} — throttled/locked, retry later`, throttled: true };
   }
-  if (OAUTH_INVALID_CODES.has(code)) return { status: 'invalid', method: 'oauth', detail: `AADSTS${code} — wrong credentials` };
+  if (OAUTH_NOT_O365_CODES.has(code)) {
+    return { status: 'not-o365', method: 'oauth', detail: `AADSTS${code} — no Microsoft 365 mailbox for this address` };
+  }
+  if (OAUTH_INVALID_CODES.has(code)) return { status: 'invalid', method: 'oauth', detail: `AADSTS${code} — wrong password` };
   if (OAUTH_UNKNOWN_CODES.has(code)) return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} — cannot confirm (policy/tenant)` };
   return { status: 'unknown', method: 'oauth', detail: code ? `AADSTS${code}` : (text.slice(0, 140) || 'login not confirmed') };
 }

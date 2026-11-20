@@ -1479,7 +1479,8 @@ $('#btn-cpanel-check').addEventListener('click', async () => {
 // ---------- Office 365 login check ----------
 const O365_STATUS = {
   valid: ['ok', 'Valid'],
-  invalid: ['bad', 'Invalid'],
+  invalid: ['bad', 'Invalid (wrong password)'],
+  'not-o365': ['neutral', 'Not O365'],
   unknown: ['neutral', 'Unknown'],
   unreachable: ['bad', 'Unreachable'],
 };
@@ -1521,7 +1522,7 @@ function renderOffice365() {
 }
 function renderOffice365Summary() {
   const c = office365Counts;
-  const base = `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
+  const base = `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · not-O365: ${c['not-o365'] || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
   const mfa = c.mfaValid
     ? ` <span class="dbadge b-ok">✓ ${c.mfaValid} password-valid (MFA-gated)</span>`
     : '';

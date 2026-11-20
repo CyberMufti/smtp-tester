@@ -573,7 +573,7 @@ ipcMain.handle('office365:check', async (_e, { targets, opts }) => {
     );
     const summary = results.reduce(
       (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
-      { valid: 0, invalid: 0, unknown: 0, unreachable: 0 },
+      { valid: 0, invalid: 0, 'not-o365': 0, unknown: 0, unreachable: 0 },
     );
     return { results, summary, total: results.length, folder: out };
   } catch (err) {
