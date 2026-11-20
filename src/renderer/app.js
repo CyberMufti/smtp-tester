@@ -1528,6 +1528,32 @@ $('#office365-filters')?.addEventListener('click', (e) => {
   $$('#office365-filters .chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
   renderOffice365();
 });
+function readFileText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('read failed'));
+    reader.readAsText(file);
+  });
+}
+$('#office365-file')?.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+  const note = $('#office365-file-note');
+  note.textContent = `Loading ${files.length} file(s)…`;
+  try {
+    const texts = await Promise.all(files.map(readFileText));
+    const box = $('#office365-input');
+    const existing = box.value.trim();
+    box.value = (existing ? existing + '\n' : '') + texts.join('\n');
+    const n = parseOffice365Input(box.value).length;
+    note.textContent = `Loaded ${files.map((f) => f.name).join(', ')} — ${n} account${n === 1 ? '' : 's'} ready.`;
+  } catch (err) {
+    note.innerHTML = `<span class="err-text">Could not read file: ${esc(err.message)}</span>`;
+  } finally {
+    e.target.value = ''; // allow re-selecting the same file
+  }
+});
 $('#btn-office365-check')?.addEventListener('click', async () => {
   const targets = parseOffice365Input($('#office365-input').value);
   if (!targets.length) {

@@ -480,9 +480,17 @@
                 <input id="office365-timeout" type="number" min="5" max="120" value="15" />
               </label>
             </div>
-            <label class="full">Accounts
-              <textarea id="office365-input" rows="6" placeholder="user@contoso.com:Password1&#10;sales@yourtenant.onmicrosoft.com:Secret!2"></textarea>
-            </label>
+            <div class="panel-head" style="margin-top:4px">
+              <label class="full" style="margin:0">Accounts</label>
+              <div class="panel-actions">
+                <label class="btn ghost">
+                  Load file
+                  <input id="office365-file" type="file" accept=".txt,.csv" multiple hidden />
+                </label>
+              </div>
+            </div>
+            <textarea id="office365-input" rows="6" placeholder="user@contoso.com:Password1&#10;sales@yourtenant.onmicrosoft.com:Secret!2&#10;&#10;Or click Load file to import a .txt/.csv list."></textarea>
+            <span id="office365-file-note" class="muted"></span>
             <div class="panel-actions">
               <div class="filters" id="office365-filters">
                 <button class="chip-filter active" data-ofilter="all">All</button>
