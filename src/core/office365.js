@@ -1,0 +1,194 @@
+/**
+ * Office 365 credential check — confirm that an email + password actually logs
+ * in, for accounts you operate, WITHOUT needing outbound port 25.
+ *
+ * Microsoft 365 disables basic SMTP AUTH on most tenants, so the normal SMTP
+ * tester cannot judge these accounts. Instead we:
+ *   1. Attempt an IMAP login to outlook.office365.com:993 (IMAPS, port 993).
+ *      A clean login proves the password; a clear credential rejection is
+ *      "invalid".
+ *   2. Only when IMAP fails in a way that signals basic/legacy auth is DISABLED
+ *      (not a wrong password), fall back to Microsoft's OAuth2 token endpoint
+ *      (ROPC password grant over HTTPS, port 443). A token proves the password;
+ *      AADSTS50126 is a wrong password; MFA / conditional-access / locked /
+ *      expired codes mean the password may be right but cannot be confirmed
+ *      passwordlessly ("unknown").
+ *
+ * Neither path uses port 25. The two classifiers are pure and unit-tested; all
+ * network I/O is injected so the logic runs offline in tests.
+ *
+ * @typedef {{user:string, pass:string}} O365Target
+ * @typedef {('valid'|'invalid'|'unknown'|'unreachable')} O365Status
+ * @typedef {{user:string, pass:string, status:O365Status, method:(''|'imap'|'oauth'), detail:string}} O365Result
+ */
+import { ImapFlow } from 'imapflow';
+
+export const O365_IMAP_HOST = 'outlook.office365.com';
+export const O365_IMAP_PORT = 993;
+
+// Microsoft first-party public client ("Microsoft Office"), commonly accepted
+// for the ROPC password grant. The token endpoint still enforces the tenant's
+// MFA / conditional-access policy, so this only confirms accounts that allow it.
+const ROPC_CLIENT_ID = 'd3590ed6-52b3-4102-aeff-aad2292ab01c';
+const TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const ROPC_SCOPE = 'https://outlook.office365.com/.default openid';
+
+/**
+ * Classify an IMAP login outcome into a verdict and whether to fall back to
+ * OAuth2. A clean login is valid; an unambiguous bad-password rejection is
+ * invalid; anything else (basic auth disabled, throttling, connection trouble)
+ * is inconclusive and defers to OAuth2. Pure.
+ * @param {{ok:boolean, error?:string}} outcome
+ * @returns {{status:O365Status, method:'imap', fallback:boolean}}
+ */
+export function classifyImapLogin({ ok, error } = {}) {
+  if (ok) return { status: 'valid', method: 'imap', fallback: false };
+  const msg = String(error || '').toLowerCase();
+  // Tenant disabled basic/legacy auth — IMAP cannot judge the password here.
+  if (/basic authentication is disabled|not enabled for the user|disabled for the|modern auth|authenticate failed|tenant/.test(msg)) {
+    return { status: 'unknown', method: 'imap', fallback: true };
+  }
+  // Unambiguous wrong credentials.
+  if (/invalid credentials|authentication failed|login failed|logindenied|logon denied|incorrect|user ?name or password|account is locked/.test(msg)) {
+    return { status: 'invalid', method: 'imap', fallback: false };
+  }
+  // Connection/timeout/other — inconclusive, let OAuth2 decide.
+  return { status: 'unreachable', method: 'imap', fallback: true };
+}
+
+// AADSTS codes that mean the password may well be correct but the login cannot
+// be completed/confirmed without more (MFA, policy, expiry, disabled/locked).
+const OAUTH_UNKNOWN_CODES = new Set([
+  '50076', '50079', '50158', '53000', '53001', '53003', // MFA / conditional access / device
+  '50053', '50055', '50057', '50072', '50074',          // locked / expired / disabled / needs MFA
+]);
+// AADSTS codes that are a definitive bad credential / missing account.
+const OAUTH_INVALID_CODES = new Set(['50126', '50034', '50059']);
+
+/**
+ * Classify Microsoft's token response into a verdict. Pure.
+ * @param {{ok:boolean, data?:object}} resp
+ * @returns {{status:O365Status, method:'oauth', detail:string}}
+ */
+export function classifyTokenResponse({ ok, data } = {}) {
+  if (ok && data && data.access_token) return { status: 'valid', method: 'oauth', detail: 'token issued' };
+  const text = String((data && (data.error_description || data.error)) || '');
+  const code = (text.match(/AADSTS(\d+)/) || [])[1] || '';
+  if (OAUTH_INVALID_CODES.has(code)) return { status: 'invalid', method: 'oauth', detail: `AADSTS${code}` };
+  if (OAUTH_UNKNOWN_CODES.has(code)) return { status: 'unknown', method: 'oauth', detail: `AADSTS${code} (password may be valid, not confirmable)` };
+  return { status: 'unknown', method: 'oauth', detail: code ? `AADSTS${code}` : (text.slice(0, 140) || 'login not confirmed') };
+}
+
+/** Default IMAP login probe (injectable). Returns {ok, error?}. */
+async function defaultImapLogin(user, pass, opts = {}) {
+  const t = Number(opts.timeout) || 15000;
+  const client = new ImapFlow({
+    host: O365_IMAP_HOST, port: O365_IMAP_PORT, secure: true,
+    auth: { user, pass }, logger: false, disableAutoIdle: true,
+    connectionTimeout: t, greetingTimeout: t, socketTimeout: t + 5000,
+  });
+  try { await client.connect(); return { ok: true }; }
+  catch (err) { return { ok: false, error: err?.responseText || err?.message || String(err) }; }
+  finally { try { await client.logout(); } catch { /* already closed */ } }
+}
+
+/** Default OAuth2 ROPC token request (injectable). Returns {ok, data}. */
+async function defaultTokenRequest(user, pass, opts = {}) {
+  const body = new URLSearchParams({
+    grant_type: 'password', client_id: ROPC_CLIENT_ID,
+    username: user, password: pass, scope: ROPC_SCOPE,
+  });
+  let signal;
+  try { signal = AbortSignal.timeout(Number(opts.timeout) || 15000); } catch { /* no timeout */ }
+  const fetchFn = opts.fetchFn || ((u, o) => fetch(u, o));
+  const res = await fetchFn(TOKEN_URL, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal,
+  });
+  let data = {};
+  try { data = await res.json(); } catch { /* non-JSON error page */ }
+  return { ok: !!res.ok, data };
+}
+
+/**
+ * Validate one Office 365 credential: IMAP first, OAuth2 only as a fallback when
+ * IMAP was inconclusive (basic auth disabled / connection issue). Never throws.
+ * @param {O365Target} target
+ * @param {{timeout?:number, imapLogin?:Function, tokenRequest?:Function, fetchFn?:Function, signal?:AbortSignal}} [opts]
+ * @returns {Promise<O365Result>}
+ */
+export async function verifyOffice365(target, opts = {}) {
+  const user = String(target?.user || '').trim();
+  const pass = target?.pass ?? '';
+  const base = { user, pass, status: 'unknown', method: '', detail: '' };
+  if (!user || !pass) return { ...base, status: 'invalid', detail: 'missing email or password' };
+
+  const imapFn = opts.imapLogin || defaultImapLogin;
+  let imap;
+  try { imap = await imapFn(user, pass, opts); }
+  catch (err) { imap = { ok: false, error: err?.message || String(err) }; }
+
+  const v = classifyImapLogin(imap);
+  if (!v.fallback) {
+    return { ...base, status: v.status, method: v.method, detail: v.status === 'valid' ? 'IMAP login ok' : (imap.error || '') };
+  }
+
+  const tokenFn = opts.tokenRequest || defaultTokenRequest;
+  let tok;
+  try { tok = await tokenFn(user, pass, opts); }
+  catch (err) { tok = { ok: false, data: { error_description: err?.message || String(err) } }; }
+  const o = classifyTokenResponse(tok);
+  return { ...base, status: o.status, method: o.method, detail: o.detail || imap.error || '' };
+}
+
+/**
+ * Check a batch of O365 credentials with bounded concurrency (low by default —
+ * Microsoft throttles and locks accounts under rapid failed logins), invoking
+ * `onResult(result, index)` as each completes. Returns results in input order.
+ * @param {O365Target[]} targets
+ * @param {{concurrency?:number, timeout?:number, gate?:Function, signal?:AbortSignal, imapLogin?:Function, tokenRequest?:Function, fetchFn?:Function}} [opts]
+ * @param {(r:O365Result, i:number)=>void} [onResult]
+ * @returns {Promise<O365Result[]>}
+ */
+export async function runOffice365Checks(targets, opts = {}, onResult) {
+  const list = Array.from(targets || []);
+  const results = new Array(list.length);
+  const concurrency = Math.max(1, Number(opts.concurrency) || 5);
+  let next = 0;
+
+  async function worker() {
+    while (next < list.length) {
+      if (opts.signal?.aborted) return;
+      const i = next++;
+      if (opts.gate) await opts.gate();
+      let r;
+      try { r = await verifyOffice365(list[i], opts); }
+      catch (err) { r = { user: list[i]?.user || '', pass: list[i]?.pass || '', status: 'unknown', method: '', detail: err?.message || String(err) }; }
+      results[i] = r;
+      onResult?.(r, i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker));
+  return results;
+}
+
+/**
+ * Parse `email:password` lines (also tolerating `email password` and trailing
+ * host:port fields where the first two tokens are the email + password). Blank
+ * and `#` comment lines are skipped. Pure.
+ * @param {string} text
+ * @returns {O365Target[]}
+ */
+export function parseOffice365Lines(text) {
+  const out = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    // Find the email, then take the remainder (after the following separator) as
+    // the password up to the next separator — so `email:pass`, `email pass`, and
+    // `email:pass:host:port` all yield {email, pass}.
+    const m = line.match(/([^\s:,;|]+@[^\s:,;|]+)[\s:,;|]+([^\s:,;|]+)/);
+    if (m) out.push({ user: m[1], pass: m[2] });
+  }
+  return out;
+}

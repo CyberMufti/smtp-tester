@@ -30,6 +30,7 @@ import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
+import { runOffice365Checks } from '../core/office365.js';
 import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
 import { runSSHChecks, verifySSH } from '../core/ssh.js';
@@ -541,6 +542,42 @@ ipcMain.handle('cpanel:check', async (_e, { targets, opts }) => {
   }
 });
 
+// Batch Office 365 credential check — IMAP (then OAuth2) login validation for
+// accounts you operate. No outbound port 25 needed. Valid logins are appended
+// live to Desktop/result/office365-valid.txt as the check runs.
+ipcMain.handle('office365:check', async (_e, { targets, opts }) => {
+  try {
+    const list = Array.isArray(targets) ? targets : [];
+    office365Abort = new AbortController();
+    let out = '';
+    try { out = resetOffice365ValidFile(); } catch (err) { recordCrash('office365FileInit', err); }
+    const results = await runOffice365Checks(
+      list,
+      {
+        concurrency: Number(opts?.concurrency) || 5,
+        timeout: Number(opts?.timeout) || 15000,
+        gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
+        signal: office365Abort.signal,
+      },
+      (result, index) => {
+        if (result?.status === 'valid') {
+          try { appendOffice365Valid(result); } catch (err) { recordCrash('office365LiveSave', err); }
+        }
+        sendToWindow('office365:progress', { result, index, total: list.length });
+      },
+    );
+    const summary = results.reduce(
+      (s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s),
+      { valid: 0, invalid: 0, unknown: 0, unreachable: 0 },
+    );
+    return { results, summary, total: results.length, folder: out };
+  } catch (err) {
+    recordCrash('office365Check', err);
+    return { error: err.message };
+  }
+});
+ipcMain.handle('office365:cancel', async () => { office365Abort?.abort(); return true; });
+
 // Batch webmail (Roundcube/Horde/SquirrelMail) login check for accounts you
 // operate — same shape as the cPanel check.
 ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
@@ -974,6 +1011,7 @@ ipcMain.handle('history:clear', async () => clearRunHistory().catch(() => []));
 // outbound 25), Microsoft IfExistsResult for M365, plus catch-all/disposable/
 // role flags and provider/country.
 let verifyAbort = null;
+let office365Abort = null;
 ipcMain.handle('verify:cancel', async () => { verifyAbort?.abort(); return true; });
 ipcMain.handle('verify:run', async (_e, { emails }) => {
   verifyAbort = new AbortController();
@@ -1044,6 +1082,21 @@ function confirmedLivePath() {
 // end-of-run rebuild.
 function validLoginsPath() {
   return join(resultFolderPath(), 'valid.txt');
+}
+
+// Valid Office 365 logins, written live to the result folder root as
+// `https://outlook.office.com: email:password`.
+function office365ValidPath() {
+  return join(resultFolderPath(), 'office365-valid.txt');
+}
+function resetOffice365ValidFile() {
+  const p = office365ValidPath();
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, '');
+  return p;
+}
+function appendOffice365Valid(result) {
+  appendFileSync(office365ValidPath(), `https://outlook.office.com: ${result.user}:${result.pass}\n`);
 }
 
 /**

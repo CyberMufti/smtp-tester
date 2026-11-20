@@ -59,6 +59,7 @@
 
           <div class="nav-group">Checks</div>
           <button class="nav-item" data-tab="cpanel"><span class="nav-ico">▧</span> cPanel</button>
+          <button class="nav-item" data-tab="office365"><span class="nav-ico">◆</span> Office 365</button>
           <button class="nav-item" data-tab="whm"><span class="nav-ico">▤</span> WHM</button>
           <button class="nav-item" data-tab="webmail"><span class="nav-ico">✉</span> Webmail</button>
           <button class="nav-item" data-tab="ssh"><span class="nav-ico">⌁</span> SSH</button>
@@ -443,6 +444,62 @@
               <span id="cpanel-progress" class="muted"></span>
             </div>
             <div id="cpanel-result"></div>
+          </section>
+        </main>
+
+        <!-- ===== OFFICE 365 ===== -->
+        <main id="screen-office365" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">Office 365 <span class="pane-slash">/ login check</span></h1>
+              <p class="pane-sub">Validate Microsoft 365 email + password — no outbound port 25 needed</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-office365-check" class="btn primary">Check logins</button>
+              <button id="btn-office365-cancel" class="btn ghost" disabled>Cancel</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              Confirm which Microsoft 365 / Outlook accounts <b>you operate</b> still accept their
+              password. Each login is checked by IMAP (<code>outlook.office365.com:993</code>) and, when a
+              tenant has basic auth disabled, by Microsoft's OAuth2 endpoint — <b>never port 25</b>. One
+              account per line as <code>email:password</code>. Valid logins are saved live to
+              <code>Desktop/result/office365-valid.txt</code>.
+            </p>
+            <p class="muted" style="margin-top:6px">
+              <b>Note:</b> accounts protected by MFA or modern-auth-only policies return
+              <b>unknown</b> — a password can't be confirmed passwordlessly there, and that's expected.
+            </p>
+            <div class="form-grid">
+              <label>Concurrency
+                <input id="office365-concurrency" type="number" min="1" max="20" value="5"
+                  title="Kept low — Microsoft throttles and locks accounts under rapid failed logins" />
+              </label>
+              <label>Timeout (s)
+                <input id="office365-timeout" type="number" min="5" max="120" value="15" />
+              </label>
+            </div>
+            <label class="full">Accounts
+              <textarea id="office365-input" rows="6" placeholder="user@contoso.com:Password1&#10;sales@yourtenant.onmicrosoft.com:Secret!2"></textarea>
+            </label>
+            <div class="panel-actions">
+              <div class="filters" id="office365-filters">
+                <button class="chip-filter active" data-ofilter="all">All</button>
+                <button class="chip-filter" data-ofilter="valid">Valid</button>
+                <button class="chip-filter" data-ofilter="invalid">Invalid</button>
+                <button class="chip-filter" data-ofilter="unknown">Unknown</button>
+                <button class="chip-filter" data-ofilter="unreachable">Unreachable</button>
+              </div>
+              <span id="office365-progress" class="muted"></span>
+            </div>
+            <div id="office365-summary" class="summary"></div>
+            <div class="table-wrap">
+              <table class="results">
+                <thead><tr><th>Email</th><th>Status</th><th>Method</th><th>Detail</th></tr></thead>
+                <tbody id="office365-body"><tr class="empty-row"><td colspan="4">No results yet. Paste accounts and click <b>Check logins</b>.</td></tr></tbody>
+              </table>
+            </div>
           </section>
         </main>
 

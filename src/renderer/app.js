@@ -1476,6 +1476,103 @@ $('#btn-cpanel-check').addEventListener('click', async () => {
   }
 });
 
+// ---------- Office 365 login check ----------
+const O365_STATUS = {
+  valid: ['ok', 'Valid'],
+  invalid: ['bad', 'Invalid'],
+  unknown: ['neutral', 'Unknown'],
+  unreachable: ['bad', 'Unreachable'],
+};
+let office365Results = [];
+let office365Filter = 'all';
+const O365_DOM_CAP = 2000;
+function parseOffice365Input(text) {
+  const out = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const m = line.match(/([^\s:,;|]+@[^\s:,;|]+)[\s:,;|]+([^\s:,;|]+)/);
+    if (m) out.push({ user: m[1], pass: m[2] });
+  }
+  return out;
+}
+function office365RowMatches(r) { return office365Filter === 'all' || r.status === office365Filter; }
+function office365RowHtml(r) {
+  const [cls, label] = O365_STATUS[r.status] || ['neutral', r.status];
+  return `<tr><td class="mono">${esc(r.user)}</td><td><span class="dbadge b-${cls}">${esc(label)}</span></td><td>${esc(r.method || '')}</td><td class="muted">${esc(r.detail || '')}</td></tr>`;
+}
+function appendOffice365Row(r) {
+  if (!office365RowMatches(r)) return;
+  const body = $('#office365-body');
+  const empty = body.querySelector('.empty-row');
+  if (empty) empty.remove();
+  body.insertAdjacentHTML('beforeend', office365RowHtml(r));
+  while (body.children.length > O365_DOM_CAP) body.removeChild(body.firstElementChild);
+}
+function renderOffice365() {
+  const body = $('#office365-body');
+  const rows = office365Results.filter(office365RowMatches).slice(-O365_DOM_CAP);
+  body.innerHTML = rows.length
+    ? rows.map(office365RowHtml).join('')
+    : '<tr class="empty-row"><td colspan="4">No results yet. Paste accounts and click <b>Check logins</b>.</td></tr>';
+}
+function renderOffice365Summary() {
+  const c = office365Results.reduce((s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s), {});
+  $('#office365-summary').textContent =
+    `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
+}
+$('#office365-filters')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.chip-filter');
+  if (!btn) return;
+  office365Filter = btn.dataset.ofilter;
+  $$('#office365-filters .chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
+  renderOffice365();
+});
+$('#btn-office365-check')?.addEventListener('click', async () => {
+  const targets = parseOffice365Input($('#office365-input').value);
+  if (!targets.length) {
+    $('#office365-summary').innerHTML = '<span class="err-text">Add at least one account as email:password.</span>';
+    return;
+  }
+  office365Results = [];
+  $('#office365-body').innerHTML = '';
+  renderOffice365();
+  renderOffice365Summary();
+  const btn = $('#btn-office365-check');
+  const cancel = $('#btn-office365-cancel');
+  btn.disabled = true;
+  cancel.disabled = false;
+  $('#office365-progress').textContent = `0 / ${targets.length}`;
+  let done = 0;
+  const off = api.onOffice365Progress(({ result }) => {
+    if (!result) return;
+    office365Results.push(result);
+    done++;
+    $('#office365-progress').textContent = `${done} / ${targets.length}${result.status === 'valid' ? ' · saving valid live' : ''}`;
+    appendOffice365Row(result);
+    renderOffice365Summary();
+  });
+  try {
+    const rep = await api.checkOffice365(targets, {
+      concurrency: Number($('#office365-concurrency').value) || 5,
+      timeout: (Number($('#office365-timeout').value) || 15) * 1000,
+      maxPerSec: Number($('#opt-maxrate')?.value) || 0,
+    });
+    if (rep?.error) {
+      $('#office365-summary').innerHTML = `<span class="err-text">Check failed: ${esc(rep.error)}</span>`;
+      return;
+    }
+    $('#office365-progress').textContent = rep.folder
+      ? `${done} checked · valid saved to ${rep.folder}`
+      : `${done} checked`;
+  } finally {
+    off?.();
+    btn.disabled = false;
+    cancel.disabled = true;
+  }
+});
+$('#btn-office365-cancel')?.addEventListener('click', () => api.cancelOffice365());
+
 // ---------- Webmail login check ----------
 const WEBMAIL_STATUS = {
   valid: ['ok', 'Login works'],

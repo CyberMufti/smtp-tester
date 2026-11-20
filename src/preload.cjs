@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('cpanel:progress', handler);
     return () => ipcRenderer.removeListener('cpanel:progress', handler);
   },
+  checkOffice365: (targets, opts) => ipcRenderer.invoke('office365:check', { targets, opts }),
+  cancelOffice365: () => ipcRenderer.invoke('office365:cancel'),
+  onOffice365Progress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('office365:progress', handler);
+    return () => ipcRenderer.removeListener('office365:progress', handler);
+  },
   checkWebmail: (targets, opts) => ipcRenderer.invoke('webmail:check', { targets, opts }),
   onWebmailProgress: (cb) => {
     const handler = (_e, payload) => cb(payload);
