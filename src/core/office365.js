@@ -30,7 +30,11 @@ export const O365_IMAP_PORT = 993;
 // for the ROPC password grant. The token endpoint still enforces the tenant's
 // MFA / conditional-access policy, so this only confirms accounts that allow it.
 const ROPC_CLIENT_ID = 'd3590ed6-52b3-4102-aeff-aad2292ab01c';
-const TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+// The ROPC password grant is NOT supported over /common or /consumers — those
+// return AADSTS9001023. /organizations is the correct endpoint for work/school
+// (Office 365 org) accounts, which is what this checker targets. Personal
+// consumer accounts can't do ROPC at all and surface as "unknown".
+const TOKEN_URL = 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token';
 const ROPC_SCOPE = 'https://outlook.office365.com/.default openid';
 
 /**
@@ -41,15 +45,18 @@ const ROPC_SCOPE = 'https://outlook.office365.com/.default openid';
  * @param {{ok:boolean, error?:string}} outcome
  * @returns {{status:O365Status, method:'imap', fallback:boolean}}
  */
-export function classifyImapLogin({ ok, error } = {}) {
+export function classifyImapLogin({ ok, error, authFailed } = {}) {
   if (ok) return { status: 'valid', method: 'imap', fallback: false };
   const msg = String(error || '').toLowerCase();
-  // Tenant disabled basic/legacy auth — IMAP cannot judge the password here.
-  if (/basic authentication is disabled|not enabled for the user|disabled for the|modern auth|authenticate failed|tenant/.test(msg)) {
+  // IMAP/basic auth turned off for this account or tenant (Microsoft replies
+  // "Login is disabled", "basic authentication is disabled", etc.). The password
+  // can't be judged by IMAP, so defer to OAuth2.
+  if (/login is disabled|basic authentication is disabled|not enabled for the user|disabled for the (user|account|tenant)|authenticationfailed.*disabled|modern auth/.test(msg)) {
     return { status: 'unknown', method: 'imap', fallback: true };
   }
-  // Unambiguous wrong credentials.
-  if (/invalid credentials|authentication failed|login failed|logindenied|logon denied|incorrect|user ?name or password|account is locked/.test(msg)) {
+  // A clean authentication rejection that is NOT an "auth disabled" case is a
+  // genuine wrong password. ImapFlow sets authenticationFailed on these.
+  if (authFailed || /invalid credentials|authentication failed|login failed|logindenied|logon denied|incorrect password|user ?name or password/.test(msg)) {
     return { status: 'invalid', method: 'imap', fallback: false };
   }
   // Connection/timeout/other — inconclusive, let OAuth2 decide.
@@ -79,7 +86,7 @@ export function classifyTokenResponse({ ok, data } = {}) {
   return { status: 'unknown', method: 'oauth', detail: code ? `AADSTS${code}` : (text.slice(0, 140) || 'login not confirmed') };
 }
 
-/** Default IMAP login probe (injectable). Returns {ok, error?}. */
+/** Default IMAP login probe (injectable). Returns {ok, error?, authFailed?}. */
 async function defaultImapLogin(user, pass, opts = {}) {
   const t = Number(opts.timeout) || 15000;
   const client = new ImapFlow({
@@ -87,9 +94,19 @@ async function defaultImapLogin(user, pass, opts = {}) {
     auth: { user, pass }, logger: false, disableAutoIdle: true,
     connectionTimeout: t, greetingTimeout: t, socketTimeout: t + 5000,
   });
+  // ImapFlow is an EventEmitter: a socket reset mid-session (Microsoft throttling
+  // a batch) emits an 'error' event, and an 'error' with no listener is thrown as
+  // an unhandled exception that can take the whole process down. Swallow it — the
+  // connect() promise already carries the verdict we act on.
+  client.on('error', () => {});
   try { await client.connect(); return { ok: true }; }
-  catch (err) { return { ok: false, error: err?.responseText || err?.message || String(err) }; }
-  finally { try { await client.logout(); } catch { /* already closed */ } }
+  catch (err) {
+    return { ok: false, error: err?.responseText || err?.message || String(err), authFailed: !!err?.authenticationFailed };
+  } finally {
+    // close() tears the socket down immediately; logout() does a graceful round
+    // trip that can hang on a half-open/throttled connection and stall the batch.
+    try { client.close(); } catch { /* already closed */ }
+  }
 }
 
 /** Default OAuth2 ROPC token request (injectable). Returns {ok, data}. */

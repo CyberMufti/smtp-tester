@@ -29,6 +29,20 @@ test('classifyImapLogin: connection error -> unreachable, falls back', () => {
   assert.equal(r.fallback, true);
 });
 
+test('classifyImapLogin: "Login is disabled" is auth-disabled, not a wrong password -> falls back', () => {
+  // Microsoft returns this with authenticationFailed=true; it must NOT be read as
+  // a bad password (which would be a false "invalid").
+  const r = classifyImapLogin({ ok: false, error: 'Login is disabled', authFailed: true });
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.fallback, true);
+});
+
+test('classifyImapLogin: authFailed with no "disabled" signal is a real wrong password', () => {
+  const r = classifyImapLogin({ ok: false, error: 'LOGIN failed.', authFailed: true });
+  assert.equal(r.status, 'invalid');
+  assert.equal(r.fallback, false);
+});
+
 test('classifyTokenResponse: a token is valid', () => {
   assert.equal(classifyTokenResponse({ ok: true, data: { access_token: 'ey...' } }).status, 'valid');
 });

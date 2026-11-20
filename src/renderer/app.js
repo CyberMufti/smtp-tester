@@ -1484,6 +1484,7 @@ const O365_STATUS = {
   unreachable: ['bad', 'Unreachable'],
 };
 let office365Results = [];
+let office365Counts = {};
 let office365Filter = 'all';
 const O365_DOM_CAP = 2000;
 function parseOffice365Input(text) {
@@ -1517,7 +1518,7 @@ function renderOffice365() {
     : '<tr class="empty-row"><td colspan="4">No results yet. Paste accounts and click <b>Check logins</b>.</td></tr>';
 }
 function renderOffice365Summary() {
-  const c = office365Results.reduce((s, r) => ((s[r.status] = (s[r.status] || 0) + 1), s), {});
+  const c = office365Counts;
   $('#office365-summary').textContent =
     `valid: ${c.valid || 0} · invalid: ${c.invalid || 0} · unknown: ${c.unknown || 0} · unreachable: ${c.unreachable || 0}`;
 }
@@ -1561,6 +1562,7 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
     return;
   }
   office365Results = [];
+  office365Counts = {};
   $('#office365-body').innerHTML = '';
   renderOffice365();
   renderOffice365Summary();
@@ -1572,7 +1574,11 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
   let done = 0;
   const off = api.onOffice365Progress(({ result }) => {
     if (!result) return;
+    // Incremental count (O(1)); keep only a bounded window of rows in memory so a
+    // very large list can't grow the array/DOM without limit and stall the UI.
+    office365Counts[result.status] = (office365Counts[result.status] || 0) + 1;
     office365Results.push(result);
+    if (office365Results.length > O365_DOM_CAP) office365Results.shift();
     done++;
     $('#office365-progress').textContent = `${done} / ${targets.length}${result.status === 'valid' ? ' · saving valid live' : ''}`;
     appendOffice365Row(result);
