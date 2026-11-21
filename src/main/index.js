@@ -549,7 +549,7 @@ ipcMain.handle('office365:check', async (_e, { targets, opts }) => {
   try {
     // Defensive cap: O365 checking is lockout-limited, and an unbounded list
     // could exhaust memory. The renderer already caps; this is a backstop.
-    const list = (Array.isArray(targets) ? targets : []).slice(0, 5000);
+    const list = (Array.isArray(targets) ? targets : []).slice(0, 50000);
     office365Abort = new AbortController();
     let out = '';
     try { out = resetOffice365ValidFile(); } catch (err) { recordCrash('office365FileInit', err); }

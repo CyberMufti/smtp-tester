@@ -1542,7 +1542,7 @@ $('#office365-filters')?.addEventListener('click', (e) => {
 // rapid attempts), so huge lists are impractical AND loading a very large file
 // into the renderer textarea can exhaust renderer memory and crash the window.
 // Cap what we load and check to a sane number.
-const MAX_O365_ACCOUNTS = 5000;
+const MAX_O365_ACCOUNTS = 50000;
 function readFileText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
