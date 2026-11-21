@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   classifyImapLogin,
   classifyTokenResponse,
   verifyOffice365,
   runOffice365Checks,
+  runOffice365ChecksStream,
+  streamOffice365Targets,
   parseOffice365Lines,
 } from '../src/core/office365.js';
 
@@ -118,6 +123,47 @@ test('runOffice365Checks: runs the batch in order and reports each result', asyn
   assert.equal(results[0].status, 'valid');
   assert.equal(results[1].status, 'invalid');
   assert.equal(seen.length, 2);
+});
+
+test('runOffice365ChecksStream: processes every target from an async source, bounded concurrency', async () => {
+  async function* source() {
+    for (let i = 0; i < 20; i++) yield { user: `u${i}@x.com`, pass: `p${i}` };
+  }
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const seen = [];
+  const n = await runOffice365ChecksStream(source(), {
+    concurrency: 4,
+    imapLogin: async (u) => { inFlight++; maxInFlight = Math.max(maxInFlight, inFlight); await Promise.resolve(); inFlight--; return { ok: u === 'u7@x.com' }; },
+    tokenRequest: async () => ({ ok: false, data: { error_description: 'AADSTS50126' } }),
+  }, (r) => seen.push(r.status));
+  assert.equal(n, 20);
+  assert.equal(seen.length, 20);
+  assert.equal(seen.filter((s) => s === 'valid').length, 1); // only u7
+  assert.ok(maxInFlight <= 4, `concurrency exceeded: ${maxInFlight}`);
+});
+
+test('streamOffice365Targets: streams and de-duplicates {user,pass} from a file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'o365-'));
+  try {
+    const file = join(dir, 'list.txt');
+    await writeFile(file, [
+      '# comment',
+      'a@x.com:P@ss:w0rd',   // password with a colon
+      'a@x.com:P@ss:w0rd',   // exact duplicate -> dropped
+      'b@x.com password2',
+      'notanemail',
+      '',
+    ].join('\n'));
+    const out = [];
+    for await (const t of streamOffice365Targets(file)) out.push(t);
+    assert.deepEqual(out, [
+      { user: 'a@x.com', pass: 'P@ss:w0rd' },
+      { user: 'b@x.com', pass: 'password2' },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('parseOffice365Lines: email:pass and email pass', () => {

@@ -30,7 +30,7 @@ import { credKey } from '../core/parser.js';
 import { auditServer } from '../core/authaudit.js';
 import { createHygieneAccumulator } from '../core/hygiene.js';
 import { runCpanelChecks } from '../core/cpanel.js';
-import { runOffice365Checks } from '../core/office365.js';
+import { runOffice365Checks, runOffice365ChecksStream, streamOffice365Targets } from '../core/office365.js';
 import { runWebmailChecks } from '../core/webmail.js';
 import { runWhmChecks } from '../core/whm.js';
 import { runSSHChecks, verifySSH } from '../core/ssh.js';
@@ -580,6 +580,43 @@ ipcMain.handle('office365:check', async (_e, { targets, opts }) => {
     return { results, summary, total: results.length, folder: out };
   } catch (err) {
     recordCrash('office365Check', err);
+    return { error: err.message };
+  }
+});
+// Streamed Office 365 check: read very large files (500k+) line by line from
+// disk instead of loading them into the renderer, so memory stays bounded and
+// there is no giant IPC payload. Same live-save + progress as the array path.
+ipcMain.handle('office365:checkFile', async (_e, { filePaths, opts }) => {
+  try {
+    const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+    if (!paths.length) return { error: 'no file provided' };
+    office365Abort = new AbortController();
+    let out = '';
+    try { out = resetOffice365ValidFile(); } catch (err) { recordCrash('office365FileInit', err); }
+    const summary = { valid: 0, invalid: 0, 'not-o365': 0, unknown: 0, unreachable: 0 };
+    let done = 0;
+    const source = streamOffice365Targets(paths, { signal: office365Abort.signal });
+    await runOffice365ChecksStream(
+      source,
+      {
+        concurrency: Number(opts?.concurrency) || 5,
+        timeout: Number(opts?.timeout) || 15000,
+        gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
+        signal: office365Abort.signal,
+      },
+      (result) => {
+        summary[result.status] = (summary[result.status] || 0) + 1;
+        try {
+          if (result?.status === 'valid') appendOffice365Valid(result);
+          else if (result?.passwordValid) appendOffice365MfaValid(result);
+        } catch (err) { recordCrash('office365LiveSave', err); }
+        done++;
+        sendToWindow('office365:progress', { result, index: done - 1, total: 0 });
+      },
+    );
+    return { summary, total: done, folder: out };
+  } catch (err) {
+    recordCrash('office365CheckFile', err);
     return { error: err.message };
   }
 });

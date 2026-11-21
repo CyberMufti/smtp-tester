@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('cpanel:progress', handler);
   },
   checkOffice365: (targets, opts) => ipcRenderer.invoke('office365:check', { targets, opts }),
+  checkOffice365File: (filePaths, opts) => ipcRenderer.invoke('office365:checkFile', { filePaths, opts }),
   cancelOffice365: () => ipcRenderer.invoke('office365:cancel'),
   onOffice365Progress: (cb) => {
     const handler = (_e, payload) => cb(payload);

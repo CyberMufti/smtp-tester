@@ -1487,6 +1487,7 @@ const O365_STATUS = {
 let office365Results = [];
 let office365Counts = {};
 let office365Filter = 'all';
+let office365Files = []; // [{path, name}] — when set, the check streams from disk
 const O365_DOM_CAP = 2000;
 function parseOffice365Input(text) {
   const out = [];
@@ -1543,53 +1544,47 @@ $('#office365-filters')?.addEventListener('click', (e) => {
 // into the renderer textarea can exhaust renderer memory and crash the window.
 // Cap what we load and check to a sane number.
 const MAX_O365_ACCOUNTS = 50000;
-function readFileText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('read failed'));
-    reader.readAsText(file);
-  });
-}
-$('#office365-file')?.addEventListener('change', async (e) => {
+$('#office365-file')?.addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []);
-  if (!files.length) return;
   const note = $('#office365-file-note');
-  note.textContent = `Loading ${files.length} file(s)…`;
   try {
-    const texts = await Promise.all(files.map(readFileText));
-    const box = $('#office365-input');
-    // Parse to accounts FIRST (don't dump a possibly-huge raw file into the DOM),
-    // keep only valid email:password lines, and cap the count. Then the textarea
-    // only ever holds the bounded, normalized list.
-    const existing = parseOffice365Input(box.value);
-    const loaded = parseOffice365Input(texts.join('\n'));
-    const all = existing.concat(loaded);
-    const capped = all.length > MAX_O365_ACCOUNTS;
-    const kept = capped ? all.slice(0, MAX_O365_ACCOUNTS) : all;
-    box.value = kept.map((t) => `${t.user}:${t.pass}`).join('\n');
-    note.innerHTML = capped
-      ? `Loaded ${esc(files.map((f) => f.name).join(', '))} — kept first <b>${MAX_O365_ACCOUNTS}</b> accounts (list was larger; O365 checking is lockout-limited, so keep lists small).`
-      : `Loaded ${esc(files.map((f) => f.name).join(', '))} — ${kept.length} account${kept.length === 1 ? '' : 's'} ready.`;
+    // Store the file PATHS and stream them from disk at check time — never load a
+    // (possibly huge) file into the textarea. This is how 500k+ lists stay safe.
+    const picked = files.map((f) => ({ path: api.getFilePath?.(f) || '', name: f.name })).filter((f) => f.path);
+    if (!picked.length) {
+      note.innerHTML = '<span class="err-text">Could not read the file path. Paste the list instead.</span>';
+      return;
+    }
+    office365Files = picked;
+    $('#office365-input').value = ''; // the file is the source now
+    note.innerHTML = `Loaded <b>${esc(picked.map((f) => f.name).join(', '))}</b> — will stream from disk at check time (no size limit). Type in the box to use a pasted list instead.`;
   } catch (err) {
-    note.innerHTML = `<span class="err-text">Could not read file: ${esc(err.message)}</span>`;
+    note.innerHTML = `<span class="err-text">Could not load file: ${esc(err.message)}</span>`;
   } finally {
     e.target.value = ''; // allow re-selecting the same file
+  }
+});
+// Typing a list overrides a loaded file.
+$('#office365-input')?.addEventListener('input', () => {
+  if (office365Files.length && $('#office365-input').value.trim()) {
+    office365Files = [];
+    $('#office365-file-note').textContent = '';
   }
 });
 $('#btn-office365-check')?.addEventListener('click', async () => {
   // De-duplicate identical email:password pairs: re-checking the same account
   // wastes attempts and risks tripping Microsoft smart-lockout, which would make
   // later results inaccurate.
+  const streaming = office365Files.length > 0;
   const seen = new Set();
-  let targets = parseOffice365Input($('#office365-input').value)
+  let targets = streaming ? [] : parseOffice365Input($('#office365-input').value)
     .filter((t) => { const k = `${t.user.toLowerCase()} ${t.pass}`; if (seen.has(k)) return false; seen.add(k); return true; });
-  if (!targets.length) {
-    $('#office365-summary').innerHTML = '<span class="err-text">Add at least one account as email:password.</span>';
+  if (!streaming && !targets.length) {
+    $('#office365-summary').innerHTML = '<span class="err-text">Add at least one account as email:password, or load a file.</span>';
     return;
   }
   let capNote = '';
-  if (targets.length > MAX_O365_ACCOUNTS) {
+  if (!streaming && targets.length > MAX_O365_ACCOUNTS) {
     targets = targets.slice(0, MAX_O365_ACCOUNTS);
     capNote = ` · capped to first ${MAX_O365_ACCOUNTS} (O365 checking is lockout-limited)`;
   }
@@ -1602,9 +1597,9 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
   const cancel = $('#btn-office365-cancel');
   btn.disabled = true;
   cancel.disabled = false;
-  $('#office365-progress').textContent = `0 / ${targets.length}${capNote}`;
+  $('#office365-progress').textContent = streaming ? 'streaming from disk…' : `0 / ${targets.length}${capNote}`;
   let done = 0;
-  const off = api.onOffice365Progress(({ result }) => {
+  const off = api.onOffice365Progress(({ result, total }) => {
     if (!result) return;
     // Incremental count (O(1)); keep only a bounded window of rows in memory so a
     // very large list can't grow the array/DOM without limit and stall the UI.
@@ -1615,16 +1610,20 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
     office365Results.push(result);
     if (office365Results.length > O365_DOM_CAP) office365Results.shift();
     done++;
-    $('#office365-progress').textContent = `${done} / ${targets.length}${result.status === 'valid' ? ' · saving valid live' : ''}`;
+    const prog = total ? `${done} / ${total}` : `${done} checked`;
+    $('#office365-progress').textContent = `${prog}${result.status === 'valid' ? ' · saving valid live' : ''}`;
     appendOffice365Row(result);
     renderOffice365Summary();
   });
   try {
-    const rep = await api.checkOffice365(targets, {
+    const checkOpts = {
       concurrency: Number($('#office365-concurrency').value) || 5,
       timeout: (Number($('#office365-timeout').value) || 15) * 1000,
       maxPerSec: Number($('#opt-maxrate')?.value) || 0,
-    });
+    };
+    const rep = streaming
+      ? await api.checkOffice365File(office365Files.map((f) => f.path), checkOpts)
+      : await api.checkOffice365(targets, checkOpts);
     if (rep?.error) {
       $('#office365-summary').innerHTML = `<span class="err-text">Check failed: ${esc(rep.error)}</span>`;
       return;
