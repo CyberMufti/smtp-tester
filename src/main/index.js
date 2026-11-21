@@ -50,7 +50,8 @@ import { ensureSidecarEnv, venvPython } from '../core/pybootstrap.js';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { verifySeed } from '../core/imap.js';
-import { buildProxyUrl } from '../core/smtp.js';
+import { buildProxyUrl, verify as smtpVerify } from '../core/smtp.js';
+import { runComboChecks, runComboChecksStream } from '../core/combo.js';
 import { scoreContent } from '../core/spamscore.js';
 import { getHwid } from '../core/hwid.js';
 import { monitorDiff } from '../core/monitor.js';
@@ -622,6 +623,81 @@ ipcMain.handle('office365:checkFile', async (_e, { filePaths, opts }) => {
 });
 ipcMain.handle('office365:cancel', async () => { office365Abort?.abort(); return true; });
 
+// Combined one-click check: every account is tested against BOTH SMTP (587/465,
+// never port 25) and Office 365 (IMAP 993 -> OAuth 443). Working SMTPs and valid
+// O365 accounts are saved live to their own files.
+function comboSummary() {
+  return { smtpValid: 0, smtpInvalid: 0, o365Valid: 0, o365MfaValid: 0, o365NotO365: 0, o365Invalid: 0, throttled: 0, total: 0 };
+}
+function tallyCombo(s, r) {
+  s.total++;
+  if (r.smtp?.status === 'valid') s.smtpValid++; else if (r.smtp?.status === 'invalid') s.smtpInvalid++;
+  if (r.o365?.status === 'valid') s.o365Valid++;
+  else if (r.o365?.passwordValid) s.o365MfaValid++;
+  else if (r.o365?.status === 'not-o365') s.o365NotO365++;
+  else if (r.o365?.status === 'invalid') s.o365Invalid++;
+  if (r.o365?.throttled) s.throttled++;
+}
+function resetComboFiles() {
+  const dir = resetOffice365ValidFile(); // clears office365-valid + office365-mfa-valid, makes the dir
+  try { writeFileSync(smtpValidPath(), ''); } catch (err) { recordCrash('comboFileInit', err); }
+  return dir;
+}
+
+ipcMain.handle('combo:check', async (_e, { targets, opts }) => {
+  try {
+    const list = (Array.isArray(targets) ? targets : []).slice(0, 50000);
+    office365Abort = new AbortController();
+    const folder = resetComboFiles();
+    const summary = comboSummary();
+    let done = 0;
+    await runComboChecks(list, {
+      ...comboDeps(),
+      concurrency: Number(opts?.concurrency) || 5,
+      timeout: Number(opts?.timeout) || 15000,
+      gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
+      signal: office365Abort.signal,
+    }, (r) => {
+      saveComboResult(r);
+      tallyCombo(summary, r);
+      done++;
+      sendToWindow('combo:progress', { result: r, index: done - 1, total: list.length });
+    });
+    return { summary, total: done, folder };
+  } catch (err) {
+    recordCrash('comboCheck', err);
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('combo:checkFile', async (_e, { filePaths, opts }) => {
+  try {
+    const paths = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
+    if (!paths.length) return { error: 'no file provided' };
+    office365Abort = new AbortController();
+    const folder = resetComboFiles();
+    const summary = comboSummary();
+    let done = 0;
+    const source = streamOffice365Targets(paths, { signal: office365Abort.signal });
+    await runComboChecksStream(source, {
+      ...comboDeps(),
+      concurrency: Number(opts?.concurrency) || 5,
+      timeout: Number(opts?.timeout) || 15000,
+      gate: rateLimiter({ maxPerSec: Number(opts?.maxPerSec) || 0 }),
+      signal: office365Abort.signal,
+    }, (r) => {
+      saveComboResult(r);
+      tallyCombo(summary, r);
+      done++;
+      sendToWindow('combo:progress', { result: r, index: done - 1, total: 0 });
+    });
+    return { summary, total: done, folder };
+  } catch (err) {
+    recordCrash('comboCheckFile', err);
+    return { error: err.message };
+  }
+});
+
 // Batch webmail (Roundcube/Horde/SquirrelMail) login check for accounts you
 // operate — same shape as the cPanel check.
 ipcMain.handle('webmail:check', async (_e, { targets, opts }) => {
@@ -1150,6 +1226,33 @@ function appendOffice365Valid(result) {
 }
 function appendOffice365MfaValid(result) {
   appendFileSync(office365MfaValidPath(), `https://outlook.office.com: ${result.user}:${result.pass}  # ${result.detail || 'MFA required'}\n`);
+}
+
+// Working SMTP logins from the combined check — re-importable host:port:user:pass.
+function smtpValidPath() {
+  return join(resultFolderPath(), 'smtp-valid.txt');
+}
+function appendSmtpValid(user, pass, smtp) {
+  appendFileSync(smtpValidPath(), `${smtp.host || ''}:${smtp.port || ''}:${user}:${pass}\n`);
+}
+// Shared dependencies for the combined checker (both sides are port-25-free).
+function comboDeps() {
+  return {
+    smtpVerify,
+    resolveMx: async (domain) => {
+      try { return (await resolveMx(domain)).sort((a, b) => a.priority - b.priority).map((m) => m.exchange); }
+      catch { return []; }
+    },
+  };
+}
+// Live-save a combined result to the right file(s): working SMTP -> smtp-valid.txt,
+// valid O365 -> office365-valid.txt, MFA-confirmed -> office365-mfa-valid.txt.
+function saveComboResult(r) {
+  try {
+    if (r?.smtp?.status === 'valid') appendSmtpValid(r.user, r.pass, r.smtp);
+    if (r?.o365?.status === 'valid') appendOffice365Valid(r.o365);
+    else if (r?.o365?.passwordValid) appendOffice365MfaValid(r.o365);
+  } catch (err) { recordCrash('comboLiveSave', err); }
 }
 
 /**

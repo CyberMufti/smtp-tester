@@ -117,11 +117,12 @@ export function submissionFromMx(mxHosts = []) {
  * @param {{mxHosts?:string[], discovered?:{host:string,port:number,source?:string}[]}} [opts]
  * @returns {Candidate[]}
  */
-export function candidatesFor(cred, { mxHosts = [], discovered = [] } = {}) {
+export function candidatesFor(cred, { mxHosts = [], discovered = [], excludePort25 = false } = {}) {
   const out = [];
   const seen = new Set();
   const add = (host, port, source) => {
     if (!host || !validPort(port)) return;
+    if (excludePort25 && Number(port) === 25) return; // networks without outbound 25
     const key = `${host.toLowerCase()}:${port}`;
     if (seen.has(key)) return;
     seen.add(key);

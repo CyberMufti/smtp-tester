@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld('api', {
   checkOffice365: (targets, opts) => ipcRenderer.invoke('office365:check', { targets, opts }),
   checkOffice365File: (filePaths, opts) => ipcRenderer.invoke('office365:checkFile', { filePaths, opts }),
   cancelOffice365: () => ipcRenderer.invoke('office365:cancel'),
+  checkCombo: (targets, opts) => ipcRenderer.invoke('combo:check', { targets, opts }),
+  checkComboFile: (filePaths, opts) => ipcRenderer.invoke('combo:checkFile', { filePaths, opts }),
+  onComboProgress: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('combo:progress', handler);
+    return () => ipcRenderer.removeListener('combo:progress', handler);
+  },
   onOffice365Progress: (cb) => {
     const handler = (_e, payload) => cb(payload);
     ipcRenderer.on('office365:progress', handler);

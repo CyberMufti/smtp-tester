@@ -1642,6 +1642,137 @@ $('#btn-office365-check')?.addEventListener('click', async () => {
 });
 $('#btn-office365-cancel')?.addEventListener('click', () => api.cancelOffice365());
 
+// ---------- Combined SMTP + Office 365 check ----------
+let comboResults = [];
+let comboCounts = {};
+let comboFilter = 'all';
+let comboFiles = [];
+function comboRowMatches(r) {
+  if (comboFilter === 'all') return true;
+  const smtpOk = r.smtp?.status === 'valid';
+  const o365Ok = r.o365?.status === 'valid' || r.o365?.passwordValid;
+  if (comboFilter === 'smtp') return smtpOk;
+  if (comboFilter === 'o365') return o365Ok;
+  if (comboFilter === 'any') return smtpOk || o365Ok;
+  return true;
+}
+function smtpBadge(s) {
+  const m = { valid: ['ok', 'Valid'], invalid: ['bad', 'Invalid'], unknown: ['neutral', 'Unknown'] }[s?.status] || ['neutral', s?.status || '—'];
+  return `<span class="dbadge b-${m[0]}">${esc(m[1])}</span>`;
+}
+function o365Badge(o) {
+  if (o?.passwordValid && o.status !== 'valid') return '<span class="dbadge b-ok">Valid (MFA)</span>';
+  const m = { valid: ['ok', 'Valid'], invalid: ['bad', 'Invalid'], 'not-o365': ['neutral', 'Not O365'], unknown: ['neutral', 'Unknown'], unreachable: ['bad', 'Unreachable'] }[o?.status] || ['neutral', o?.status || '—'];
+  return `<span class="dbadge b-${m[0]}">${esc(m[1])}</span>`;
+}
+function comboRowHtml(r) {
+  const detail = r.o365?.detail || r.smtp?.detail || '';
+  const host = r.smtp?.status === 'valid' ? ` <span class="muted">${esc(r.smtp.host || '')}:${esc(String(r.smtp.port || ''))}</span>` : '';
+  return `<tr><td class="mono">${esc(r.user)}</td><td>${smtpBadge(r.smtp)}${host}</td><td>${o365Badge(r.o365)}</td><td class="muted">${esc(detail)}</td></tr>`;
+}
+function appendComboRow(r) {
+  if (!comboRowMatches(r)) return;
+  const body = $('#combo-body');
+  const empty = body.querySelector('.empty-row');
+  if (empty) empty.remove();
+  body.insertAdjacentHTML('beforeend', comboRowHtml(r));
+  while (body.children.length > O365_DOM_CAP) body.removeChild(body.firstElementChild);
+}
+function renderCombo() {
+  const body = $('#combo-body');
+  const rows = comboResults.filter(comboRowMatches).slice(-O365_DOM_CAP);
+  body.innerHTML = rows.length
+    ? rows.map(comboRowHtml).join('')
+    : '<tr class="empty-row"><td colspan="4">No results yet. Paste accounts or load a file and click <b>Check logins</b>.</td></tr>';
+}
+function renderComboSummary() {
+  const c = comboCounts;
+  const base = `SMTP valid: ${c.smtpValid || 0} · O365 valid: ${c.o365Valid || 0} · O365 valid (MFA): ${c.o365MfaValid || 0} · not-O365: ${c.o365NotO365 || 0}`;
+  const warn = c.throttled ? ` <span class="err-text">⚠ ${c.throttled} throttled/locked — lower concurrency and re-run those</span>` : '';
+  $('#combo-summary').innerHTML = esc(base) + warn;
+}
+function tallyComboCounts(r) {
+  if (r.smtp?.status === 'valid') comboCounts.smtpValid = (comboCounts.smtpValid || 0) + 1;
+  if (r.o365?.status === 'valid') comboCounts.o365Valid = (comboCounts.o365Valid || 0) + 1;
+  else if (r.o365?.passwordValid) comboCounts.o365MfaValid = (comboCounts.o365MfaValid || 0) + 1;
+  else if (r.o365?.status === 'not-o365') comboCounts.o365NotO365 = (comboCounts.o365NotO365 || 0) + 1;
+  if (r.o365?.throttled) comboCounts.throttled = (comboCounts.throttled || 0) + 1;
+}
+$('#combo-filters')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('.chip-filter');
+  if (!btn) return;
+  comboFilter = btn.dataset.cfilter;
+  $$('#combo-filters .chip-filter').forEach((c) => c.classList.toggle('active', c === btn));
+  renderCombo();
+});
+$('#combo-file')?.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  const note = $('#combo-file-note');
+  try {
+    const picked = files.map((f) => ({ path: api.getFilePath?.(f) || '', name: f.name })).filter((f) => f.path);
+    if (!picked.length) { note.innerHTML = '<span class="err-text">Could not read the file path. Paste the list instead.</span>'; return; }
+    comboFiles = picked;
+    $('#combo-input').value = '';
+    note.innerHTML = `Loaded <b>${esc(picked.map((f) => f.name).join(', '))}</b> — will stream from disk at check time (no size limit).`;
+  } catch (err) {
+    note.innerHTML = `<span class="err-text">Could not load file: ${esc(err.message)}</span>`;
+  } finally { e.target.value = ''; }
+});
+$('#combo-input')?.addEventListener('input', () => {
+  if (comboFiles.length && $('#combo-input').value.trim()) { comboFiles = []; $('#combo-file-note').textContent = ''; }
+});
+$('#btn-combo-check')?.addEventListener('click', async () => {
+  const streaming = comboFiles.length > 0;
+  let targets = [];
+  if (!streaming) {
+    const seen = new Set();
+    targets = parseOffice365Input($('#combo-input').value)
+      .filter((t) => { const k = `${t.user.toLowerCase()} ${t.pass}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    if (!targets.length) { $('#combo-summary').innerHTML = '<span class="err-text">Add at least one account as email:password, or load a file.</span>'; return; }
+    if (targets.length > MAX_O365_ACCOUNTS) targets = targets.slice(0, MAX_O365_ACCOUNTS);
+  }
+  comboResults = [];
+  comboCounts = {};
+  $('#combo-body').innerHTML = '';
+  renderCombo();
+  renderComboSummary();
+  const btn = $('#btn-combo-check');
+  const cancel = $('#btn-combo-cancel');
+  btn.disabled = true;
+  cancel.disabled = false;
+  $('#combo-progress').textContent = streaming ? 'streaming from disk…' : `0 / ${targets.length}`;
+  let done = 0;
+  const off = api.onComboProgress(({ result, total }) => {
+    if (!result) return;
+    tallyComboCounts(result);
+    comboResults.push(result);
+    if (comboResults.length > O365_DOM_CAP) comboResults.shift();
+    done++;
+    $('#combo-progress').textContent = total ? `${done} / ${total}` : `${done} checked`;
+    appendComboRow(result);
+    renderComboSummary();
+  });
+  try {
+    const opts = {
+      concurrency: Number($('#combo-concurrency').value) || 5,
+      timeout: (Number($('#combo-timeout').value) || 15) * 1000,
+      maxPerSec: Number($('#opt-maxrate')?.value) || 0,
+    };
+    const rep = streaming
+      ? await api.checkComboFile(comboFiles.map((f) => f.path), opts)
+      : await api.checkCombo(targets, opts);
+    if (rep?.error) { $('#combo-summary').innerHTML = `<span class="err-text">Check failed: ${esc(rep.error)}</span>`; return; }
+    $('#combo-progress').textContent = rep.folder ? `${done} checked · saved to ${rep.folder}` : `${done} checked`;
+  } catch (err) {
+    $('#combo-summary').innerHTML = `<span class="err-text">Check failed: ${esc(err?.message || String(err))}</span>`;
+  } finally {
+    off?.();
+    btn.disabled = false;
+    cancel.disabled = true;
+  }
+});
+$('#btn-combo-cancel')?.addEventListener('click', () => api.cancelOffice365());
+
 // ---------- Webmail login check ----------
 const WEBMAIL_STATUS = {
   valid: ['ok', 'Login works'],

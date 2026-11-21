@@ -60,6 +60,7 @@
           <div class="nav-group">Checks</div>
           <button class="nav-item" data-tab="cpanel"><span class="nav-ico">▧</span> cPanel</button>
           <button class="nav-item" data-tab="office365"><span class="nav-ico">◆</span> Office 365</button>
+          <button class="nav-item" data-tab="combo"><span class="nav-ico">⊕</span> SMTP + O365</button>
           <button class="nav-item" data-tab="whm"><span class="nav-ico">▤</span> WHM</button>
           <button class="nav-item" data-tab="webmail"><span class="nav-ico">✉</span> Webmail</button>
           <button class="nav-item" data-tab="ssh"><span class="nav-ico">⌁</span> SSH</button>
@@ -510,6 +511,65 @@
               <table class="results">
                 <thead><tr><th>Email</th><th>Status</th><th>Method</th><th>Detail</th></tr></thead>
                 <tbody id="office365-body"><tr class="empty-row"><td colspan="4">No results yet. Paste accounts and click <b>Check logins</b>.</td></tr></tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+
+        <!-- ===== SMTP + OFFICE 365 (combined) ===== -->
+        <main id="screen-combo" class="screen">
+          <header class="pane-head">
+            <div>
+              <h1 class="pane-title">SMTP + Office 365 <span class="pane-slash">/ one-click validate</span></h1>
+              <p class="pane-sub">Test every account against SMTP (587/465) and Office 365 at once — no port 25</p>
+            </div>
+            <div class="pane-actions">
+              <button id="btn-combo-check" class="btn primary">Check logins</button>
+              <button id="btn-combo-cancel" class="btn ghost" disabled>Cancel</button>
+            </div>
+          </header>
+          <section class="panel">
+            <p class="muted">
+              One pass validates each <code>email:password</code> two ways, <b>never using port 25</b>:
+              an <b>SMTP login</b> on submission ports 587/465, and the <b>Office 365</b> check
+              (IMAP 993 → OAuth 443). Working SMTPs are saved to <code>smtp-valid.txt</code> and valid
+              Microsoft 365 logins to <code>office365-valid.txt</code> (MFA-confirmed to
+              <code>office365-mfa-valid.txt</code>), live as the scan runs.
+            </p>
+            <div class="panel-head" style="margin-top:4px">
+              <label class="full" style="margin:0">Accounts</label>
+              <div class="panel-actions">
+                <label class="btn ghost">
+                  Load file
+                  <input id="combo-file" type="file" accept=".txt,.csv" multiple hidden />
+                </label>
+              </div>
+            </div>
+            <textarea id="combo-input" rows="6" placeholder="user@contoso.com:Password1&#10;sales@acme.com:Secret!2&#10;&#10;Or click Load file to stream a large .txt/.csv list from disk."></textarea>
+            <span id="combo-file-note" class="muted"></span>
+            <div class="form-grid" style="margin-top:8px">
+              <label>Concurrency
+                <input id="combo-concurrency" type="number" min="1" max="20" value="5"
+                  title="Kept low — Microsoft and some SMTP hosts throttle/lock accounts under rapid attempts" />
+              </label>
+              <label>Timeout (s)
+                <input id="combo-timeout" type="number" min="5" max="120" value="15" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <div class="filters" id="combo-filters">
+                <button class="chip-filter active" data-cfilter="all">All</button>
+                <button class="chip-filter" data-cfilter="smtp">SMTP valid</button>
+                <button class="chip-filter" data-cfilter="o365">O365 valid</button>
+                <button class="chip-filter" data-cfilter="any">Any valid</button>
+              </div>
+              <span id="combo-progress" class="muted"></span>
+            </div>
+            <div id="combo-summary" class="summary"></div>
+            <div class="table-wrap">
+              <table class="results">
+                <thead><tr><th>Email</th><th>SMTP</th><th>Office 365</th><th>Detail</th></tr></thead>
+                <tbody id="combo-body"><tr class="empty-row"><td colspan="4">No results yet. Paste accounts or load a file and click <b>Check logins</b>.</td></tr></tbody>
               </table>
             </div>
           </section>
